@@ -13,6 +13,135 @@ local hoverHooked = setmetatable({}, { __mode = "k" })
 local elapsed = 0
 local CategoryColorForUnit
 
+-- The 3D overhead names are not nameplates and cannot be filtered per player.
+-- While Known Only is active, temporarily disable these TWO global player-name
+-- CVars so distant native names cannot bypass KnownPlayers' visibility filter.
+-- Do not touch NPCs, minions, the player's own name, or nameplate CVars.
+local nativePlayerNameCVars = {
+    "UnitNameFriendlyPlayerName",
+    "UnitNameEnemyPlayerName",
+}
+local nativeNamesShuttingDown = false
+local nativeNameCheckElapsed = 0
+local syncingNativeNames = false
+
+local function ReadNativeNameCVar(name)
+    if type(GetCVar) ~= "function" then return nil end
+    local ok, value = pcall(GetCVar, name)
+    if ok and type(value) == "string" and value ~= "" then return value end
+    return nil
+end
+
+local function WriteNativeNameCVar(name, value)
+    if type(SetCVar) ~= "function" then return false end
+    local ok = pcall(SetCVar, name, value)
+    return ok and ReadNativeNameCVar(name) == value
+end
+
+function ns.RestoreNativeOverheadNames()
+    if not KnownPlayersSettings then return end
+    local old = KnownPlayersSettings.overheadNameCVarsBackup
+    if type(old) ~= "table" then return end
+    local allRestored = true
+    for _, name in ipairs(nativePlayerNameCVars) do
+        local previous = old[name]
+        if type(previous) == "string" then
+            local current = ReadNativeNameCVar(name)
+            -- If something else already changed the setting while we managed
+            -- it, do not overwrite that newer user/addon choice on restoration.
+            if current == "0" and previous ~= "0" then
+                if not WriteNativeNameCVar(name, previous) then
+                    allRestored = false
+                end
+            elseif current == nil then
+                allRestored = false
+            end
+        end
+    end
+    if allRestored then KnownPlayersSettings.overheadNameCVarsBackup = nil end
+end
+
+function ns.SyncNativeOverheadNames()
+    if not KnownPlayersSettings or nativeNamesShuttingDown or syncingNativeNames then return end
+    syncingNativeNames = true
+    if KnownPlayersSettings.knownOnlyNameplates then
+        local old = KnownPlayersSettings.overheadNameCVarsBackup
+        if type(old) ~= "table" then
+            old = {}
+            for _, name in ipairs(nativePlayerNameCVars) do
+                old[name] = ReadNativeNameCVar(name)
+            end
+            if next(old) then KnownPlayersSettings.overheadNameCVarsBackup = old end
+        end
+        for _, name in ipairs(nativePlayerNameCVars) do
+            local current = ReadNativeNameCVar(name)
+            if current ~= nil and current ~= "0" then
+                WriteNativeNameCVar(name, "0")
+            end
+        end
+    else
+        ns.RestoreNativeOverheadNames()
+    end
+    syncingNativeNames = false
+end
+
+-- The NPC filter is independent from the player Known Only filter.
+-- When active, request friendly NPC nameplate frames and suppress native
+-- overhead NPC labels that would otherwise bypass the per-NPC filter.
+-- The client controls the visibility of quest and hostile NPC labels via
+-- several global CVars; restore their original values when disabling.
+local npcNameCVars = {
+    "UnitNameNPC", "UnitNameHostleNPC", "UnitNameInteractiveNPC",
+    "UnitNameFriendlySpecialNPCName",
+}
+local npcCVarsShuttingDown = false
+local npcSyncing = false
+function ns.RestoreNPCNameplateCVars()
+    if not KnownPlayersSettings then return end
+    local backup = KnownPlayersSettings.npcCVarBackup
+    if type(backup) ~= "table" then return end
+    local complete = true
+    for key, prior in pairs(backup) do
+        if type(prior) == "string" then
+            local current = ReadNativeNameCVar(key)
+            local forced = key == "nameplateShowFriendlyNpcs" and "1" or "0"
+            if current == forced and prior ~= forced then
+                if not WriteNativeNameCVar(key, prior) then complete = false end
+            elseif current == nil then
+                complete = false
+            end
+        end
+    end
+    if complete then KnownPlayersSettings.npcCVarBackup = nil end
+end
+
+function ns.SyncNPCNameplateCVars()
+    if not KnownPlayersSettings or npcCVarsShuttingDown or npcSyncing then return end
+    npcSyncing = true
+    if KnownPlayersSettings.filterNPCNameplates then
+        local backup = KnownPlayersSettings.npcCVarBackup
+        if type(backup) ~= "table" then
+            backup = {}
+            local original = ReadNativeNameCVar("nameplateShowFriendlyNpcs")
+            if original then backup.nameplateShowFriendlyNpcs = original end
+            for _, key in ipairs(npcNameCVars) do
+                original = ReadNativeNameCVar(key)
+                if original then backup[key] = original end
+            end
+            if next(backup) then KnownPlayersSettings.npcCVarBackup = backup end
+        end
+        if ReadNativeNameCVar("nameplateShowFriendlyNpcs") == "0" then
+            WriteNativeNameCVar("nameplateShowFriendlyNpcs", "1")
+        end
+        for _, key in ipairs(npcNameCVars) do
+            if ReadNativeNameCVar(key) == "1" then WriteNativeNameCVar(key, "0") end
+        end
+    else
+        ns.RestoreNPCNameplateCVars()
+    end
+    npcSyncing = false
+end
+
 local function Print(message)
     print("|cff33ff99KnownPlayers:|r " .. message)
 end
@@ -69,6 +198,24 @@ local function SuppressNativeName(frame)
     pcall(name.SetAlpha, name, 0)
 end
 
+-- NPCs have optional role/title text rather than player guild memberships.
+-- Only read a tooltip subtitle when the client exposes one safely.
+local function GetNPCTitle(unit)
+    if not C_TooltipInfo or type(C_TooltipInfo.GetUnit) ~= "function" then return nil end
+    local ok, tooltip = pcall(C_TooltipInfo.GetUnit, unit)
+    if not ok or type(tooltip) ~= "table" or type(tooltip.lines) ~= "table" then return nil end
+    local offset = tonumber(type(GetCVar) == "function" and GetCVar("colorblindMode")) or 0
+    local line = tooltip.lines[2 + offset]
+    local value = line and line.leftText
+    if not value or (type(issecretvalue) == "function" and issecretvalue(value)) then return nil end
+    if type(value) ~= "string" or value == "" then return nil end
+    -- Do not mistake level information for an NPC title.
+    local levelText = (UNIT_LEVEL_TEMPLATE or "Level %d"):lower()
+    local pattern = "^" .. levelText:gsub("%%d", ".+"):gsub("%%s", ".+")
+    if value:lower():match(pattern) then return nil end
+    return value
+end
+
 -- Render names outside the faded UnitFrame so the original plate remains
 -- present for targeting. This deliberately avoids hiding protected children.
 local function HideNameOnlyLabel(frame)
@@ -83,7 +230,7 @@ local function HideAllNameOnlyLabels()
     for frame in pairs(namesOnlyLabels) do HideNameOnlyLabel(frame) end
 end
 
-local function ShowNameOnly(plate, frame, unit, keepHealthBar)
+local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC)
     if not frame.name then return false end
     -- Blizzard's original label can contain more of the character's
     -- display name than UnitName() on Forever. Read it before fading the frame.
@@ -97,7 +244,8 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar)
         if ok and type(unitName) == "string" and unitName ~= "" then name = unitName end
     end
     if not name then return false end
-    if KnownPlayersSettings and KnownPlayersSettings.nameDisplayMode == "first" then
+    if KnownPlayersSettings and (isNPC and KnownPlayersSettings.npcNameDisplayMode == "first"
+        or not isNPC and KnownPlayersSettings.nameDisplayMode == "first") then
         name = name:match("^(%S+)") or name
     end
     local label = namesOnlyLabels[frame]
@@ -117,12 +265,20 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar)
     end
     label:SetText(name)
     local displayColor = CategoryColorForUnit(unit) or {1, 1, 1}
+    if isNPC and frame.name and type(frame.name.GetTextColor) == "function" then
+        local ok, r, g, b = pcall(frame.name.GetTextColor, frame.name)
+        if ok and type(r) == "number" then displayColor = {r, g, b} end
+    end
     label:SetTextColor(displayColor[1], displayColor[2], displayColor[3], 1)
     label:Show()
 
     local guildLabel = namesOnlyGuildLabels[frame]
     local guildName
-    if KnownPlayersSettings and KnownPlayersSettings.showGuildInNamesOnly
+    if isNPC then
+        if KnownPlayersSettings and KnownPlayersSettings.showNPCTitle then
+            guildName = GetNPCTitle(unit)
+        end
+    elseif KnownPlayersSettings and KnownPlayersSettings.showGuildInNamesOnly
         and type(GetGuildInfo) == "function" then
         local ok, result = pcall(GetGuildInfo, unit)
         if ok and type(result) == "string" and result ~= "" then
@@ -346,10 +502,25 @@ function ns.RefreshKnownNameplates()
                         HideNameOnlyLabel(frame)
                     end
                 end
+            elseif UnitExists(unit) and ns.GetNPCFromUnit and ns.GetNPCFromUnit(unit) then
+                RestoreNameColor(frame)
+                if KnownPlayersSettings.filterNPCNameplates and not ns.IsKnownNPC(unit) then
+                    HideNameOnlyLabel(frame)
+                    MakeTransparent(frame)
+                elseif ns.IsKnownNPC(unit) then
+                    local showBar = not KnownPlayersSettings.npcNamesOnlyNameplates
+                    if not ShowNameOnly(plate, frame, unit, showBar, true) then
+                        HideNameOnlyLabel(frame)
+                        RestoreFrame(frame)
+                    end
+                else
+                    HideNameOnlyLabel(frame)
+                    RestoreFrame(frame)
+                end
             else
                 HideNameOnlyLabel(frame)
                 RestoreFrame(frame)
-                RestoreNameColor(frame) -- NPCs / pets / other units are unaffected.
+                RestoreNameColor(frame) -- Unfiltered NPCs, pets, and other units.
             end
         end
     end
@@ -358,6 +529,7 @@ end
 function ns.SetKnownOnlyNameplates(enabled)
     if not KnownPlayersSettings then return end
     KnownPlayersSettings.knownOnlyNameplates = enabled and true or false
+    ns.SyncNativeOverheadNames()
     ns.RefreshKnownNameplates()
 end
 
@@ -412,12 +584,45 @@ frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 frame:RegisterEvent("PLAYER_LOGOUT")
+frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+frame:RegisterEvent("CVAR_UPDATE")
 frame:SetScript("OnEvent", function(_, event, unit)
     if event == "PLAYER_LOGOUT" then
+        nativeNamesShuttingDown = true
+        ns.RestoreNativeOverheadNames()
+        npcCVarsShuttingDown = true
+        ns.RestoreNPCNameplateCVars()
         HideAllNameOnlyLabels()
         RestoreAll()
         RestoreAllNameColors()
         return
+    end
+    if event == "CVAR_UPDATE" then
+        -- If the native names are turned back on in WoW's settings, keep the
+        -- active filter consistent. Do not change unrelated CVars.
+        if type(unit) == "string" then
+            for _, name in ipairs(nativePlayerNameCVars) do
+                if unit:lower() == name:lower() then
+                    ns.SyncNativeOverheadNames()
+                    break
+                end
+            end
+            if unit:lower() == "nameplateshowfriendlynpcs" then
+                ns.SyncNPCNameplateCVars()
+            else
+                for _, name in ipairs(npcNameCVars) do
+                    if unit:lower() == name:lower() then
+                        ns.SyncNPCNameplateCVars()
+                        break
+                    end
+                end
+            end
+        end
+        return
+    end
+    if event == "PLAYER_ENTERING_WORLD" then
+        ns.SyncNativeOverheadNames()
+        ns.SyncNPCNameplateCVars()
     end
     if event == "NAME_PLATE_UNIT_REMOVED" then
         -- Forever may clear the unit-to-nameplate mapping before this event.
@@ -433,6 +638,12 @@ frame:SetScript("OnEvent", function(_, event, unit)
 end)
 frame:SetScript("OnUpdate", function(_, delta)
     if not KnownPlayersSettings then return end
+    nativeNameCheckElapsed = nativeNameCheckElapsed + delta
+    if nativeNameCheckElapsed >= 5 then
+        nativeNameCheckElapsed = 0
+        ns.SyncNativeOverheadNames()
+        ns.SyncNPCNameplateCVars()
+    end
     elapsed = elapsed + delta
     if elapsed >= 0.75 then
         elapsed = 0

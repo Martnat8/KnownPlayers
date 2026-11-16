@@ -7,6 +7,12 @@ StaticPopupDialogs["KNOWNPLAYERS_RESET_SETTINGS"] = {
     button1 = "Reset Settings",
     button2 = CANCEL,
     OnAccept = function()
+        -- Restore WoW's own overhead-name settings before discarding the backup.
+        if KnownPlayersSettings then
+            KnownPlayersSettings.knownOnlyNameplates = false
+            if ns.RestoreNativeOverheadNames then ns.RestoreNativeOverheadNames() end
+            if ns.RestoreNPCNameplateCVars then ns.RestoreNPCNameplateCVars() end
+        end
         KnownPlayersSettings = {}
         ns.InitializeDatabase()
         if ns.InitializeNameplateColors then ns.InitializeNameplateColors() end
@@ -20,12 +26,13 @@ StaticPopupDialogs["KNOWNPLAYERS_RESET_SETTINGS"] = {
 
 -- Clear stored player histories and Battle.net associations without resetting preferences.
 StaticPopupDialogs["KNOWNPLAYERS_CLEAR_ALL_LISTS"] = {
-    text = "Clear ALL KnownPlayers player lists and saved Battle.net alt associations?\n\nThis cannot be undone. Enabled tracking may add players again on future encounters or roster scans.",
+    text = "Clear ALL KnownPlayers player and NPC lists and saved Battle.net alt associations?\n\nThis cannot be undone. Automatic tracking may add players again on future encounters or roster scans.",
     button1 = "Clear All Lists",
     button2 = CANCEL,
     OnAccept = function()
         if type(KnownPlayersDB) ~= "table" then return end
         KnownPlayersDB.players = {}
+        KnownPlayersDB.npcs = {}
         KnownPlayersDB.bnetCharacters = {}
         if ns.ClearBattleNetPending then ns.ClearBattleNetPending() end
         if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
@@ -256,6 +263,13 @@ local function BuildHomePage()
         KnownPlayersSettings.knownOnlyNameplates, function(checked)
             if ns.SetKnownOnlyNameplates then ns.SetKnownOnlyNameplates(checked) end
         end)
+    Checkbox(content, 255, -12, "Enable NPC nameplate filtering",
+        KnownPlayersSettings.filterNPCNameplates, function(checked)
+            KnownPlayersSettings.filterNPCNameplates = checked
+            if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
+            if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+        end)
+    Label(content, "Player names are filtered; NPC filtering is optional and uses the NPC list.", 18, -51)
 
     Label(content, "What do you want to track?", 16, -84, "GameFontNormal")
     Label(content, "Remember players from these interactions.", 16, -107)
@@ -279,7 +293,7 @@ local function BuildHomePage()
     line:SetPoint("RIGHT", content, "RIGHT", -16, 0)
     line:SetHeight(1)
 
-    Label(content, "When should players be forgotten?", 16, -338, "GameFontNormal")
+    Label(content, "When should players and NPCs be forgotten?", 16, -338, "GameFontNormal")
     Label(content, "Forget", 18, -387, "GameFontNormalSmall")
     Label(content, "Duration", 185, -387, "GameFontNormalSmall")
     local rows = {}
@@ -305,18 +319,20 @@ local function BuildHomePage()
             rows[#rows + 1] = RetentionRow(content, category, LayoutRetentionRows)
         end
     end
+    rows[#rows + 1] = RetentionRow(content, {key="npc", label="NPCs"}, LayoutRetentionRows)
     LayoutRetentionRows()
     return page
 end
 
 local function BuildListPage()
-    local page = NewPage("Player Lists", "Browse and manage players saved under each interaction category.")
+    local page = NewPage("Player & NPC Lists", "Browse and manage saved characters and NPCs.")
     local choices = {
         {key="trade",label="Trade"}, {key="party",label="Party"},
         {key="raid",label="Raid"}, {key="guild",label="Guild"},
         {key="whisper",label="Whisper"}, {key="target",label="Target"},
         {key="inspect",label="Inspect"}, {key="pvp",label="PvP Attackers"},
         {key="associated",label="Known Battle.net Alts"},
+        {key="npc",label="NPCs"},
     }
     for index, choice in ipairs(choices) do
         local column = (index - 1) % 2
@@ -338,7 +354,7 @@ local function BuildNameplatePage()
     body:SetPoint("TOPLEFT", page, "TOPLEFT", 3, -55)
     body:SetSize(465, 530)
 
-    Label(body, "Name format and guild name apply with or without health bars.", 21, -14)
+    Label(body, "Player name format and guild names apply with or without health bars.", 21, -7)
     local full, first
     local function SelectNameMode(mode)
         KnownPlayersSettings.nameDisplayMode = mode
@@ -346,28 +362,54 @@ local function BuildNameplatePage()
         first:SetChecked(mode == "first")
         if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
     end
-    full = Checkbox(body, 20, -42, "Full name",
+    full = Checkbox(body, 20, -31, "Full name",
         KnownPlayersSettings.nameDisplayMode ~= "first", function()
             SelectNameMode("full")
         end)
-    first = Checkbox(body, 125, -42, "First name",
+    first = Checkbox(body, 125, -31, "First name",
         KnownPlayersSettings.nameDisplayMode == "first", function()
             SelectNameMode("first")
         end)
-    Checkbox(body, 229, -42, "Guild name",
+    Checkbox(body, 229, -31, "Guild name",
         KnownPlayersSettings.showGuildInNamesOnly, function(checked)
             KnownPlayersSettings.showGuildInNamesOnly = checked
             if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
         end)
-
-    Checkbox(body, 344, -42, "Show health bar",
+    Checkbox(body, 344, -31, "Show health bar",
         not KnownPlayersSettings.namesOnlyNameplates, function(checked)
             if ns.SetNamesOnlyNameplates then ns.SetNamesOnlyNameplates(not checked) end
         end)
 
+    Label(body, "NPC name format and optional title (if available).", 21, -71)
+    local npcFull, npcFirst
+    local function SelectNPCNameMode(mode)
+        KnownPlayersSettings.npcNameDisplayMode = mode
+        npcFull:SetChecked(mode == "full")
+        npcFirst:SetChecked(mode == "first")
+        if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+    end
+    npcFull = Checkbox(body, 20, -94, "Full name",
+        KnownPlayersSettings.npcNameDisplayMode ~= "first", function()
+            SelectNPCNameMode("full")
+        end)
+    npcFirst = Checkbox(body, 125, -94, "First name",
+        KnownPlayersSettings.npcNameDisplayMode == "first", function()
+            SelectNPCNameMode("first")
+        end)
+    Checkbox(body, 229, -94, "NPC title",
+        KnownPlayersSettings.showNPCTitle, function(checked)
+            KnownPlayersSettings.showNPCTitle = checked
+            if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+        end)
+    Checkbox(body, 344, -94, "Show health bar",
+        not KnownPlayersSettings.npcNamesOnlyNameplates, function(checked)
+            KnownPlayersSettings.npcNamesOnlyNameplates = not checked
+            if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+        end)
+
     local line = body:CreateTexture(nil, "ARTWORK")
     line:SetColorTexture(0.45, 0.45, 0.45, 0.4)
-    line:SetPoint("TOPLEFT", body, "TOPLEFT", 20, -84)
+    line:SetPoint("TOPLEFT", body, "TOPLEFT", 20, -139)
     line:SetWidth(432)
     line:SetHeight(1)
 
@@ -375,8 +417,8 @@ local function BuildNameplatePage()
         pvp="PvP Attackers", trade="Trade", guild="Guild", associated="Known Battle.net Alts",
         whisper="Whisper", raid="Raid", party="Party", inspect="Inspect", target="Target",
     }
-    Label(body, "Category colors and priority", 21, -96, "GameFontNormal")
-    Label(body, "Top category wins when a player belongs to several lists.", 21, -122)
+    Label(body, "Category colors and priority", 21, -150, "GameFontNormal")
+    Label(body, "Top category wins when a player belongs to several lists.", 21, -175)
     local rows = {}
     local function RefreshOrder()
         for i, row in ipairs(rows) do
@@ -410,9 +452,9 @@ local function BuildNameplatePage()
     end
     for i = 1, 9 do
         local row = {}
-        row.title = Label(body, "", 22, -155 - (i-1)*36, "GameFontHighlightSmall")
+        row.title = Label(body, "", 22, -207 - (i-1)*30, "GameFontHighlightSmall")
         local button = Button(body, "Color", 72, function() PickColor(row.key) end)
-        button:SetPoint("TOPLEFT",body,"TOPLEFT",270,-152-(i-1)*36)
+        button:SetPoint("TOPLEFT",body,"TOPLEFT",270,-204-(i-1)*30)
         row.swatch = button:CreateTexture(nil,"OVERLAY")
         row.swatch:SetSize(14,14)
         row.swatch:SetPoint("LEFT",button,"LEFT",5,0)
@@ -422,7 +464,7 @@ local function BuildNameplatePage()
             order[i],order[i-1]=order[i-1],order[i]
             RefreshOrder()
         end)
-        row.up:SetPoint("TOPLEFT",body,"TOPLEFT",350,-152-(i-1)*36)
+        row.up:SetPoint("TOPLEFT",body,"TOPLEFT",350,-204-(i-1)*30)
         row.down = Button(body,"v",25,function()
             if i >= #rows then return end
             local order=KnownPlayersSettings.nameplateColorOrder

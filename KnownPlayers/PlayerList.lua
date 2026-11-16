@@ -27,12 +27,13 @@ local RefreshAllWindows
 
 local popupKey = "KNOWNPLAYERS_CLEAR_CATEGORY_WINDOW"
 StaticPopupDialogs[popupKey] = {
-    text = "Remove all players from the %s list?\nPlayers in other lists will be kept.",
+    text = "Clear all entries from the %s list?\nOther lists will be kept.",
     button1 = YES,
     button2 = CANCEL,
     OnAccept = function(_, categoryKey)
         if categoryKey then
-            ns.ClearPlayerCategory(categoryKey)
+            if categoryKey == "npc" then ns.ClearNPCs()
+            else ns.ClearPlayerCategory(categoryKey) end
             if RefreshAllWindows then RefreshAllWindows() end
         end
     end,
@@ -156,7 +157,8 @@ local function CreateCategoryWindow(category, index)
     empty:SetPoint("TOPLEFT", content, "TOPLEFT", 6, -8)
 
     local function Refresh()
-        local all = ns.GetCategoryPlayers(category.key)
+        local all = category.key == "npc" and ns.GetNPCList()
+            or ns.GetCategoryPlayers(category.key)
         local term = search:GetText():lower():match("^%s*(.-)%s*$")
         local filtered = {}
         for _, entry in ipairs(all) do
@@ -166,12 +168,12 @@ local function CreateCategoryWindow(category, index)
             end
         end
 
-        count:SetText(#all .. " players (" .. #filtered .. " shown)")
+        count:SetText(#all .. (category.key == "npc" and " NPCs (" or " players (") .. #filtered .. " shown)")
         clear:SetEnabled(#all > 0)
         content:SetHeight(math.max(1, #filtered * ROW_HEIGHT))
         empty:SetShown(#filtered == 0)
         if #filtered == 0 then
-            empty:SetText(term ~= "" and "No matching players." or "No players in this category.")
+            empty:SetText(term ~= "" and "No matching entries." or "No saved entries in this list.")
         end
 
         for i, entry in ipairs(filtered) do
@@ -179,7 +181,8 @@ local function CreateCategoryWindow(category, index)
             item.nameText:SetText(entry.name)
             item.knownSinceText:SetText(FormatKnownDuration(entry.firstSeen))
             item.removeButton:SetScript("OnClick", function()
-                ns.RemovePlayerCategory(entry.key, category.key)
+                if category.key == "npc" then ns.ForgetNPC(entry.key)
+                else ns.RemovePlayerCategory(entry.key, category.key) end
                 RefreshAllWindows()
             end)
             item:Show()
@@ -326,6 +329,10 @@ function ns.OpenPlayerList(categoryKey)
         windows.associated:Show()
         windows.associated:Raise()
         windows.associated.Refresh()
+        return
+    end
+    if categoryKey == "npc" then
+        OpenCategoryWindow({key="npc", label="NPCs"}, #CATEGORIES + 1)
         return
     end
     for index, category in ipairs(CATEGORIES) do

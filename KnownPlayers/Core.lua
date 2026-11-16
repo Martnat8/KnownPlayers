@@ -1,6 +1,6 @@
 local addonName, ns = ...
 
-local ADDON_VERSION = "0.1.3"
+local ADDON_VERSION = "0.1.7"
 local PRUNE_INTERVAL = 600
 local elapsedSincePrune = 0
 
@@ -79,6 +79,7 @@ local function HandleSlashCommand(message)
         Print("/kp guildscan - Request and scan the guild roster.")
         Print("/kp platehide - Temporarily hide the target player nameplate.")
         Print("/kp plateshow - Restore the target player nameplate.")
+        Print("/kp npctoggle - Remember/remove current target NPC.")
         Print("/kp help - Show this help.")
         return
     end
@@ -88,9 +89,24 @@ local function HandleSlashCommand(message)
         return
     end
 
+    if command == "npctoggle" then
+        local id, name = ns.GetNPCFromUnit("target")
+        if not id then
+            Print("Target a creature NPC first.")
+        elseif KnownPlayersDB.npcs[id] then
+            ns.ForgetNPC(id)
+            Print("Removed NPC: " .. name)
+        else
+            ns.RememberNPC(id, name)
+            Print("Remembered NPC: " .. name)
+        end
+        return
+    end
+
     if command == "status" then
         Print("Version " .. ADDON_VERSION .. " loaded.")
         Print("Saved player records: " .. ns.CountPlayers())
+        Print("Saved NPCs: " .. ns.CountNPCs())
         Print("Associated characters: " .. ns.CountAssociatedCharacters())
         local enabled = 0
         for _, retention in pairs(KnownPlayersSettings.categoryRetention) do
@@ -151,12 +167,16 @@ eventFrame:SetScript("OnEvent", function(self, event, loadedAddon)
     end
 
     ns.InitializeDatabase()
+    if ns.SyncNativeOverheadNames then ns.SyncNativeOverheadNames() end
     if ns.InitializeNameplateColors then ns.InitializeNameplateColors() end
     ns.MigratePlayerRecords()
     if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
     if ns.PruneUnlinkedBattleNetData then ns.PruneUnlinkedBattleNetData() end
     ns.PruneExpiredPlayers()
+    if ns.PruneExpiredNPCs then ns.PruneExpiredNPCs() end
+    if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
     ns.CreateSettingsPanel()
+    if ns.InitializeNPCMenu then ns.InitializeNPCMenu() end
     -- Capture an existing group when the addon is loaded or reloaded.
     ns.ScanGroupRoster()
     ns.RequestGuildRoster()
@@ -171,6 +191,7 @@ eventFrame:SetScript("OnEvent", function(self, event, loadedAddon)
         if elapsedSincePrune >= PRUNE_INTERVAL then
             elapsedSincePrune = 0
             ns.PruneExpiredPlayers()
+            if ns.PruneExpiredNPCs then ns.PruneExpiredNPCs() end
         end
     end)
 

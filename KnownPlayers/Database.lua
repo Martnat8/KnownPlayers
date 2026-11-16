@@ -31,6 +31,10 @@ local DEFAULT_SETTINGS = {
     trackTargets = true,
     trackInspects = true,
     trackPvP = false,
+    filterNPCNameplates = false,
+    npcNameDisplayMode = "full",
+    showNPCTitle = false,
+    npcNamesOnlyNameplates = false,
 }
 
 local function CopyDefaults(source, destination)
@@ -53,6 +57,9 @@ function ns.InitializeDatabase()
     if type(KnownPlayersDB.players) ~= "table" then
         KnownPlayersDB.players = {}
     end
+    if type(KnownPlayersDB.npcs) ~= "table" then
+        KnownPlayersDB.npcs = {}
+    end
     if type(KnownPlayersSettings) ~= "table" then
         KnownPlayersSettings = {}
     end
@@ -69,6 +76,12 @@ function ns.InitializeDatabase()
                 minutes = 0,
             }
         end
+    end
+    -- NPC retention is separate from player interactions and off by default.
+    if type(KnownPlayersSettings.categoryRetention.npc) ~= "table" then
+        KnownPlayersSettings.categoryRetention.npc = {
+            enabled = false, days = 30, hours = 0, minutes = 0,
+        }
     end
     -- Guild membership is roster-based, not an inactivity-based relationship.
     KnownPlayersSettings.categoryRetention.guild = nil
@@ -275,6 +288,26 @@ function ns.PruneExpiredPlayers(now)
     if removed > 0 then
         if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
         if ns.PruneUnlinkedBattleNetData then ns.PruneUnlinkedBattleNetData() end
+    end
+    return removed
+end
+
+function ns.PruneExpiredNPCs(now)
+    if not KnownPlayersDB or type(KnownPlayersDB.npcs) ~= "table" then return 0 end
+    local retention = KnownPlayersSettings and KnownPlayersSettings.categoryRetention
+        and KnownPlayersSettings.categoryRetention.npc
+    if type(retention) ~= "table" or not retention.enabled then return 0 end
+    local cutoff = (now or time()) - SecondsForDuration(retention)
+    local removed = 0
+    for id, npc in pairs(KnownPlayersDB.npcs) do
+        if type(npc) == "table" and type(npc.lastSeen) == "number" and npc.lastSeen < cutoff then
+            KnownPlayersDB.npcs[id] = nil
+            removed = removed + 1
+        end
+    end
+    if removed > 0 then
+        if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+        if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
     end
     return removed
 end

@@ -1,0 +1,16 @@
+## Interface: 16001
+## Title: KnownPlayers
+## Notes: Recognizes players based on configurable interactions.
+## Version: 0.1.3
+## SavedVariables: KnownPlayersDB, KnownPlayersSettings
+
+Database.lua
+Identity.lua
+Colors.lua
+Nameplates.lua
+Settings.lua
+PlayerList.lua
+Tracking.lua
+PvP.lua
+BattleNet.lua
+Core.lua

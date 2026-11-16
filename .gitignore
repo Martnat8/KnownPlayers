@@ -1,0 +1,16 @@
+# WoW saved user data (may include character names and BattleTags)
+WTF/
+**/SavedVariables/
+*SavedVariables*.lua
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Build outputs and temporary files
+*.zip
+*.bak
+*.tmp
+*.log

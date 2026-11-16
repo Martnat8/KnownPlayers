@@ -1,0 +1,61 @@
+name: Validate and release addon
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Lua 5.1 compiler
+        run: sudo apt-get update && sudo apt-get install -y lua5.1
+
+      - name: Validate Lua syntax
+        run: |
+          find KnownPlayers -type f -name '*.lua' -print0 | xargs -0 -r luac5.1 -p
+
+      - name: Check required addon files
+        run: |
+          test -f KnownPlayers/KnownPlayers.toc
+          test -f KnownPlayers/Core.lua
+
+      - name: Check release tag matches TOC version
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's/^## Version: *//p' KnownPlayers/KnownPlayers.toc | tr -d '\r')
+          test "v${version}" = "$TAG" || { echo "Tag $TAG does not match TOC version $version"; exit 1; }
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Package installable addon ZIP
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          zip -r "KnownPlayers-${TAG}.zip" KnownPlayers -x '*.bak' '*.tmp' '*~'
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" "KnownPlayers-${TAG}.zip" --verify-tag --generate-notes --title "KnownPlayers $TAG"

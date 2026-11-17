@@ -51,72 +51,24 @@ Open a GitHub Issue with the addon version, client build, reproducible steps, an
 
 ## Contributing
 
-### Development environment
+Bug fixes, features, and documentation improvements are welcome. Make focused changes and open a pull request describing what changed and how you tested it.
 
-Install [Nix](https://nixos.org/download/) with the `nix-command` and `flakes` experimental features enabled, then enter the development shell from the repository root:
-
-```sh
-nix develop
-```
-
-`flake.nix` provides Node.js 22, Lua 5.1 (`lua` and `luac`), Git, Bash, ZIP, Actionlint, and ShellCheck on x86-64/ARM64 Linux and Apple Silicon macOS. It uses [Determinate's weekly nixpkgs distribution](https://flakehub.com/flake/DeterminateSystems/nixpkgs-weekly) from FlakeHub, with `flake.lock` pinning the exact snapshot so everyone uses the same package versions. The current snapshot does not support Intel macOS. No npm or external Lua packages are required; the addon itself still needs the WoW client and its APIs to run.
-
-Inside the shell, run the same tooling and syntax checks used by CI:
-
-```sh
-node --version
-lua -v
-node --test scripts/*.test.mjs
-node scripts/check-version.mjs
-find KnownPlayers -type f -name '*.lua' -exec luac -p {} +
-actionlint .github/workflows/release.yml
-shellcheck scripts/check-changelog.sh .githooks/pre-commit
-```
-
-For a one-off command without entering the shell, use `nix develop -c node scripts/check-version.mjs`. The checks also work without Nix if you install Node.js 22+, Lua 5.1, and the relevant tools yourself.
-
-Optional: with [direnv](https://direnv.net/) and [nix-direnv](https://github.com/nix-community/nix-direnv) installed and configured in your shell, run `direnv allow` to load the committed `.envrc` automatically. Generated `.direnv/` state and Nix `result` links are ignored. Entering the shell does not install Git hooks or change repository configuration; enable the shared hook separately below.
-
-When intentionally updating dependencies, run `nix flake update`, rerun the checks above, and include the updated `flake.lock` and a changelog entry in the same commit. On a new checkout, the flake files are already tracked; when initially adding or renaming flake files, stage them with Git before using plain `nix develop`, because Nix ignores untracked files in Git-backed flakes.
-
-### Before every commit
-
-**Every commit must update `CHANGELOG.md`**, including documentation, tests, and tooling changes. Add a concise, user-facing bullet to the `## [Unreleased]` section explaining what changed, then stage it with your other changes. Keep existing release sections intact; do not rewrite published history or put private player data in the changelog. CI checks every commit in a pull request, not just the combined diff. If several commits need correcting, amend/rebase them before requesting review.
-
-Enable the shared, committed Git hook after cloning (Git does not install hooks automatically):
+Run `nix develop` to get Node.js 22, Lua 5.1, and the other development tools, or install them yourself. After cloning, enable the shared commit hook:
 
 ```sh
 git config --local core.hooksPath .githooks
 ```
 
-The hook at `.githooks/pre-commit` uses the committed `scripts/check-changelog.sh` to check the **staged** changelog. This setup is opt-in and local to each clone, so contributors and the repository owner can use the same hook. CI also catches commits made without the hook.
+**Update `CHANGELOG.md` before every commit.** Add a short bullet under `[Unreleased]` explaining your change, and stage it with your other files. Leave published release notes unchanged.
 
-### Versioning
+Before opening a pull request, run these checks from the development shell:
 
-`VERSION` is the source of truth. We follow SemVer's `MAJOR.MINOR.PATCH` rules: patch for fixes, minor for backward-compatible features, and major for breaking changes. Pre-releases use the project's compact `bN` suffix (for example, `0.1.14b3`), rather than SemVer's standard hyphenated spelling. `N` starts at `0` for each new target production version and increases monotonically. Production versions, tags, and published release contents are immutable: fix mistakes in a new version; never move/delete/reuse a release tag or replace its assets.
+```sh
+node --test scripts/*.test.mjs
+node scripts/check-version.mjs
+find KnownPlayers -type f -name '*.lua' -exec luac -p {} +
+```
 
-Do not bump versions or create release tags in a pull request. The PR guard requires the version to remain equal to the base branch's version. This initial tooling setup adds `VERSION` at the existing addon version, not a new release. Only the repository owner creates and publishes releases, directly on `main`, after merging contributions.
+We use `MAJOR.MINOR.PATCH` versioning: fixes bump patch, backward-compatible features bump minor, and breaking changes bump major. Pre-releases append `b0`, `b1`, and so on (for example, `0.1.14b3`), starting at zero for each target version. Production releases are immutable. Keep version numbers unchanged in pull requests; [Martnat8](https://github.com/Martnat8) handles releases.
 
-### Creating a release (repository owner only)
-
-1. Enable the hook above. Commit all changes, including descriptive notes under `[Unreleased]`, and start with a clean `main` checkout synchronized with `origin/main` (including no untracked files).
-2. With Git and Node.js 22+ installed and `origin` reachable, run:
-
-   ```sh
-   node scripts/release.mjs dev minor  # e.g. 0.1.7 -> 0.2.0b0
-   # OR:
-   node scripts/release.mjs prod       # e.g. 0.1.7 -> 0.1.8
-   ```
-
-   The required first argument is `prod` or `dev`. The optional second argument is `patch` (default), `minor`, or `major`. From a production version, either release type bumps that component and resets lower components; `dev` also appends `b0`. From a pre-release, the second argument is ignored: `dev` increments only `N` (e.g. `0.2.0b0 -> 0.2.0b1`), while `prod` removes the suffix without another bump (`0.2.0b1 -> 0.2.0`).
-
-3. The helper updates `VERSION`, the TOC, the Lua runtime version, and both README version headers. It moves the `[Unreleased]` notes into a dated version section, leaves a fresh `[Unreleased]` section, commits as `[release] VERSION`, and creates an annotated `vVERSION` tag. Historical version mentions remain unchanged. It refuses inconsistent metadata, empty release notes, dirty worktrees, and conflicting local/remote tags. It never pushes or overwrites a release.
-4. Review the commit and tag, then push them together using the command printed by the helper, for example:
-
-   ```sh
-   git push --atomic origin main v0.2.0b0
-   ```
-
-   The owner's tag push runs validation and publishes the installable ZIP with the **full `CHANGELOG.md` contents** as the release description. Tags with a `bN` suffix are marked as GitHub pre-releases. Other actors cannot publish through this workflow.
-
-Repository-owner setup on GitHub: require the `pr-version` and `changelog` checks (and validation) in the `main` branch ruleset. Add a tag ruleset for `v*` restricting creation to the owner and blocking updates/deletions, and enable immutable GitHub releases where available. Workflow conditions alone cannot prevent someone with repository administration/release permissions from manually editing releases or tags. Local hooks also cannot authenticate GitHub account ownership; publishing authorization is enforced by the workflow and repository rules.
+Detailed guidance for coding assistants is in [AGENTS.md](AGENTS.md).

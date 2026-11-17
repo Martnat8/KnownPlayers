@@ -6,6 +6,7 @@
 - Require changelog updates for every commit through a shareable Git hook and CI checks.
 - Publish changelog-backed GitHub pre-releases and production releases only from owner-pushed tags; reject version changes in pull requests.
 - Add a pinned Determinate nixpkgs development environment with Node.js 22, Lua 5.1, CI linters, and optional direnv integration.
+- Move detailed contribution and owner-release guidance into AGENTS.md and simplify the README for human contributors.
 
 ## [0.1.7]
 

@@ -51,6 +51,34 @@ Open a GitHub Issue with the addon version, client build, reproducible steps, an
 
 ## Contributing
 
+### Development environment
+
+Install [Nix](https://nixos.org/download/) with the `nix-command` and `flakes` experimental features enabled, then enter the development shell from the repository root:
+
+```sh
+nix develop
+```
+
+`flake.nix` provides Node.js 22, Lua 5.1 (`lua` and `luac`), Git, Bash, ZIP, Actionlint, and ShellCheck on x86-64/ARM64 Linux and Apple Silicon macOS. It uses [Determinate's weekly nixpkgs distribution](https://flakehub.com/flake/DeterminateSystems/nixpkgs-weekly) from FlakeHub, with `flake.lock` pinning the exact snapshot so everyone uses the same package versions. The current snapshot does not support Intel macOS. No npm or external Lua packages are required; the addon itself still needs the WoW client and its APIs to run.
+
+Inside the shell, run the same tooling and syntax checks used by CI:
+
+```sh
+node --version
+lua -v
+node --test scripts/*.test.mjs
+node scripts/check-version.mjs
+find KnownPlayers -type f -name '*.lua' -exec luac -p {} +
+actionlint .github/workflows/release.yml
+shellcheck scripts/check-changelog.sh .githooks/pre-commit
+```
+
+For a one-off command without entering the shell, use `nix develop -c node scripts/check-version.mjs`. The checks also work without Nix if you install Node.js 22+, Lua 5.1, and the relevant tools yourself.
+
+Optional: with [direnv](https://direnv.net/) and [nix-direnv](https://github.com/nix-community/nix-direnv) installed and configured in your shell, run `direnv allow` to load the committed `.envrc` automatically. Generated `.direnv/` state and Nix `result` links are ignored. Entering the shell does not install Git hooks or change repository configuration; enable the shared hook separately below.
+
+When intentionally updating dependencies, run `nix flake update`, rerun the checks above, and include the updated `flake.lock` and a changelog entry in the same commit. On a new checkout, the flake files are already tracked; when initially adding or renaming flake files, stage them with Git before using plain `nix develop`, because Nix ignores untracked files in Git-backed flakes.
+
 ### Before every commit
 
 **Every commit must update `CHANGELOG.md`**, including documentation, tests, and tooling changes. Add a concise, user-facing bullet to the `## [Unreleased]` section explaining what changed, then stage it with your other changes. Keep existing release sections intact; do not rewrite published history or put private player data in the changelog. CI checks every commit in a pull request, not just the combined diff. If several commits need correcting, amend/rebase them before requesting review.
@@ -61,12 +89,7 @@ Enable the shared, committed Git hook after cloning (Git does not install hooks 
 git config --local core.hooksPath .githooks
 ```
 
-The hook at `.githooks/pre-commit` uses the committed `scripts/check-changelog.sh` to check the **staged** changelog. This setup is opt-in and local to each clone, so contributors and the repository owner can use the same hook. CI also catches commits made without the hook. Run the dependency-free tooling tests with Node.js 22 or newer:
-
-```sh
-node --test scripts/*.test.mjs
-node scripts/check-version.mjs
-```
+The hook at `.githooks/pre-commit` uses the committed `scripts/check-changelog.sh` to check the **staged** changelog. This setup is opt-in and local to each clone, so contributors and the repository owner can use the same hook. CI also catches commits made without the hook.
 
 ### Versioning
 

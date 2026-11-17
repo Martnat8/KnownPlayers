@@ -5,6 +5,7 @@
 - Add a canonical VERSION file, synchronized release helper, and documented production/pre-release versioning.
 - Require changelog updates for every commit through a shareable Git hook and CI checks.
 - Publish changelog-backed GitHub pre-releases and production releases only from owner-pushed tags; reject version changes in pull requests.
+- Add a pinned Determinate nixpkgs development environment with Node.js 22, Lua 5.1, CI linters, and optional direnv integration.
 
 ## [0.1.7]
 

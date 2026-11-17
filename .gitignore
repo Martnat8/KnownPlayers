@@ -15,3 +15,8 @@ Thumbs.db
 *.bak
 *.tmp
 *.log
+
+# Nix development environment
+.direnv/
+/result
+/result-*

@@ -11,11 +11,77 @@ permissions:
   contents: read
 
 jobs:
+  pr-version:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Keep this guard inline: do not execute a contributor-controlled script.
+      - name: Reject version changes in pull requests
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Bootstrap VERSION from the pre-existing TOC when adopting this tooling.
+          if git cat-file -e "$BASE:VERSION" 2>/dev/null; then
+            base_version=$(git show "$BASE:VERSION")
+          else
+            base_version=$(git show "$BASE:KnownPlayers/KnownPlayers.toc" | sed -n 's/^## Version: //p')
+          fi
+          test -n "$base_version"
+          check_version() {
+            if [[ "$1" != "$base_version" ]]; then
+              echo "::error::$2 must remain at $base_version in pull requests; only the owner may release on main."
+              exit 1
+            fi
+          }
+          check_version "$(git show "$HEAD:VERSION")" VERSION
+          check_version "$(git show "$HEAD:KnownPlayers/KnownPlayers.toc" | sed -n 's/^## Version: //p')" TOC
+          check_version "$(git show "$HEAD:KnownPlayers/Core.lua" | sed -n 's/^local ADDON_VERSION = "\([^"]*\)"$/\1/p')" Core.lua
+          check_version "$(git show "$HEAD:README.md" | sed -n 's/^\*\*Version:\*\* \([^ ]*\) *$/\1/p')" README.md
+          check_version "$(git show "$HEAD:KnownPlayers/README.txt" | sed -n 's/^KnownPlayers \([^ ]*\) (WoW Forever, Interface 16001)$/\1/p')" README.txt
+
+  changelog:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require changelog updates in every commit
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/check-changelog.sh --range "$BASE" "$HEAD"
+
   validate:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test release tooling
+        run: node --test scripts/*.test.mjs
+
+      - name: Check version metadata and changelog
+        run: node scripts/check-version.mjs
 
       - name: Install Lua 5.1 compiler
         run: sudo apt-get update && sudo apt-get install -y lua5.1
@@ -29,16 +95,18 @@ jobs:
           test -f KnownPlayers/KnownPlayers.toc
           test -f KnownPlayers/Core.lua
 
-      - name: Check release tag matches TOC version
+      - name: Authorize and validate release tag
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           TAG: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          version=$(sed -n 's/^## Version: *//p' KnownPlayers/KnownPlayers.toc | tr -d '\r')
-          test "v${version}" = "$TAG" || { echo "Tag $TAG does not match TOC version $version"; exit 1; }
+          test "$ACTOR" = "$OWNER" || { echo 'Only the repository owner may publish releases'; exit 1; }
+          node scripts/check-version.mjs
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.actor == github.repository_owner
     needs: validate
     runs-on: ubuntu-latest
     permissions:
@@ -46,6 +114,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Package installable addon ZIP
         env:
@@ -57,5 +127,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+        shell: bash
         run: |
-          gh release create "$TAG" "KnownPlayers-${TAG}.zip" --verify-tag --generate-notes --title "KnownPlayers $TAG"
+          args=(--verify-tag --notes-file CHANGELOG.md --title "KnownPlayers $TAG")
+          if [[ "$TAG" =~ b[0-9]+$ ]]; then
+            args+=(--prerelease)
+          fi
+          # Creation fails for an existing release; never edit or replace it.
+          gh release create "$TAG" "KnownPlayers-${TAG}.zip" "${args[@]}"

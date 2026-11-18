@@ -8,9 +8,15 @@ WTF/
 Thumbs.db
 .vscode/
 .idea/
+.pi/
 
 # Build outputs and temporary files
 *.zip
 *.bak
 *.tmp
 *.log
+
+# Nix development environment
+.direnv/
+/result
+/result-*

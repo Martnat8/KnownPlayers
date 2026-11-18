@@ -2,7 +2,8 @@
 
 A World of Warcraft **Forever** addon that remembers characters you encounter and customizes their nameplates based on how you know them.
 
-**Version:** 0.1.3  
+**Version:** 0.1.7
+
 **Tested target:** WoW Forever, interface `16001` (client-specific; standard retail compatibility is not established).
 
 ## Features
@@ -47,3 +48,27 @@ The addon stores character names, realms, identifiers, interaction categories an
 ## Reporting issues
 
 Open a GitHub Issue with the addon version, client build, reproducible steps, and the error text. Remove character names, BattleTags, and other personal information from logs or screenshots before sharing.
+
+## Contributing
+
+Bug fixes, features, and documentation improvements are welcome. Make focused changes and open a pull request describing what changed and how you tested it.
+
+Run `nix develop` to get Node.js 22, Lua 5.1, and the other development tools, or install them yourself. After cloning, enable the shared commit hook:
+
+```sh
+git config --local core.hooksPath .githooks
+```
+
+**Update `CHANGELOG.md` before every commit.** Add a short bullet under `[Unreleased]` explaining your change, and stage it with your other files. Leave published release notes unchanged.
+
+Before opening a pull request, run these checks from the development shell:
+
+```sh
+node --test scripts/*.test.mjs
+node scripts/check-version.mjs
+find KnownPlayers -type f -name '*.lua' -exec luac -p {} +
+```
+
+We use `MAJOR.MINOR.PATCH` versioning: fixes bump patch, backward-compatible features bump minor, and breaking changes bump major. Pre-releases append `b0`, `b1`, and so on (for example, `0.1.14b3`), starting at zero for each target version. Production releases are immutable. Keep version numbers unchanged in pull requests; [Martnat8](https://github.com/Martnat8) handles releases.
+
+Detailed guidance for coding assistants is in [AGENTS.md](AGENTS.md).

@@ -1,6 +1,7 @@
 # Changelog
 
 ## [Unreleased]
+- Restored the packaged README header format expected by release validation.
 - Synchronized all version metadata to 0.4.4.
 
 ## 0.4.4

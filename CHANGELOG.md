@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0b5] - 2026-11-21
+
 - Made Escape close Player History and list windows in reverse opening order, and clarified the Favorite label in Player History.
 - Added descriptions and aligned the spacing for Character name and Health bar settings, and clarified the remembered NPC retention label.
 

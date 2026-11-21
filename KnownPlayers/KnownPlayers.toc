@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: KnownPlayers
 ## Notes: Recognizes players based on configurable interactions.
-## Version: 0.4.5b0
+## Version: 0.4.5b1
 ## OptionalDeps: QuestieDB
 ## SavedVariables: KnownPlayersDB, KnownPlayersSettings
 

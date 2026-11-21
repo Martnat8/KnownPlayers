@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.5b1] - 2026-11-21
+
 - Added player and NPC nameplate distance and minimum opacity sliders to the main settings page.
 
 ## [0.4.5b0] - 2026-11-21

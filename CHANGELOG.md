@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0b6] - 2026-11-21
+
 - Added a Class / Race icon column and a class filter to player category lists, All Players, and Known Battle.net Alts.
 - Centered class and race icons under the Class dropdown and added them beside their labels in Player History.
 - Added an optional minimap button that opens a height-resizable KnownPlayers window with three settings tabs, with support for MinimapButtonButton collection.

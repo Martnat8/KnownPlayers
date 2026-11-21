@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0b8] - 2026-11-21
+
 - Made Player History draggable from the portrait menu and player lists.
 - Check inactivity every five seconds and refresh open lists and nameplates when saved entries expire.
 - Added star and trash-can controls beside player names in category lists and All Players, and a star toggle in Player History.

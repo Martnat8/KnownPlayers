@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0b3] - 2026-11-21
+
 - Expanded the README to explain how everyday interactions make familiar players' nameplates visible.
 - Moved notes and tags above the interaction reasons in Player History, placed Favorite next to the character name, and added race and class when available.
 

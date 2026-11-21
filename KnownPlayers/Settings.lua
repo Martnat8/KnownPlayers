@@ -1,5 +1,5 @@
 local addonName, ns = ...
-local panel
+local panel, aboutWindow
 local settingsRefreshers = {}
 local function RegisterSettingsRefresher(callback)
     settingsRefreshers[#settingsRefreshers + 1] = callback
@@ -86,6 +86,44 @@ local function Button(parent, value, width, click)
     button:SetText(value)
     button:SetScript("OnClick", click)
     return button
+end
+
+local function ShowAbout(parent)
+    if aboutWindow then
+        aboutWindow:Show()
+        return
+    end
+
+    local frame = CreateFrame("Frame", "KnownPlayersAboutWindow", parent, "BasicFrameTemplateWithInset")
+    frame:SetWidth(520)
+    frame:SetPoint("CENTER", UIParent, "CENTER")
+    frame:SetFrameStrata("DIALOG")
+    frame:SetClampedToScreen(true)
+    frame:EnableMouse(true)
+    if frame.TitleText then frame.TitleText:SetText("About KnownPlayers") end
+    parent:HookScript("OnHide", function() frame:Hide() end)
+
+    local y = -38
+    for _, section in ipairs({
+        {"Remembering players",
+            "KnownPlayers remembers players from the interactions you enable. To save someone manually, use their portrait menu or type /kp remember while targeting them. The highest-priority enabled category sets their name color."},
+        {"NPC filtering and overrides",
+            "Automatic NPC categories use QuestieDB. The filter leaves attackable monsters and unclassified NPCs visible. In the NPC Manager, Overrides lists NPCs set to Always Show or Always Hide. Automatic clears the override."},
+        {"Nameplate distance and opacity",
+            "The sliders show the values WoW accepts. The game controls which nameplates exist and can cap their visible range. Always Show applies to nameplates the game supplies."},
+        {"Saved lists",
+            "Player and NPC history and linked Battle.net characters are stored locally. Reset Settings to Defaults resets addon preferences and keeps your lists."},
+    }) do
+        Label(frame, section[1], 22, y, "GameFontNormal")
+        local details = Label(frame, section[2], 22, y - 19, "GameFontHighlight")
+        details:SetWidth(476)
+        details:SetJustifyH("LEFT")
+        y = y - 19 - details:GetStringHeight() - 14
+    end
+    frame:SetHeight(-y + 8)
+
+    aboutWindow = frame
+    frame:Show()
 end
 
 local function Checkbox(parent, x, y, title, current, onClick, getCurrent)
@@ -378,6 +416,8 @@ end
 local function BuildHomePage()
     -- Tracking preferences remain the first thing a user sees.
     local page, content = NewScrollingPage("KnownPlayers", "")
+    local about = Button(page, "About", 80, function() ShowAbout(page) end)
+    about:SetPoint("TOPRIGHT", page, "TOPRIGHT", -22, -12)
 
     Label(content, "Nameplate Filtering", 16, -10, "GameFontNormal")
     Checkbox(content, 16, -37, "Enable player nameplate filtering",

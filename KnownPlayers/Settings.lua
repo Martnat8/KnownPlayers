@@ -595,7 +595,7 @@ local function BuildPlayerPage()
             SetCategoryTracking(TRACKING_CATEGORIES[row.key], checked)
         end)
         local button = Button(body, "Color", 72, function() PickColor(row.key) end)
-        button:SetPoint("TOPLEFT", body, "TOPLEFT", 270, y)
+        button:SetPoint("TOPLEFT", body, "TOPLEFT", 246, y)
         row.swatch = button:CreateTexture(nil,"OVERLAY")
         row.swatch:SetSize(14,14)
         row.swatch:SetPoint("LEFT",button,"LEFT",5,0)
@@ -605,7 +605,7 @@ local function BuildPlayerPage()
             order[i],order[i-1]=order[i-1],order[i]
             RefreshOrder()
         end)
-        row.up:SetPoint("TOPLEFT", body, "TOPLEFT", 350, y)
+        row.up:SetPoint("LEFT", button, "RIGHT", 8, 0)
         row.down = Button(body,"v",25,function()
             if i >= #colorRows then return end
             local order=KnownPlayersSettings.nameplateColorOrder
@@ -613,6 +613,8 @@ local function BuildPlayerPage()
             RefreshOrder()
         end)
         row.down:SetPoint("LEFT",row.up,"RIGHT",3,0)
+        local list = Button(body, "List", 60, function() ns.OpenPlayerList(row.key) end)
+        list:SetPoint("LEFT", row.down, "RIGHT", 8, 0)
         colorRows[#colorRows+1] = row
     end
     RefreshOrder()

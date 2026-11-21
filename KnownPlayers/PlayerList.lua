@@ -65,7 +65,8 @@ StaticPopupDialogs[popupKey] = {
 
 local function CreateCategoryWindow(category, index)
     -- A separate top-level window for each category, independent from Settings.
-    local frame = CreateFrame("Frame", "KnownPlayers" .. category.label .. "ListWindow", UIParent, "BasicFrameTemplateWithInset")
+    local frameName = "KnownPlayers" .. category.label:gsub("%s+", "") .. "ListWindow"
+    local frame = CreateFrame("Frame", frameName, UIParent, "BasicFrameTemplateWithInset")
     frame:SetSize(570, 440)
     frame:SetPoint("CENTER", UIParent, "CENTER", (index - 4) * 28, (index - 4) * 16)
     frame:SetFrameStrata("DIALOG")
@@ -239,7 +240,8 @@ local function CreatePlayerHistoryWindow()
     local frame = CreateFrame("Frame", "KnownPlayersPlayerHistoryWindow", UIParent, "BasicFrameTemplateWithInset")
     frame:SetSize(520, 470)
     frame:SetPoint("CENTER")
-    frame:SetFrameStrata("DIALOG")
+    -- Keep the editor above the list and its child controls.
+    frame:SetFrameStrata("FULLSCREEN_DIALOG")
     frame:SetClampedToScreen(true)
     frame:EnableMouse(true)
     frame:Hide()

@@ -60,12 +60,12 @@ function ns.GetNPCNameplateCategory(id)
     if not remembered and type(services) ~= "table" then return nil end
     for _, category in ipairs(KnownPlayersSettings.npcNameplateColorOrder or NPC_COLOR_PRIORITY) do
         if enabled[category] then
-            if category == "manual" and remembered then return "manual" end
+            if category == "manual" and remembered then return "manual", services ~= nil end
             if category ~= "manual" and type(services) == "table"
-                and services[category] then return category end
+                and services[category] then return category, true end
         end
     end
-    return nil
+    return nil, services ~= nil
 end
 
 -- Overrides are explicit user decisions and supersede automatic category

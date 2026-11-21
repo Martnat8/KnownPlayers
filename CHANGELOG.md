@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Paused automatic NPC filtering when QuestieDB is unavailable and kept unclassified NPCs visible while honoring manual overrides.
+
 ## [0.4.5b1] - 2026-11-21
 
 - Added player and NPC nameplate distance and minimum opacity sliders to the main settings page.

@@ -566,11 +566,13 @@ local function BuildPlayerPage()
             picker:Show()
         end
     end
-    for i = 1, 10 do
+    local colorRowSpacing = 29
+    for i in ipairs(KnownPlayersSettings.nameplateColorOrder) do
         local row = {}
-        row.title = Label(body, "", 22, -239 - (i-1)*29, "GameFontHighlightSmall")
+        local y = -236 - (i - 1) * colorRowSpacing
+        row.title = Label(body, "", 22, y - 3, "GameFontHighlightSmall")
         local button = Button(body, "Color", 72, function() PickColor(row.key) end)
-        button:SetPoint("TOPLEFT",body,"TOPLEFT",270,-236-(i-1)*29)
+        button:SetPoint("TOPLEFT", body, "TOPLEFT", 270, y)
         row.swatch = button:CreateTexture(nil,"OVERLAY")
         row.swatch:SetSize(14,14)
         row.swatch:SetPoint("LEFT",button,"LEFT",5,0)
@@ -580,7 +582,7 @@ local function BuildPlayerPage()
             order[i],order[i-1]=order[i-1],order[i]
             RefreshOrder()
         end)
-        row.up:SetPoint("TOPLEFT",body,"TOPLEFT",350,-236-(i-1)*29)
+        row.up:SetPoint("TOPLEFT", body, "TOPLEFT", 350, y)
         row.down = Button(body,"v",25,function()
             if i >= #colorRows then return end
             local order=KnownPlayersSettings.nameplateColorOrder
@@ -593,15 +595,16 @@ local function BuildPlayerPage()
     RefreshOrder()
     RegisterSettingsRefresher(RefreshOrder)
 
+    local retentionTop = -251 - #colorRows * colorRowSpacing
     local line2 = body:CreateTexture(nil, "ARTWORK")
     line2:SetColorTexture(0.45, 0.45, 0.45, 0.4)
-    line2:SetPoint("TOPLEFT", body, "TOPLEFT", 20, -541)
+    line2:SetPoint("TOPLEFT", body, "TOPLEFT", 20, retentionTop)
     line2:SetWidth(432)
     line2:SetHeight(1)
 
-    Label(body, "When should players be forgotten?", 21, -554, "GameFontNormal")
-    Label(body, "Forget", 22, -588, "GameFontNormalSmall")
-    Label(body, "Duration", 188, -588, "GameFontNormalSmall")
+    Label(body, "When should players be forgotten?", 21, retentionTop - 13, "GameFontNormal")
+    Label(body, "Forget", 22, retentionTop - 47, "GameFontNormalSmall")
+    Label(body, "Duration", 188, retentionTop - 47, "GameFontNormalSmall")
 
     local guildNote = Label(body, "Guild membership is roster-based and does not expire.", 21, -800)
     local listsSection = CreateFrame("Frame", nil, body)
@@ -631,7 +634,7 @@ local function BuildPlayerPage()
 
     local retentionRows = {}
     local function LayoutRetentionRows()
-        local y = -608
+        local y = retentionTop - 67
         for _, row in ipairs(retentionRows) do
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", body, "TOPLEFT", 18, y)

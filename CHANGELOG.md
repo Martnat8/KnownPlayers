@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Fixed a startup error after PvP removal by sizing the player nameplate color-priority list to the available categories.
+
 ## [0.4.5b3] - 2026-11-21
 
 - Removed PvP attacker tracking, its controls, and its player-list category. TODO: Revisit PvP tracking when it can be tested in WoW Forever.

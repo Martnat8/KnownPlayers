@@ -298,12 +298,87 @@ local function RetentionRow(parent, category, onLayoutChanged, compact)
     return row
 end
 
+local function NameplateSliderRow(parent, anchor, option)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -6)
+    row:SetSize(423, 56)
+    Label(row, option.label, 0, 0, "GameFontHighlight")
+    local slider = CreateFrame("Slider", nil, row, "UISliderTemplate")
+    slider:SetPoint("TOPLEFT", row, "TOPLEFT", 5, -22)
+    slider:SetSize(245, 17)
+    slider:SetMinMaxValues(option.min, option.max)
+    slider:SetValueStep(1)
+    slider:SetObeyStepOnDrag(true)
+    local valueLabel = Label(row, "", 260, -23)
+    local status = Label(row, "", 0, -42)
+
+    local function ReadNumber(getter)
+        local ok, value = pcall(getter, option.cvar)
+        if ok and ns.IsAccessibleValue(value) then return tonumber(value) end
+    end
+
+    local function Availability(current)
+        if current == nil then return "Unavailable on this client" end
+        if InCombatLockdown() then return "Unavailable in combat" end
+        if not C_CVar or type(C_CVar.SetCVar) ~= "function" then
+            return "Unavailable on this client"
+        end
+        if type(C_CVar.GetCVarInfo) == "function" then
+            local ok, _, _, _, _, locked, secure, readOnly = pcall(C_CVar.GetCVarInfo, option.cvar)
+            if ok then
+                if locked or readOnly then return "Restricted by WoW" end
+                return nil, secure
+            end
+        end
+    end
+
+    local refreshing = false
+    local defaultButton
+    local function Refresh(message)
+        local current = ReadNumber(C_CVar and C_CVar.GetCVar)
+        local unavailable = Availability(current)
+        refreshing = true
+        slider:SetValue(current and math.max(option.min, math.min(option.max,
+            current * option.scale)) or option.min)
+        slider:SetEnabled(not unavailable)
+        defaultButton:SetEnabled(not unavailable and ReadNumber(C_CVar.GetCVarDefault) ~= nil)
+        valueLabel:SetText(current and string.format("%g%s", current * option.scale, option.suffix) or "N/A")
+        status:SetText(unavailable or message or "")
+        refreshing = false
+    end
+
+    local function Apply(value)
+        local current = ReadNumber(C_CVar and C_CVar.GetCVar)
+        local unavailable, secure = Availability(current)
+        if unavailable then Refresh(); return end
+        -- Even out of combat, WoW can reject protected values or clamp the range.
+        -- Use the normal client setter and always show the value read back.
+        local ok, applied = pcall(C_CVar.SetCVar, option.cvar, tostring(value))
+        local actual = ReadNumber(C_CVar.GetCVar)
+        if not ok or applied ~= true or actual == nil then
+            Refresh(secure and "Restricted by WoW" or "WoW rejected the change")
+        elseif math.abs(actual - value) > 0.00001 then
+            Refresh("WoW kept the displayed value")
+        else
+            Refresh()
+        end
+    end
+
+    defaultButton = Button(row, "Default", 74, function()
+        local defaultValue = ReadNumber(C_CVar and C_CVar.GetCVarDefault)
+        if defaultValue then Apply(defaultValue) end
+    end)
+    defaultButton:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, -17)
+    slider:SetScript("OnValueChanged", function(_, value)
+        if not refreshing then Apply(math.floor(value + 0.5) / option.scale) end
+    end)
+    Refresh()
+    return row, Refresh
+end
+
 local function BuildHomePage()
     -- Tracking preferences remain the first thing a user sees.
-    local page = NewPage("KnownPlayers", "")
-    local content = CreateFrame("Frame", nil, page)
-    content:SetPoint("TOPLEFT", page, "TOPLEFT", 3, -55)
-    content:SetSize(465, 440)
+    local page, content = NewScrollingPage("KnownPlayers", "")
 
     Label(content, "Nameplate Filtering", 16, -10, "GameFontNormal")
     Checkbox(content, 16, -37, "Enable player nameplate filtering",
@@ -335,10 +410,43 @@ local function BuildHomePage()
     line:SetPoint("TOPLEFT", content, "TOPLEFT", 16, -299)
     line:SetPoint("RIGHT", content, "RIGHT", -16, 0)
     line:SetHeight(1)
+
+    local lastRow = Label(content, "Nameplate Distance and Opacity", 16, -316, "GameFontNormal")
+    local refreshSliders = {}
+    for _, option in ipairs({
+        {label = "NPC / non-player nameplate distance", cvar = "nameplateMaxDistance",
+            min = 20, max = 60, scale = 1, suffix = " yd"},
+        {label = "Player nameplate distance", cvar = "nameplatePlayerMaxDistance",
+            min = 20, max = 60, scale = 1, suffix = " yd"},
+        {label = "Minimum nameplate opacity", cvar = "nameplateMinAlpha",
+            min = 0, max = 100, scale = 100, suffix = "%"},
+    }) do
+        lastRow, refreshSliders[option.cvar:lower()] = NameplateSliderRow(content, lastRow, option)
+    end
+
+    local function RefreshSliders()
+        for _, refresh in pairs(refreshSliders) do refresh() end
+    end
+    page:SetScript("OnShow", RefreshSliders)
+    RegisterSettingsRefresher(RefreshSliders)
+    local events = CreateFrame("Frame", nil, page)
+    events:RegisterEvent("CVAR_UPDATE")
+    events:RegisterEvent("PLAYER_REGEN_ENABLED")
+    events:RegisterEvent("PLAYER_REGEN_DISABLED")
+    events:SetScript("OnEvent", function(_, event, key)
+        if not page:IsVisible() then return end
+        if event ~= "CVAR_UPDATE" then
+            RefreshSliders()
+        elseif type(key) == "string" and ns.IsAccessibleValue(key) then
+            local refresh = refreshSliders[key:lower()]
+            if refresh then refresh() end
+        end
+    end)
+
     local reset = Button(content, "Reset Settings to Defaults", 205, function()
         StaticPopup_Show("KNOWNPLAYERS_RESET_SETTINGS")
     end)
-    reset:SetPoint("TOPLEFT", content, "TOPLEFT", 16, -317)
+    reset:SetPoint("TOPLEFT", lastRow, "BOTTOMLEFT", 0, -12)
     return page
 end
 

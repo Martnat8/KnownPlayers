@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0b7] - 2026-11-21
+
 - Fit the settings window to the player tracking controls and centered the tabs above an inset border shared by both settings views.
 
 ## [0.5.0b6] - 2026-11-21

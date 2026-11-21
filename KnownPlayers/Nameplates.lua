@@ -100,29 +100,29 @@ end
 -- The NPC filter is independent from the player Known Only filter.
 -- When active, request friendly NPC nameplate frames and suppress native
 -- overhead NPC labels that would otherwise bypass the per-NPC filter.
--- The client controls the visibility of quest and hostile NPC labels via
--- several global CVars; restore their original values when disabling.
+-- Leave the client's dedicated hostile NPC name setting alone.
 local npcNameCVars = {
-    "UnitNameNPC", "UnitNameHostleNPC", "UnitNameInteractiveNPC",
-    "UnitNameFriendlySpecialNPCName",
+    "UnitNameNPC", "UnitNameInteractiveNPC", "UnitNameFriendlySpecialNPCName",
 }
+local hostileNPCNameCVar = "UnitNameHostleNPC"
 local npcCVarsShuttingDown = false
 local npcSyncing = false
+
+local function RestoreNPCNameplateCVar(key, prior)
+    if type(prior) ~= "string" then return true end
+    local current = ReadNativeNameCVar(key)
+    if current == nil then return false end
+    local forced = key == "nameplateShowFriendlyNpcs" and "1" or "0"
+    return current ~= forced or prior == forced or WriteNativeNameCVar(key, prior)
+end
+
 function ns.RestoreNPCNameplateCVars()
     if not KnownPlayersSettings then return end
     local backup = KnownPlayersSettings.npcCVarBackup
     if type(backup) ~= "table" then return end
     local complete = true
     for key, prior in pairs(backup) do
-        if type(prior) == "string" then
-            local current = ReadNativeNameCVar(key)
-            local forced = key == "nameplateShowFriendlyNpcs" and "1" or "0"
-            if current == forced and prior ~= forced then
-                if not WriteNativeNameCVar(key, prior) then complete = false end
-            elseif current == nil then
-                complete = false
-            end
-        end
+        if not RestoreNPCNameplateCVar(key, prior) then complete = false end
     end
     if complete then KnownPlayersSettings.npcCVarBackup = nil end
 end
@@ -132,6 +132,15 @@ function ns.SyncNPCNameplateCVars()
     npcSyncing = true
     if KnownPlayersSettings.filterNPCNameplates and ns.IsQuestieDBConnected() then
         local backup = KnownPlayersSettings.npcCVarBackup
+        if type(backup) == "table" and backup[hostileNPCNameCVar] ~= nil
+            and RestoreNPCNameplateCVar(hostileNPCNameCVar, backup[hostileNPCNameCVar]) then
+            -- Earlier versions suppressed hostile names while filtering.
+            backup[hostileNPCNameCVar] = nil
+            if not next(backup) then
+                backup = nil
+                KnownPlayersSettings.npcCVarBackup = nil
+            end
+        end
         if type(backup) ~= "table" then
             backup = {}
             local original = ReadNativeNameCVar("nameplateShowFriendlyNpcs")
@@ -510,6 +519,11 @@ local function IsRecognized(unit)
     return ns.IsKnownOrAssociated and ns.IsKnownOrAssociated(name .. "-" .. realm, guid) or false
 end
 
+local function IsNonAttackableNPC(unit)
+    local ok, attackable = pcall(UnitCanAttack, "player", unit)
+    return ok and ns.IsAccessibleValue(attackable) and attackable == false
+end
+
 function ns.RefreshKnownNameplates()
     if not KnownPlayersSettings then return end
     local knownOnly = KnownPlayersSettings.knownOnlyNameplates
@@ -575,7 +589,8 @@ function ns.RefreshKnownNameplates()
                     and ns.GetNPCVisibilityOverride(npcID) or "auto"
                 RestoreNameColor(frame)
                 if npcID and (override == "hide"
-                    or (override ~= "show" and classified and not category)) then
+                    or (override ~= "show" and classified and not category
+                        and IsNonAttackableNPC(unit))) then
                     HideNameOnlyLabel(frame)
                     MakeTransparent(frame)
                 elseif npcID and (category or override == "show") then

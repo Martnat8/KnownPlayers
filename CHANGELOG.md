@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Clarified the NPC Management description to say “Search manually saved NPCs.”
+- Kept attackable NPC nameplates visible by default when automatic NPC filtering is enabled and restored the game's hostile NPC name setting on upgrade.
+
 ## [0.4.5b4] - 2026-11-21
 
 - Fixed a startup error after PvP removal by sizing the player nameplate color-priority list to the available categories.

@@ -804,7 +804,7 @@ local function BuildNPCPage()
     rule:SetSize(432, 1)
 
     Label(body, "NPC management", 21, bottom - 20, "GameFontNormal")
-    Label(body, "Search saved NPCs, change overrides, and manage remembered NPCs.", 21, bottom - 42)
+    Label(body, "Search manually saved NPCs, change overrides, and manage remembered NPCs.", 21, bottom - 42)
     local npcList = Button(body, "Open NPC Manager", 180, function() ns.OpenPlayerList("npc") end)
     npcList:SetPoint("TOPLEFT", body, "TOPLEFT", 20, bottom - 61)
 

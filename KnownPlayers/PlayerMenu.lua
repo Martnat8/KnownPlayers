@@ -71,12 +71,17 @@ local function AddPlayerMenu(menuTag, rootDescription, contextData)
     local key, guid, _, realm = ns.GetPlayerFromUnit(unit)
     if not key then return end
 
+    local function CurrentUnit()
+        local currentKey, currentGUID = ns.GetPlayerFromUnit(unit)
+        if currentKey == key and (not guid or guid == currentGUID) then return unit end
+    end
+
     local savedKey = FindSavedKey(key, guid)
     rootDescription:CreateDivider()
     rootDescription:CreateTitle("KnownPlayers")
     if savedKey then
         rootDescription:CreateButton("Why do I know this player?", function()
-            ns.OpenPlayerHistory(savedKey)
+            ns.OpenPlayerHistory(savedKey, CurrentUnit())
         end)
         rootDescription:CreateButton("Forget Player", function()
             if ns.ForgetPlayer(savedKey, true) then
@@ -85,7 +90,7 @@ local function AddPlayerMenu(menuTag, rootDescription, contextData)
         end)
     else
         rootDescription:CreateButton("Remember Player", function()
-            ns.RememberPlayer(key, "manual", nil, guid, realm)
+            ns.RememberPlayer(key, "manual", nil, guid, realm, CurrentUnit())
             Refresh()
             if not KnownPlayersSettings.trackManual then
                 print("|cff33ff99KnownPlayers:|r Player saved. Enable Manually Added tracking to display its nameplate.")

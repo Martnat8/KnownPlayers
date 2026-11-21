@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Expanded the README to explain how everyday interactions make familiar players' nameplates visible.
+- Moved notes and tags above the interaction reasons in Player History, placed Favorite next to the character name, and added race and class when available.
+
 ## [0.5.0b2] - 2026-11-21
 
 - Added History to player category lists and Linked History to Known Battle.net Alts.

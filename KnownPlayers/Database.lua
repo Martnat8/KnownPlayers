@@ -358,6 +358,8 @@ MergeInto = function(destination, source, keepDestinationDetails)
     destination.guid = destination.guid or source.guid
     destination.realm = destination.realm or source.realm
     destination.displayName = destination.displayName or source.displayName
+    destination.race = ns.SafeString(destination.race) or ns.SafeString(source.race)
+    destination.class = ns.SafeString(destination.class) or ns.SafeString(source.class)
     if keepDestinationDetails then return end
     destination.favorite = (destination.favorite or source.favorite) and true or nil
     local originalNote = ns.SafeString(destination.note)
@@ -371,10 +373,29 @@ MergeInto = function(destination, source, keepDestinationDetails)
     if tags then destination.tags = NormalizeTags((ns.SafeString(destination.tags) or "") .. "," .. tags) end
 end
 
+function ns.RefreshPlayerAppearance(record, unit)
+    if unit then
+        local raceOK, race = pcall(UnitRace, unit)
+        local classOK, class = pcall(UnitClass, unit)
+        record.race = (raceOK and ns.SafeString(race)) or record.race
+        record.class = (classOK and ns.SafeString(class)) or record.class
+    end
+
+    -- Cached GUID data can fill gaps for whispers and older saved records.
+    if ns.SafeString(record.race) and ns.SafeString(record.class) then return end
+    local guid = ns.SafePlayerGUID(record.guid)
+    if not guid then return end
+    local ok, class, _, race = pcall(GetPlayerInfoByGUID, guid)
+    if ok then
+        record.race = ns.SafeString(record.race) or ns.SafeString(race)
+        record.class = ns.SafeString(record.class) or ns.SafeString(class)
+    end
+end
+
 -- Optional GUID lets another interaction recognize a character whose name
 -- spelling / realm format differs. Identical names without a GUID are not
 -- proof that two records belong to the same player.
-function ns.RememberPlayer(name, category, seenAt, guid, realmHint)
+function ns.RememberPlayer(name, category, seenAt, guid, realmHint, unit)
     name = ns.SafeString(name)
     if not name then return nil end
     local normalized, displayName, realm = ns.NormalizePlayerKey(name, realmHint)
@@ -432,6 +453,7 @@ function ns.RememberPlayer(name, category, seenAt, guid, realmHint)
     -- previous realm with a missing one.
     if displayName and displayName ~= "" then record.displayName = displayName end
     if realm then record.realm = realm end
+    ns.RefreshPlayerAppearance(record, unit)
     if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
     if ns.PromotePendingBattleNetObservations then ns.PromotePendingBattleNetObservations() end
     return record
@@ -575,6 +597,7 @@ function ns.RemovePlayerCategory(key, category, undoable)
         and record.categories[category] then
         saved = {
             displayName = record.displayName, realm = record.realm, guid = record.guid,
+            race = record.race, class = record.class,
             note = record.note, tags = record.tags, favorite = record.favorite, lastSeen = record.lastSeen,
             categories = {[category] = true},
             categoryFirstSeen = {[category] = type(record.categoryFirstSeen) == "table" and record.categoryFirstSeen[category] or nil},

@@ -41,9 +41,10 @@ function ns.ScanGroupRoster()
     local now = time()
 
     for i = 1, finalIndex do
-        local key, guid = GetPlayerKey(prefix .. i)
+        local unit = prefix .. i
+        local key, guid = GetPlayerKey(unit)
         if key then
-            ns.RememberPlayer(key, category, now, guid)
+            ns.RememberPlayer(key, category, now, guid, nil, unit)
             updated = updated + 1
         end
     end
@@ -130,7 +131,7 @@ tradeFrame:SetScript("OnEvent", function()
     -- be a different character. Skip the event if the name is unavailable.
     local key, guid = GetPlayerKey("npc")
     if key then
-        ns.RememberPlayer(key, "trade", nil, guid)
+        ns.RememberPlayer(key, "trade", nil, guid, nil, "npc")
     end
 end)
 
@@ -189,10 +190,11 @@ function ns.ScanGuildRoster()
     local updated = 0
 
     for i = 1, total do
-        local name = GetGuildRosterInfo(i)
+        local name, _, _, _, class = GetGuildRosterInfo(i)
         local key = NormalizeGuildName(name)
         if key and key ~= selfKey then
-            ns.RememberPlayer(key, "guild", now)
+            local record = ns.RememberPlayer(key, "guild", now)
+            record.class = ns.SafeString(class) or record.class
             updated = updated + 1
         end
     end
@@ -356,7 +358,7 @@ targetFrame:SetScript("OnEvent", function()
 
     local key, guid = GetPlayerKey("target")
     if key then
-        ns.RememberPlayer(key, "target", nil, guid)
+        ns.RememberPlayer(key, "target", nil, guid, nil, "target")
     end
 end)
 
@@ -372,7 +374,7 @@ if type(InspectUnit) == "function" and type(hooksecurefunc) == "function" then
         local key, guid
         if type(unit) == "string" then key, guid = GetPlayerKey(unit) end
         if key then
-            ns.RememberPlayer(key, "inspect", nil, guid)
+            ns.RememberPlayer(key, "inspect", nil, guid, nil, unit)
         end
     end)
 end

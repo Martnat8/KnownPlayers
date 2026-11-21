@@ -1,6 +1,8 @@
 # KnownPlayers
 
-A World of Warcraft **Forever** addon that remembers characters you encounter and customizes their nameplates based on how you know them.
+KnownPlayers is a World of Warcraft **Forever** addon built around the idea that you grow to know other players organically through interaction. With player nameplate filtering enabled, the sea of names fades away. You live in a mostly anonymous world, and the nameplates you see belong to players you’ve interacted with.
+
+Maybe you trade with someone in town, exchange a few whispers, or group up for a dungeon. The next time you cross paths, you recognize their name. As you play, more and more of the people around you become familiar through your own actions. The names you see tell a little of the story of who you’ve met along the way.
 
 **Version:** 0.5.0b2
 
@@ -38,7 +40,7 @@ The GitHub source archive contains repository files as well as the addon folder;
 
 ## Privacy and saved data
 
-The addon stores character names, realms, identifiers, interaction categories and timestamps in WoW **SavedVariables** on your computer. For linked Battle.net friends, it also stores BattleTags and observed character associations locally to support alt recognition across sessions. Unlinked friend observations are session-only. The addon does **not** upload this information.
+The addon stores character names, realms, identifiers, interaction categories, and timestamps in WoW **SavedVariables** on your computer. It also saves race and class when available. For linked Battle.net friends, it also stores BattleTags and observed character associations locally to support alt recognition across sessions. Unlinked friend observations are session-only. The addon does **not** upload this information.
 
 **Do not publish or attach your personal SavedVariables files to bug reports.** To back up your lists, copy your SavedVariables before upgrading or clearing a list.
 

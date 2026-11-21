@@ -245,7 +245,7 @@ end
 
 local function CreatePlayerHistoryWindow()
     local frame = CreateFrame("Frame", "KnownPlayersPlayerHistoryWindow", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(520, 470)
+    frame:SetSize(520, 478)
     frame:SetPoint("CENTER")
     -- Keep the editor above the list and its child controls.
     frame:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -256,33 +256,44 @@ local function CreatePlayerHistoryWindow()
 
     local name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     name:SetPoint("TOPLEFT", 23, -40)
-    local reasons = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    reasons:SetPoint("TOPLEFT", 23, -72)
-    reasons:SetWidth(468)
-    reasons:SetJustifyH("LEFT")
+    name:SetMaxLines(1)
+    name:SetJustifyH("LEFT")
+
+    local favorite = CreateFrame("CheckButton", nil, frame, "InterfaceOptionsCheckButtonTemplate")
+    favorite:SetPoint("LEFT", name, "RIGHT", 10, 0)
+    favorite.Text:SetText("Favorite (keep when inactive)")
+
+    local realm = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    realm:SetPoint("TOPLEFT", 23, -63)
+    local appearance = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    appearance:SetPoint("TOPLEFT", 23, -82)
 
     local noteLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    noteLabel:SetPoint("TOPLEFT", 23, -219)
+    noteLabel:SetPoint("TOPLEFT", 23, -112)
     noteLabel:SetText("Personal note")
     local noteScroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelInputScrollFrameTemplate")
-    noteScroll:SetPoint("TOPLEFT", 27, -242)
+    noteScroll:SetPoint("TOPLEFT", 27, -135)
     noteScroll:SetSize(450, 69)
     noteScroll.hideCharCount = true
     local note = noteScroll.EditBox
     note:SetWidth(445)
 
     local tagsLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    tagsLabel:SetPoint("TOPLEFT", 23, -330)
+    tagsLabel:SetPoint("TOPLEFT", 23, -223)
     tagsLabel:SetText("Tags (comma-separated)")
     local tags = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    tags:SetPoint("TOPLEFT", 27, -350)
+    tags:SetPoint("TOPLEFT", 27, -243)
     tags:SetSize(450, 25)
     tags:SetAutoFocus(false)
     tags:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
-    local favorite = CreateFrame("CheckButton", nil, frame, "InterfaceOptionsCheckButtonTemplate")
-    favorite:SetPoint("TOPLEFT", 20, -385)
-    favorite.Text:SetText("Favorite (keep when inactive)")
+    local reasonsLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    reasonsLabel:SetPoint("TOPLEFT", 23, -288)
+    reasonsLabel:SetText("Why you know this player")
+    local reasons = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    reasons:SetPoint("TOPLEFT", 23, -309)
+    reasons:SetWidth(468)
+    reasons:SetJustifyH("LEFT")
 
     local save = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     save:SetPoint("BOTTOMRIGHT", -22, 21)
@@ -303,8 +314,11 @@ local function CreatePlayerHistoryWindow()
 
     function frame.Open(playerKey, player)
         key, record = playerKey, player
-        local displayName = ns.GetDisplayName(key, record)
-        name:SetText(record.realm and displayName .. " (" .. record.realm .. ")" or displayName)
+        name:SetText(ns.GetDisplayName(key, record))
+        name:SetWidth(math.min(name:GetUnboundedStringWidth(), 275))
+        realm:SetText(ns.SafeString(record.realm) or "")
+        appearance:SetText("Race: " .. (ns.SafeString(record.race) or "Unknown")
+            .. "    Class: " .. (ns.SafeString(record.class) or "Unknown"))
         local history = {}
         for _, category in ipairs(CATEGORIES) do
             if record.categories[category.key] then
@@ -326,9 +340,10 @@ local function CreatePlayerHistoryWindow()
 end
 
 local historyWindow
-function ns.OpenPlayerHistory(key)
+function ns.OpenPlayerHistory(key, unit)
     local record = ns.GetPlayer(key)
     if not ns.HasPlayerCategory(record) then return end
+    ns.RefreshPlayerAppearance(record, unit)
     if not historyWindow then historyWindow = CreatePlayerHistoryWindow() end
     historyWindow.Open(key, record)
 end

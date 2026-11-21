@@ -100,7 +100,7 @@ local function HandleSlashCommand(message)
             Print(guidOrReason)
             return
         end
-        ns.RememberPlayer(key, "manual", nil, guidOrReason, realm)
+        ns.RememberPlayer(key, "manual", nil, guidOrReason, realm, "target")
         if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
         if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
         Print("Added to Manually Added: " .. name)

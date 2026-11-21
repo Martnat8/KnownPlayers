@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0b0] - 2026-11-21
+
 - Added player history on portraits and in Player Lists, with per-reason interaction dates, searchable notes and tags, and recent sorting.
 - Added pinned player and NPC favorites that are exempt from inactivity expiration.
 - Added a 30-second undo for the most recent individual removal, available in lists and through `/kp undo`.

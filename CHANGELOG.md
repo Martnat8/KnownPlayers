@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Promoted the 0.4.5 pre-release series with the About window, nameplate controls, QuestieDB fallback, and player and guild tracking fixes.
+
 ## [0.4.5b6] - 2026-11-21
 
 - Added an About button on the main settings page with help for tracking, NPC overrides, nameplates, and saved lists.

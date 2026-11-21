@@ -76,6 +76,7 @@ local function HandleSlashCommand(message)
         Print("/kp options - Open addon settings.")
         Print("/kp dbtest - Test database and expiration logic.")
         Print("/kp list - Show up to 10 saved player records.")
+        Print("/kp players - Open the searchable All Players window.")
         Print("/kp scan - Scan the current party or raid.")
         Print("/kp guildscan - Request and scan the guild roster.")
         Print("/kp platehide - Temporarily hide the target player nameplate.")
@@ -163,6 +164,11 @@ local function HandleSlashCommand(message)
             Print("Guild members processed from current roster cache: " .. ns.ScanGuildRoster())
             Print("A later GUILD_ROSTER_UPDATE may import additional members.")
         end
+        return
+    end
+
+    if command == "players" then
+        ns.OpenPlayerList("players")
         return
     end
 

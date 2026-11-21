@@ -39,30 +39,6 @@ StaticPopupDialogs["KNOWNPLAYERS_RESET_SETTINGS"] = {
     preferredIndex = 3,
 }
 
--- Clear stored player histories and Battle.net associations without resetting preferences.
-StaticPopupDialogs["KNOWNPLAYERS_CLEAR_ALL_LISTS"] = {
-    text = "Clear ALL KnownPlayers player and NPC lists and saved Battle.net alt associations?\n\nThis cannot be undone. Automatic tracking may add players again on future encounters or roster scans.",
-    button1 = "Clear All Lists",
-    button2 = CANCEL,
-    OnAccept = function()
-        if type(KnownPlayersDB) ~= "table" then return end
-        ns.ClearRemovalUndo()
-        KnownPlayersDB.players = {}
-        KnownPlayersDB.npcs = {}
-        KnownPlayersDB.npcOverrides = {}
-        KnownPlayersDB.bnetCharacters = {}
-        if ns.ClearBattleNetPending then ns.ClearBattleNetPending() end
-        if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
-        if ns.InvalidateBattleNetIndex then ns.InvalidateBattleNetIndex() end
-        if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
-        if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
-    end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
-
 local CATEGORIES = {
     { key = "trade", label = "Trade", tracking = "trackTrades", description = "Remember trading partners" },
     { key = "party", label = "Party", group = "party", description = "Remember party members" },
@@ -632,30 +608,6 @@ local function BuildPlayerPage()
     Label(body, "Duration", 188, retentionTop - 47, "GameFontNormalSmall")
 
     local guildNote = Label(body, "Guild membership is roster-based and does not expire.", 21, -800)
-    local listsSection = CreateFrame("Frame", nil, body)
-    listsSection:SetSize(440, 124)
-    Label(listsSection, "Player Lists", 0, -3, "GameFontNormal")
-    local playerList = Button(listsSection, "Open Player List", 177, function()
-        ns.OpenPlayerList("players")
-    end)
-    playerList:SetPoint("TOPLEFT", listsSection, "TOPLEFT", 0, -28)
-    local guildList = Button(listsSection, "Guild Roster", 177, function()
-        ns.OpenPlayerList("guild")
-    end)
-    guildList:SetPoint("TOPLEFT", listsSection, "TOPLEFT", 196, -28)
-    local altList = Button(listsSection, "Known Battle.net Alts", 177, function()
-        ns.OpenPlayerList("associated")
-    end)
-    altList:SetPoint("TOPLEFT", listsSection, "TOPLEFT", 0, -62)
-    local clearAll = Button(listsSection, "Clear All Lists", 177, function()
-        StaticPopup_Show("KNOWNPLAYERS_CLEAR_ALL_LISTS")
-    end)
-    clearAll:SetPoint("TOPLEFT", listsSection, "TOPLEFT", 196, -62)
-    local bottomLine = listsSection:CreateTexture(nil, "ARTWORK")
-    bottomLine:SetColorTexture(0.45, 0.45, 0.45, 0.4)
-    bottomLine:SetPoint("TOPLEFT", listsSection, "TOPLEFT", 0, -105)
-    bottomLine:SetWidth(432)
-    bottomLine:SetHeight(1)
 
     local retentionRows = {}
     local function LayoutRetentionRows()
@@ -667,9 +619,7 @@ local function BuildPlayerPage()
         end
         guildNote:ClearAllPoints()
         guildNote:SetPoint("TOPLEFT", body, "TOPLEFT", 21, y - 8)
-        listsSection:ClearAllPoints()
-        listsSection:SetPoint("TOPLEFT", body, "TOPLEFT", 20, y - 44)
-        body:SetHeight(math.max(1033, -y + 190))
+        body:SetHeight(-y + 34)
     end
     for _, category in ipairs(CATEGORIES) do
         if category.key ~= "guild" then

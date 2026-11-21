@@ -160,7 +160,7 @@ local function CreateCategoryWindow(category, index)
 
         local knownSince = item:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         knownSince:SetPoint("LEFT", name, "RIGHT", 8, 0)
-        knownSince:SetWidth(113)
+        knownSince:SetWidth(62)
         knownSince:SetJustifyH("LEFT")
 
         local remove = CreateFrame("Button", nil, item, "UIPanelButtonTemplate")
@@ -168,8 +168,14 @@ local function CreateCategoryWindow(category, index)
         remove:SetPoint("RIGHT", item, "RIGHT", -4, 0)
         remove:SetText("Remove")
 
+        local history = CreateFrame("Button", nil, item, "UIPanelButtonTemplate")
+        history:SetSize(68, 22)
+        history:SetPoint("RIGHT", remove, "LEFT", -6, 0)
+        history:SetText("History")
+
         item.nameText = name
         item.knownSinceText = knownSince
+        item.historyButton = history
         item.removeButton = remove
         rows[index] = item
         return item
@@ -202,6 +208,7 @@ local function CreateCategoryWindow(category, index)
             local item = GetRow(i)
             item.nameText:SetText(entry.name)
             item.knownSinceText:SetText(FormatKnownDuration(entry.firstSeen))
+            item.historyButton:SetScript("OnClick", function() ns.OpenPlayerHistory(entry.key) end)
             item.removeButton:SetScript("OnClick", function()
                 if category.key == "npc" then ns.ForgetNPC(entry.key)
                 else ns.RemovePlayerCategory(entry.key, category.key, true) end
@@ -613,7 +620,7 @@ local function CreateAssociatedWindow()
     header:SetPoint("TOPLEFT", 27, -140)
     header:SetText("Character")
     local linkHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    linkHeader:SetPoint("TOPLEFT", 265, -140)
+    linkHeader:SetPoint("TOPLEFT", 229, -140)
     linkHeader:SetText("Recognized through")
 
     local scroller = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
@@ -644,17 +651,25 @@ local function CreateAssociatedWindow()
                 row:SetPoint("RIGHT", 0, 0)
                 row.name = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
                 row.name:SetPoint("LEFT", 5, 0)
-                row.name:SetWidth(230)
+                row.name:SetWidth(195)
                 row.name:SetJustifyH("LEFT")
                 row.source = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                row.source:SetPoint("LEFT", 244, 0)
-                row.source:SetWidth(220)
+                row.source:SetPoint("LEFT", 208, 0)
+                row.source:SetWidth(154)
                 row.source:SetJustifyH("LEFT")
+                row.historyButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+                row.historyButton:SetSize(105, 22)
+                row.historyButton:SetPoint("RIGHT", -4, 0)
+                row.historyButton:SetText("Linked History")
                 rows[i] = row
             end
-            rows[i].name:SetText(entry.name)
-            rows[i].source:SetText(entry.linkedTo or "Known player")
-            rows[i]:Show()
+            local row = rows[i]
+            row.name:SetText(entry.name)
+            row.source:SetText(entry.linkedTo or "Known player")
+            row.historyButton:SetScript("OnClick", function()
+                ns.OpenPlayerHistory(entry.linkedPlayerKey)
+            end)
+            row:Show()
         end
         for i = #filtered + 1, #rows do rows[i]:Hide() end
         if scroller.SetVerticalScroll then scroller:SetVerticalScroll(0) end

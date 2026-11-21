@@ -9,7 +9,7 @@ A World of Warcraft **Forever** addon that remembers characters you encounter an
 ## Features
 
 - Recognize players through trade, party, raid, guild, whispers, targeting, and inspecting.
-- Keep independently searchable player lists with individual removal and clear-list controls.
+- Open searchable category lists from the tracking settings, with player history, individual removal, and clear-list controls.
 - See why a player is known, search private notes and tags, and sort by recent interactions.
 - Pin favorite players and NPCs to protect them from inactivity expiration, or undo the most recent individual removal within 30 seconds.
 - Set optional, category-specific inactivity expiration (guild membership is exempt).
@@ -31,6 +31,7 @@ The GitHub source archive contains repository files as well as the addon folder;
 - `/kp options` — open settings
 - `/kp status` — show version and stored record counts
 - `/kp list` — display up to 10 saved records
+- `/kp players` — open the searchable All Players window
 - `/kp scan` — scan current party/raid
 - `/kp guildscan` — request a guild roster scan
 - `/kp help` — show all commands
@@ -39,7 +40,7 @@ The GitHub source archive contains repository files as well as the addon folder;
 
 The addon stores character names, realms, identifiers, interaction categories and timestamps in WoW **SavedVariables** on your computer. For linked Battle.net friends, it also stores BattleTags and observed character associations locally to support alt recognition across sessions. Unlinked friend observations are session-only. The addon does **not** upload this information.
 
-**Do not publish or attach your personal SavedVariables files to bug reports.** To back up your lists, copy your SavedVariables before upgrading or using Clear All Lists.
+**Do not publish or attach your personal SavedVariables files to bug reports.** To back up your lists, copy your SavedVariables before upgrading or clearing a list.
 
 ## Limitations
 

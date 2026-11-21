@@ -25,11 +25,6 @@ function ns.InvalidateBattleNetIndex()
     associationDirty = true
 end
 
-function ns.ClearBattleNetPending()
-    pending = {}
-    ns.InvalidateBattleNetIndex()
-end
-
 local function DirectRecord(key, observed)
     return ns.FindDirectRecord and ns.FindDirectRecord(key, observed and observed.guid) or nil
 end
@@ -256,11 +251,14 @@ function ns.GetAssociatedCharacters()
         or not KnownPlayersSettings.trackBattleNetAssociations then return result end
     BuildAssociationIndex()
     for _, group in ipairs(linkedGroups) do
-        local anchor
+        local anchor, anchorKey
         for key, observed in pairs(group.members) do
-            local direct = type(observed) == "table" and DirectRecord(key, observed)
+            local directKey = type(observed) == "table" and (ns.FindDirectKeyByGUID(observed.guid)
+                or ns.FindDirectKeyByName(key, observed.guid))
+            local direct = directKey and ns.GetPlayer(directKey)
             if ns.HasPlayerCategory(direct) then
-                anchor = direct.displayName or observed.name
+                anchor = direct.displayName or observed.name or directKey
+                anchorKey = directKey
                 break
             end
         end
@@ -270,7 +268,7 @@ function ns.GetAssociatedCharacters()
                     and IsCharacterName(observed.name) then
                     result[#result+1] = {
                         key = key, name = observed.name, realm = observed.realm,
-                        linkedTo = anchor, battleTag = group.tag,
+                        linkedTo = anchor, linkedPlayerKey = anchorKey, battleTag = group.tag,
                         firstSeen = observed.firstObserved,
                     }
                 end

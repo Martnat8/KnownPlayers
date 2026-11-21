@@ -10,16 +10,17 @@ SETTINGS
   nameplate distance and opacity, and reset preferences without deleting
   stored characters.
 - Player Nameplates & Lists: player name/guild/health-bar settings, tracking
-  toggles alongside category colors and priority, per-reason player expiration,
-  unified searchable Player List, Guild roster view and Known Battle.net Alts.
-  Use List beside any tracking category to open its saved entries.
+  toggles alongside category colors and priority, and per-reason player
+  expiration. Use List beside a tracking category to open its list, then click
+  History on a player row. In Known Battle.net Alts, Linked History opens the
+  history of the saved character shown under Recognized through.
   Add players manually through the portrait right-click menu or /kp remember
   while targeting another player. Same-realm space/hyphen duplicates are merged on load
   when GUIDs do not conflict; category histories and timestamps are retained.
-  The player list has reason filters, All/None, and an immediate Remove button
-  that forgets the entire character record. Open History or use the portrait
-  menu to see the last interaction for each reason and edit personal notes
-  and comma-separated tags. Search matches notes and tags, and Most recent
+  Use /kp players to open All Players. It has reason filters, All/None, and an
+  immediate Remove button that forgets the entire character record. Use History
+  or the portrait menu to see the last interaction for each reason and edit
+  personal notes and comma-separated tags. Search matches notes and tags, and Most recent
   first sorts by the latest tracked interaction. Favorites are pinned in the
   player list and are exempt from inactivity expiration.
 - NPC Nameplates & Lists: NPC name/title/health-bar settings, remembered NPC
@@ -28,8 +29,7 @@ SETTINGS
   the manager or portrait menu to keep it from expiring.
 
 Use Undo in the lists or /kp undo within 30 seconds of the last individual
-removal. Clear All Lists and other bulk clears still require confirmation and
-cannot be undone.
+removal. Bulk clears require confirmation and cannot be undone.
 
 RETENTION
 On a fresh install or Reset Settings, forgetting is enabled with 30 days for
@@ -88,7 +88,7 @@ nameplate range cannot be selectively modified. NPC GUIDs may be restricted
 in dungeons; unidentifiable units are left alone rather than causing errors.
 
 COMMANDS
-/kp options; /kp status; /kp list; /kp scan; /kp guildscan;
+/kp options; /kp status; /kp list; /kp players; /kp scan; /kp guildscan;
 /kp remember; /kp npctoggle; /kp undo; /kp dbtest; /kp help
 
 0.3.3: Reset Settings to Defaults refreshes controls without /reload.

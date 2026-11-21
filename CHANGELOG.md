@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.5b6] - 2026-11-21
+
 - Added an About button on the main settings page with help for tracking, NPC overrides, nameplates, and saved lists.
 
 ## [0.4.5b5] - 2026-11-21

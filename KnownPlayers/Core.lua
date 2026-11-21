@@ -2,14 +2,23 @@ local addonName, ns = ...
 
 local ADDON_VERSION = "0.5.0b7"
 ns.AddonVersion = ADDON_VERSION
-local PRUNE_INTERVAL = 600
-local elapsedSincePrune = 0
+local PRUNE_INTERVAL = 5
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
 
 local function Print(message)
     print("|cff33ff99KnownPlayers:|r " .. message)
+end
+
+local function PruneExpiredRecords()
+    local now = time()
+    local players = ns.PruneExpiredPlayers(now)
+    local npcs = ns.PruneExpiredNPCs(now)
+    if players + npcs > 0 then
+        ns.RefreshKnownNameplates()
+        ns.RefreshPlayerListWindows()
+    end
 end
 
 local function TestDatabase()
@@ -212,8 +221,7 @@ eventFrame:SetScript("OnEvent", function(self, event, loadedAddon)
     ns.MigratePlayerRecords()
     if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
     if ns.PruneUnlinkedBattleNetData then ns.PruneUnlinkedBattleNetData() end
-    ns.PruneExpiredPlayers()
-    if ns.PruneExpiredNPCs then ns.PruneExpiredNPCs() end
+    PruneExpiredRecords()
     if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
     ns.CreateSettingsPanel()
     ns.RefreshMinimapButton()
@@ -228,14 +236,7 @@ eventFrame:SetScript("OnEvent", function(self, event, loadedAddon)
     SLASH_KNOWNPLAYERS1 = "/kp"
     SlashCmdList.KNOWNPLAYERS = HandleSlashCommand
 
-    self:SetScript("OnUpdate", function(_, elapsed)
-        elapsedSincePrune = elapsedSincePrune + elapsed
-        if elapsedSincePrune >= PRUNE_INTERVAL then
-            elapsedSincePrune = 0
-            ns.PruneExpiredPlayers()
-            if ns.PruneExpiredNPCs then ns.PruneExpiredNPCs() end
-        end
-    end)
+    C_Timer.NewTicker(PRUNE_INTERVAL, PruneExpiredRecords)
 
     self:UnregisterEvent("ADDON_LOADED")
     Print("Version " .. ADDON_VERSION .. " loaded.")

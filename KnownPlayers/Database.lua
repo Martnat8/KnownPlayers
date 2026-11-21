@@ -35,13 +35,18 @@ local function NormalizeTags(text)
     return ns.SafeString(table.concat(tags, ", "))
 end
 
-function ns.SavePlayerDetails(key, note, tags, favorite)
-    local record = KnownPlayersDB.players[key]
-    if not ns.HasPlayerCategory(record) then return false end
+function ns.SetPlayerFavorite(key, record, favorite)
+    if KnownPlayersDB.players[key] ~= record or not ns.HasPlayerCategory(record) then return false end
+    record.favorite = favorite and true or nil
+    if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows(true) end
+    return true
+end
+
+function ns.SavePlayerDetails(key, record, note, tags)
+    if KnownPlayersDB.players[key] ~= record or not ns.HasPlayerCategory(record) then return false end
     record.note = TrimmedText(note)
     record.tags = NormalizeTags(ns.SafeString(tags) or "")
-    record.favorite = favorite and true or nil
-    if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
+    if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows(true) end
     return true
 end
 
@@ -543,19 +548,28 @@ end
 
 function ns.PruneExpiredPlayers(now)
     local currentTime = now or time()
+    local cutoffs = {}
+    for category in pairs(supportedCategories) do
+        local retention = KnownPlayersSettings.categoryRetention[category]
+        if category ~= "guild" and type(retention) == "table" and retention.enabled then
+            cutoffs[category] = currentTime - SecondsForDuration(retention)
+        end
+    end
+    if not next(cutoffs) then return 0 end
+
     local removed = 0
     for key, record in pairs(KnownPlayersDB.players) do
         if type(record) == "table" and type(record.categories) == "table" and not record.favorite then
+            local categoryLastSeen = type(record.categoryLastSeen) == "table" and record.categoryLastSeen
+            local categoryFirstSeen = type(record.categoryFirstSeen) == "table" and record.categoryFirstSeen
             for category, present in pairs(record.categories) do
-                local retention = KnownPlayersSettings.categoryRetention[category]
-                if present and supportedCategories[category] and type(retention) == "table" and retention.enabled then
-                    local stamp = type(record.categoryLastSeen) == "table"
-                        and record.categoryLastSeen[category] or record.lastSeen
-                    if type(stamp) == "number"
-                        and stamp < currentTime - SecondsForDuration(retention) then
+                local cutoff = cutoffs[category]
+                if present and cutoff then
+                    local stamp = (categoryLastSeen and categoryLastSeen[category]) or record.lastSeen
+                    if type(stamp) == "number" and stamp <= cutoff then
                         record.categories[category] = nil
-                        if record.categoryLastSeen then record.categoryLastSeen[category] = nil end
-                        if record.categoryFirstSeen then record.categoryFirstSeen[category] = nil end
+                        if categoryLastSeen then categoryLastSeen[category] = nil end
+                        if categoryFirstSeen then categoryFirstSeen[category] = nil end
                         removed = removed + 1
                     end
                 end
@@ -579,14 +593,10 @@ function ns.PruneExpiredNPCs(now)
     local removed = 0
     for id, npc in pairs(KnownPlayersDB.npcs) do
         if type(npc) == "table" and not npc.favorite and type(npc.lastSeen) == "number"
-            and npc.lastSeen < cutoff then
+            and npc.lastSeen <= cutoff then
             KnownPlayersDB.npcs[id] = nil
             removed = removed + 1
         end
-    end
-    if removed > 0 then
-        if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
-        if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
     end
     return removed
 end

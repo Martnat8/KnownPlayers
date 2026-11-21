@@ -17,12 +17,14 @@ SETTINGS
   Add players manually through the portrait right-click menu or /kp remember
   while targeting another player. Same-realm space/hyphen duplicates are merged on load
   when GUIDs do not conflict; category histories and timestamps are retained.
-  Use /kp players to open All Players. It has reason filters, All/None, and an
-  immediate Remove button that forgets the entire character record. Use History
-  or the portrait menu to see the last interaction for each reason and edit
-  personal notes and comma-separated tags. Search matches notes and tags, and Most recent
-  first sorts by the latest tracked interaction. Favorites are pinned in the
-  player list and are exempt from inactivity expiration.
+  Use /kp players to open All Players. It has reason filters and All/None.
+  In player lists and Player History, click an outlined star to remember
+  that player forever or a filled star to let inactivity rules apply again.
+  The trash can removes the selected reason in a category
+  list or forgets the entire character in All Players. Use History or the
+  portrait menu to see the last interaction for each reason and edit
+  personal notes and comma-separated tags. Search matches notes and tags,
+  and Most recent first sorts by the latest tracked interaction.
 - NPC Nameplates & Lists: NPC name/title/health-bar settings, remembered NPC
   list, and manual NPC retention. NPCs are remembered using the portrait's
   right-click menu or /kp npctoggle while targeting a creature. Pin an NPC in
@@ -36,7 +38,8 @@ On a fresh install or Reset Settings, forgetting is enabled with 30 days for
 all applicable player reasons. Guild membership does not expire based on time.
 Manually remembered NPCs separately default to 30-day expiration enabled.
 Existing saved retention settings are preserved when upgrading. Expiration
-runs on load and periodically, not precisely at the minute of expiration.
+checks run on load and every five seconds. A player reason expires based on
+its last interaction. Known for goes back to its first recorded interaction.
 
 PLAYER DATA
 One player record can contain multiple reasons: Trade, Party, Raid, Guild,

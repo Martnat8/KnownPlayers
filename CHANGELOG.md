@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Made Player History draggable from the portrait menu and player lists.
+- Check inactivity every five seconds and refresh open lists and nameplates when saved entries expire.
+- Added star and trash-can controls beside player names in category lists and All Players, and a star toggle in Player History.
+- Save Player History favorites immediately so they survive reloads and inactivity expiration.
+
 ## [0.5.0b7] - 2026-11-21
 
 - Fit the settings window to the player tracking controls and centered the tabs above an inset border shared by both settings views.

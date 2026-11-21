@@ -23,7 +23,61 @@ local function FormatKnownDuration(firstSeen)
 end
 
 local windows = {}
+local openWindows = {}
 local RefreshAllWindows
+
+local function RemoveOpenWindow(frame)
+    for i = #openWindows, 1, -1 do
+        if openWindows[i] == frame then
+            table.remove(openWindows, i)
+            return
+        end
+    end
+end
+
+local function ShowWindow(frame)
+    RemoveOpenWindow(frame)
+    openWindows[#openWindows + 1] = frame
+    frame:Show()
+    frame:Raise()
+end
+
+local function CloseLatestWindow()
+    local frame = openWindows[#openWindows]
+    if frame then frame:Hide() end
+end
+
+local function EnableWindowKeyboard(frame)
+    frame:EnableKeyboard(true)
+    frame:SetPropagateKeyboardInput(true)
+end
+
+local function EnableWindowEscape(frame)
+    -- Use opening order even when mouse or keyboard focus is on a lower window.
+    frame:HookScript("OnShow", function(self)
+        if InCombatLockdown and InCombatLockdown() then
+            self:RegisterEvent("PLAYER_REGEN_ENABLED")
+        else
+            EnableWindowKeyboard(self)
+        end
+    end)
+    frame:SetScript("OnEvent", function(self)
+        self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        if self:IsShown() then EnableWindowKeyboard(self) end
+    end)
+    frame:HookScript("OnHide", RemoveOpenWindow)
+    frame:SetScript("OnKeyDown", function(self, key)
+        if InCombatLockdown and InCombatLockdown() then return end
+        local escape = key == "ESCAPE"
+        self:SetPropagateKeyboardInput(not escape)
+        if escape then CloseLatestWindow() end
+    end)
+end
+
+local function EscapeFromEditBox(self)
+    self:ClearFocus()
+    CloseLatestWindow()
+end
 
 local function AddSortHeaders(frame, y, knownX, refresh, recent)
     local field, reversed = "name", false
@@ -144,23 +198,7 @@ local function CreateCategoryWindow(category, index)
     frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     frame:Hide()
 
-    -- Handle Escape in this window rather than adding it to UISpecialFrames.
-    -- Blizzard can otherwise dismiss both the pop-out and the Settings panel
-    -- during one Escape press.
-    frame:EnableKeyboard(true)
-    frame:SetPropagateKeyboardInput(true)
-    frame:SetScript("OnKeyDown", function(self, key)
-        -- SetPropagateKeyboardInput is restricted in combat on modern clients.
-        if InCombatLockdown and InCombatLockdown() then return end
-        local closeWindow = key == "ESCAPE"
-        self:SetPropagateKeyboardInput(not closeWindow)
-        if closeWindow then self:Hide() end
-    end)
-    frame:HookScript("OnShow", function(self)
-        if not InCombatLockdown or not InCombatLockdown() then
-            self:SetPropagateKeyboardInput(true)
-        end
-    end)
+    EnableWindowEscape(frame)
 
     if frame.TitleText then
         frame.TitleText:SetText("KnownPlayers - " .. category.label)
@@ -180,10 +218,7 @@ local function CreateCategoryWindow(category, index)
     search:SetAutoFocus(false)
     search:SetMaxLetters(100)
     search:SetText("")
-    search:SetScript("OnEscapePressed", function(self)
-        self:ClearFocus()
-        frame:Hide()
-    end)
+    search:SetScript("OnEscapePressed", EscapeFromEditBox)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
 
     local searchHint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -316,6 +351,7 @@ local function CreatePlayerHistoryWindow()
     frame:SetClampedToScreen(true)
     frame:EnableMouse(true)
     frame:Hide()
+    EnableWindowEscape(frame)
     if frame.TitleText then frame.TitleText:SetText("KnownPlayers - Player History") end
 
     local name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
@@ -325,7 +361,7 @@ local function CreatePlayerHistoryWindow()
 
     local favorite = CreateFrame("CheckButton", nil, frame, "InterfaceOptionsCheckButtonTemplate")
     favorite:SetPoint("LEFT", name, "RIGHT", 10, 0)
-    favorite.Text:SetText("Favorite (keep when inactive)")
+    favorite.Text:SetText("Favorite (Never forget this player)")
 
     local realm = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     realm:SetPoint("TOPLEFT", 23, -63)
@@ -341,6 +377,7 @@ local function CreatePlayerHistoryWindow()
     noteScroll.hideCharCount = true
     local note = noteScroll.EditBox
     note:SetWidth(445)
+    note:SetScript("OnEscapePressed", EscapeFromEditBox)
 
     local tagsLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     tagsLabel:SetPoint("TOPLEFT", 23, -223)
@@ -349,7 +386,7 @@ local function CreatePlayerHistoryWindow()
     tags:SetPoint("TOPLEFT", 27, -243)
     tags:SetSize(450, 25)
     tags:SetAutoFocus(false)
-    tags:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    tags:SetScript("OnEscapePressed", EscapeFromEditBox)
 
     local reasonsLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     reasonsLabel:SetPoint("TOPLEFT", 23, -288)
@@ -379,7 +416,7 @@ local function CreatePlayerHistoryWindow()
     function frame.Open(playerKey, player)
         key, record = playerKey, player
         name:SetText(ns.GetDisplayName(key, record))
-        name:SetWidth(math.min(name:GetUnboundedStringWidth(), 275))
+        name:SetWidth(math.min(name:GetUnboundedStringWidth(), 255))
         realm:SetText(ns.SafeString(record.realm) or "")
         appearance:SetText("Race: " .. (ns.SafeString(record.race) or "Unknown")
             .. "    Class: " .. (ns.SafeString(record.class) or "Unknown"))
@@ -397,8 +434,7 @@ local function CreatePlayerHistoryWindow()
         tags:SetText(ns.SafeString(record.tags) or "")
         tags:SetCursorPosition(0)
         favorite:SetChecked(record.favorite == true)
-        frame:Show()
-        frame:Raise()
+        ShowWindow(frame)
     end
     return frame
 end
@@ -427,16 +463,7 @@ local function CreatePlayersWindow()
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
     frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     frame:Hide()
-    frame:EnableKeyboard(true)
-    frame:SetPropagateKeyboardInput(true)
-    frame:SetScript("OnKeyDown", function(self, key)
-        if InCombatLockdown and InCombatLockdown() then return end
-        self:SetPropagateKeyboardInput(key ~= "ESCAPE")
-        if key == "ESCAPE" then self:Hide() end
-    end)
-    frame:HookScript("OnShow", function(self)
-        if not InCombatLockdown or not InCombatLockdown() then self:SetPropagateKeyboardInput(true) end
-    end)
+    EnableWindowEscape(frame)
     if frame.TitleText then frame.TitleText:SetText("KnownPlayers - All Players") end
 
     local count = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -448,7 +475,7 @@ local function CreatePlayersWindow()
     search:SetAutoFocus(false)
     search:SetMaxLetters(100)
     search:SetText("")
-    search:SetScript("OnEscapePressed", function(self) self:ClearFocus(); frame:Hide() end)
+    search:SetScript("OnEscapePressed", EscapeFromEditBox)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     local hint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     hint:SetPoint("LEFT", search, "RIGHT", 12, 0)
@@ -650,18 +677,7 @@ local function CreateAssociatedWindow()
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
     frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     frame:Hide()
-    frame:EnableKeyboard(true)
-    frame:SetPropagateKeyboardInput(true)
-    frame:SetScript("OnKeyDown", function(self, key)
-        if InCombatLockdown and InCombatLockdown() then return end
-        self:SetPropagateKeyboardInput(key ~= "ESCAPE")
-        if key == "ESCAPE" then self:Hide() end
-    end)
-    frame:HookScript("OnShow", function(self)
-        if not InCombatLockdown or not InCombatLockdown() then
-            self:SetPropagateKeyboardInput(true)
-        end
-    end)
+    EnableWindowEscape(frame)
     if frame.TitleText then frame.TitleText:SetText("KnownPlayers - Known Battle.net Alts") end
 
     local description = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -675,7 +691,7 @@ local function CreateAssociatedWindow()
     search:SetPoint("TOPLEFT", 26, -94)
     search:SetAutoFocus(false)
     search:SetMaxLetters(100)
-    search:SetScript("OnEscapePressed", function(self) self:ClearFocus(); frame:Hide() end)
+    search:SetScript("OnEscapePressed", EscapeFromEditBox)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     local searchLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     searchLabel:SetPoint("LEFT", search, "RIGHT", 12, 0)
@@ -768,18 +784,7 @@ local function CreateNPCManagementWindow()
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
     frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     frame:Hide()
-    frame:EnableKeyboard(true)
-    frame:SetPropagateKeyboardInput(true)
-    frame:SetScript("OnKeyDown", function(self, key)
-        if InCombatLockdown and InCombatLockdown() then return end
-        self:SetPropagateKeyboardInput(key ~= "ESCAPE")
-        if key == "ESCAPE" then self:Hide() end
-    end)
-    frame:HookScript("OnShow", function(self)
-        if not InCombatLockdown or not InCombatLockdown() then
-            self:SetPropagateKeyboardInput(true)
-        end
-    end)
+    EnableWindowEscape(frame)
     if frame.TitleText then frame.TitleText:SetText("KnownPlayers - NPC Manager") end
     local count = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     count:SetPoint("TOPLEFT", 22, -43)
@@ -794,7 +799,7 @@ local function CreateNPCManagementWindow()
     search:SetAutoFocus(false)
     search:SetMaxLetters(100)
     search:SetText("")
-    search:SetScript("OnEscapePressed", function(self) self:ClearFocus(); frame:Hide() end)
+    search:SetScript("OnEscapePressed", EscapeFromEditBox)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     local searchHint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     searchHint:SetPoint("LEFT", search, "RIGHT", 10, 0)
@@ -1001,8 +1006,7 @@ local function OpenCategoryWindow(category, index)
         window = CreateCategoryWindow(category, index)
         windows[category.key] = window
     end
-    window:Show()
-    window:Raise()
+    ShowWindow(window)
     window.Refresh()
 end
 
@@ -1013,22 +1017,19 @@ function ns.OpenPlayerList(categoryKey)
     end
     if categoryKey == "players" then
         if not windows.players then windows.players = CreatePlayersWindow() end
-        windows.players:Show()
-        windows.players:Raise()
+        ShowWindow(windows.players)
         windows.players.Refresh()
         return
     end
     if categoryKey == "associated" then
         if not windows.associated then windows.associated = CreateAssociatedWindow() end
-        windows.associated:Show()
-        windows.associated:Raise()
+        ShowWindow(windows.associated)
         windows.associated.Refresh()
         return
     end
     if categoryKey == "npc" then
         if not windows.npc then windows.npc = CreateNPCManagementWindow() end
-        windows.npc:Show()
-        windows.npc:Raise()
+        ShowWindow(windows.npc)
         windows.npc.Refresh()
         return
     end

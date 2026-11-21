@@ -467,9 +467,9 @@ local function BuildPlayerPage()
     -- retention rows reflow when a custom duration is selected.
     local page, body = NewScrollingPage("Player Nameplates & Lists", "")
 
-    -- Group the controls by purpose; keep name and health-bar choices in
-    -- two aligned rows so all options are visible without competing labels.
-    Label(body, "Character name", 21, -10, "GameFontNormal")
+    local nameTop, healthTop, trackingTop = -10, -112, -214
+    Label(body, "Character name", 21, nameTop, "GameFontNormal")
+    Label(body, "Choose how character names and guild names appear on player nameplates.", 21, nameTop - 23)
     local full, first
     local function SelectNameMode(mode)
         KnownPlayersSettings.nameDisplayMode = mode
@@ -477,11 +477,11 @@ local function BuildPlayerPage()
         first:SetChecked(mode == "first")
         if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
     end
-    full = Checkbox(body, 20, -35, "Full name",
+    full = Checkbox(body, 20, nameTop - 54, "Full name",
         KnownPlayersSettings.nameDisplayMode ~= "first", function()
             SelectNameMode("full")
         end)
-    first = Checkbox(body, 165, -35, "First name",
+    first = Checkbox(body, 165, nameTop - 54, "First name",
         KnownPlayersSettings.nameDisplayMode == "first", function()
             SelectNameMode("first")
         end)
@@ -489,17 +489,18 @@ local function BuildPlayerPage()
         full:SetChecked(KnownPlayersSettings.nameDisplayMode ~= "first")
         first:SetChecked(KnownPlayersSettings.nameDisplayMode == "first")
     end)
-    Checkbox(body, 305, -35, "Guild name",
+    Checkbox(body, 305, nameTop - 54, "Guild name",
         KnownPlayersSettings.showGuildInNamesOnly, function(checked)
             KnownPlayersSettings.showGuildInNamesOnly = checked
             if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
         end, function() return KnownPlayersSettings.showGuildInNamesOnly end)
     local nameLine = body:CreateTexture(nil, "ARTWORK")
     nameLine:SetColorTexture(0.45, 0.45, 0.45, 0.24)
-    nameLine:SetPoint("TOPLEFT", body, "TOPLEFT", 20, -81)
+    nameLine:SetPoint("TOPLEFT", body, "TOPLEFT", 20, healthTop + 13)
     nameLine:SetSize(432, 1)
 
-    Label(body, "Health bar", 21, -94, "GameFontNormal")
+    Label(body, "Health bar", 21, healthTop, "GameFontNormal")
+    Label(body, "Choose when player nameplates show a health bar.", 21, healthTop - 23)
     local modeButtons = {}
     local function SelectHealthBarMode(mode)
         if ns.SetPlayerHealthBarMode then ns.SetPlayerHealthBarMode(mode) end
@@ -513,7 +514,7 @@ local function BuildPlayerPage()
         { "never", "Never", 305 },
     }) do
         local mode, label, x = item[1], item[2], item[3]
-        modeButtons[mode] = Checkbox(body, x, -119, label,
+        modeButtons[mode] = Checkbox(body, x, healthTop - 54, label,
             KnownPlayersSettings.playerHealthBarMode == mode,
             function() SelectHealthBarMode(mode) end)
     end
@@ -525,12 +526,12 @@ local function BuildPlayerPage()
 
     local line = body:CreateTexture(nil, "ARTWORK")
     line:SetColorTexture(0.45, 0.45, 0.45, 0.4)
-    line:SetPoint("TOPLEFT", body, "TOPLEFT", 20, -169)
+    line:SetPoint("TOPLEFT", body, "TOPLEFT", 20, trackingTop + 13)
     line:SetWidth(432)
     line:SetHeight(1)
 
-    Label(body, "Tracking, colors, and priority", 21, -182, "GameFontNormal")
-    Label(body, "Top enabled category wins when a player belongs to several lists.", 21, -205)
+    Label(body, "Tracking, colors, and priority", 21, trackingTop, "GameFontNormal")
+    Label(body, "Top enabled category wins when a player belongs to several lists.", 21, trackingTop - 23)
     local colorRows = {}
     local function RefreshOrder()
         for i, row in ipairs(colorRows) do
@@ -566,7 +567,7 @@ local function BuildPlayerPage()
     local colorRowSpacing = 29
     for i in ipairs(KnownPlayersSettings.nameplateColorOrder) do
         local row = {}
-        local y = -236 - (i - 1) * colorRowSpacing
+        local y = trackingTop - 54 - (i - 1) * colorRowSpacing
         row.checkbox = Checkbox(body, 20, y - 3, "", false, function(checked)
             SetCategoryTracking(TRACKING_CATEGORIES[row.key], checked)
         end)
@@ -596,7 +597,7 @@ local function BuildPlayerPage()
     RefreshOrder()
     RegisterSettingsRefresher(RefreshOrder)
 
-    local retentionTop = -251 - #colorRows * colorRowSpacing
+    local retentionTop = trackingTop - 69 - #colorRows * colorRowSpacing
     local line2 = body:CreateTexture(nil, "ARTWORK")
     line2:SetColorTexture(0.45, 0.45, 0.45, 0.4)
     line2:SetPoint("TOPLEFT", body, "TOPLEFT", 20, retentionTop)
@@ -782,7 +783,7 @@ local function BuildNPCPage()
     local npcList = Button(body, "Open NPC Manager", 180, function() ns.OpenPlayerList("npc") end)
     npcList:SetPoint("TOPLEFT", body, "TOPLEFT", 20, bottom - 61)
 
-    Label(body, "Forget manually remembered NPCs after inactivity", 21, bottom - 96, "GameFontNormal")
+    Label(body, "Forget manually remembered NPCs over time", 21, bottom - 96, "GameFontNormal")
     Label(body, "Forget", 22, bottom - 130, "GameFontNormalSmall")
     Label(body, "Duration", 187, bottom - 130, "GameFontNormalSmall")
     local retentionRow = RetentionRow(body, {key="npc", label="NPCs"})

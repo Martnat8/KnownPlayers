@@ -12,6 +12,7 @@ SETTINGS
 - Player Nameplates & Lists: player name/guild/health-bar settings, tracking
   toggles alongside category colors and priority, per-reason player expiration,
   unified searchable Player List, Guild roster view and Known Battle.net Alts.
+  Use List beside any tracking category to open its saved entries.
   Add players manually through the portrait right-click menu or /kp remember
   while targeting another player. Same-realm space/hyphen duplicates are merged on load
   when GUIDs do not conflict; category histories and timestamps are retained.

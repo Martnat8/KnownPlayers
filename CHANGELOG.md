@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Added a List button to each player tracking row to open that category’s saved entries.
+- Fixed Player History layering so list controls do not draw over the editor.
+
 ## [0.5.0b0] - 2026-11-21
 
 - Added player history on portraits and in Player Lists, with per-reason interaction dates, searchable notes and tags, and recent sorting.

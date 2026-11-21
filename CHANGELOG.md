@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-21
+
 - Redesigned Settings around three tabs and added an optional minimap button that opens the same layout in a vertically resizable window. The button works with MinimapButtonButton.
 - Added draggable Player History from player portraits and lists. See why and when you met each player, their race and class when available, and edit searchable notes and tags. Escape closes windows in reverse opening order.
 - Added shortcuts to each player category list and `/kp players` for All Players. Player lists show class and race icons and can filter by class. The Battle.net Alts list links to the saved player's history.

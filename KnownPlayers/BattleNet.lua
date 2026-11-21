@@ -275,10 +275,6 @@ function ns.GetAssociatedCharacters()
             end
         end
     end
-    table.sort(result, function(a,b)
-        if a.name:lower() ~= b.name:lower() then return a.name:lower() < b.name:lower() end
-        return a.key < b.key
-    end)
     return result
 end
 

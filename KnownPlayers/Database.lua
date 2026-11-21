@@ -638,10 +638,5 @@ function ns.GetCategoryPlayers(category)
             }
         end
     end
-    table.sort(results, function(a, b)
-        local aName, bName = a.name:lower(), b.name:lower()
-        if aName ~= bName then return aName < bName end
-        return a.key < b.key
-    end)
     return results
 end

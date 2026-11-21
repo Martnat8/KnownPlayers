@@ -25,6 +25,72 @@ end
 local windows = {}
 local RefreshAllWindows
 
+local function AddSortHeaders(frame, y, knownX, refresh, recent)
+    local field, reversed = "name", false
+
+    local function AddHeader(label, key, x, width)
+        local button = CreateFrame("Button", nil, frame)
+        button:SetSize(width, 20)
+        button:SetPoint("TOPLEFT", x, y)
+        local text = button:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        text:SetPoint("LEFT")
+        button:SetFontString(text)
+        button:SetNormalFontObject(GameFontHighlightSmall)
+        button:SetHighlightFontObject(GameFontNormalSmall)
+        button:SetText(label)
+
+        local arrow = button:CreateTexture(nil, "ARTWORK")
+        arrow:SetSize(9, 8)
+        arrow:SetPoint("LEFT", text, "RIGHT", 3, 0)
+        arrow:SetTexture("Interface\\Buttons\\UI-SortArrow")
+
+        button:SetScript("OnClick", function()
+            local wasRecent = recent and recent:GetChecked()
+            reversed = not wasRecent and field == key and not reversed
+            field = key
+            if wasRecent then recent:SetChecked(false) end
+            refresh()
+        end)
+        return arrow
+    end
+
+    local nameArrow = AddHeader("Name", "name", 26, 62)
+    local knownArrow = AddHeader("Known for", "known", knownX, 65)
+    return function(entries, favoritesFirst)
+        local mode = recent and recent:GetChecked() and "recent" or field
+        nameArrow:SetShown(mode == "name")
+        knownArrow:SetShown(mode == "known")
+        nameArrow:SetTexCoord(0, 0.5625, reversed and 1 or 0, reversed and 0 or 1)
+        knownArrow:SetTexCoord(0, 0.5625, reversed and 0 or 1, reversed and 1 or 0)
+
+        table.sort(entries, function(a, b)
+            if favoritesFirst and a.favorite ~= b.favorite then return a.favorite end
+            if mode ~= "name" then
+                local aTime, bTime
+                if mode == "recent" then
+                    aTime, bTime = tonumber(a.lastSeen), tonumber(b.lastSeen)
+                else
+                    aTime, bTime = a.firstSeen, b.firstSeen
+                end
+                if type(aTime) ~= "number" then aTime = nil end
+                if type(bTime) ~= "number" then bTime = nil end
+                if aTime ~= bTime then
+                    if aTime == nil then return false end
+                    if bTime == nil then return true end
+                    if mode == "known" and not reversed then return aTime < bTime end
+                    return aTime > bTime
+                end
+            end
+            local aName, bName = a.name:lower(), b.name:lower()
+            if aName ~= bName then
+                if mode == "name" and reversed then return aName > bName end
+                return aName < bName
+            end
+            return a.key < b.key
+        end)
+    end
+end
+
 local function AddUndoButton(frame)
     local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     button:SetSize(72, 22)
@@ -124,9 +190,8 @@ local function CreateCategoryWindow(category, index)
     searchHint:SetPoint("LEFT", search, "RIGHT", 12, 0)
     searchHint:SetText("Search names")
 
-    local durationHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    durationHeader:SetPoint("TOPLEFT", frame, "TOPLEFT", 273, -141)
-    durationHeader:SetText("Known for")
+    local Refresh
+    local Sort = AddSortHeaders(frame, -137, 269, function() Refresh() end)
 
     local clear = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     clear:SetSize(115, 24)
@@ -184,9 +249,8 @@ local function CreateCategoryWindow(category, index)
     local empty = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
     empty:SetPoint("TOPLEFT", content, "TOPLEFT", 6, -8)
 
-    local function Refresh()
-        local all = category.key == "npc" and ns.GetNPCList()
-            or ns.GetCategoryPlayers(category.key)
+    Refresh = function()
+        local all = ns.GetCategoryPlayers(category.key)
         local term = search:GetText():lower():match("^%s*(.-)%s*$")
         local filtered = {}
         for _, entry in ipairs(all) do
@@ -196,7 +260,8 @@ local function CreateCategoryWindow(category, index)
             end
         end
 
-        count:SetText(#all .. (category.key == "npc" and " NPCs (" or " players (") .. #filtered .. " shown)")
+        Sort(filtered)
+        count:SetText(#all .. " players (" .. #filtered .. " shown)")
         clear:SetEnabled(#all > 0)
         content:SetHeight(math.max(1, #filtered * ROW_HEIGHT))
         empty:SetShown(#filtered == 0)
@@ -210,8 +275,7 @@ local function CreateCategoryWindow(category, index)
             item.knownSinceText:SetText(FormatKnownDuration(entry.firstSeen))
             item.historyButton:SetScript("OnClick", function() ns.OpenPlayerHistory(entry.key) end)
             item.removeButton:SetScript("OnClick", function()
-                if category.key == "npc" then ns.ForgetNPC(entry.key)
-                else ns.RemovePlayerCategory(entry.key, category.key, true) end
+                ns.RemovePlayerCategory(entry.key, category.key, true)
                 if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
                 RefreshAllWindows()
             end)
@@ -437,15 +501,10 @@ local function CreatePlayersWindow()
     favorites.Text:SetText("Favorites only")
     favorites:SetScript("OnClick", function() Refresh() end)
 
-    local nameHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    nameHeader:SetPoint("TOPLEFT", 26, -264)
-    nameHeader:SetText("Character")
+    local Sort = AddSortHeaders(frame, -260, 441, function() Refresh() end, recent)
     local reasonHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     reasonHeader:SetPoint("TOPLEFT", 211, -264)
     reasonHeader:SetText("Reasons known")
-    local durationHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    durationHeader:SetPoint("TOPLEFT", 441, -264)
-    durationHeader:SetText("Known for")
     local recentHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     recentHeader:SetPoint("TOPLEFT", 508, -264)
     recentHeader:SetText("Last interaction")
@@ -528,16 +587,6 @@ local function CreatePlayersWindow()
                 }
             end
         end
-        local sortRecent = recent:GetChecked()
-        table.sort(all, function(a,b)
-            if a.favorite ~= b.favorite then return a.favorite end
-            if sortRecent then
-                local aSeen, bSeen = tonumber(a.lastSeen) or 0, tonumber(b.lastSeen) or 0
-                if aSeen ~= bSeen then return aSeen > bSeen end
-            end
-            if a.name:lower() ~= b.name:lower() then return a.name:lower() < b.name:lower() end
-            return a.key < b.key
-        end)
         local term = search:GetText():lower():match("^%s*(.-)%s*$")
         local nameTerm = term:gsub("%-", " ")
         local filtered = {}
@@ -559,6 +608,7 @@ local function CreatePlayersWindow()
                 filtered[#filtered + 1] = entry
             end
         end
+        Sort(filtered, true)
         count:SetText(#all .. " players (" .. #filtered .. " shown)")
         content:SetHeight(math.max(1, #filtered * ROW_HEIGHT))
         empty:SetShown(#filtered == 0)
@@ -590,7 +640,7 @@ end
 
 local function CreateAssociatedWindow()
     local frame = CreateFrame("Frame", "KnownPlayersAssociatedListWindow", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(570, 490)
+    frame:SetSize(640, 490)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
@@ -631,9 +681,8 @@ local function CreateAssociatedWindow()
     searchLabel:SetPoint("LEFT", search, "RIGHT", 12, 0)
     searchLabel:SetText("Search names")
 
-    local header = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    header:SetPoint("TOPLEFT", 27, -140)
-    header:SetText("Character")
+    local Refresh
+    local Sort = AddSortHeaders(frame, -136, 388, function() Refresh() end)
     local linkHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     linkHeader:SetPoint("TOPLEFT", 229, -140)
     linkHeader:SetText("Recognized through")
@@ -642,10 +691,10 @@ local function CreateAssociatedWindow()
     scroller:SetPoint("TOPLEFT", 21, -160)
     scroller:SetPoint("BOTTOMRIGHT", -39, 20)
     local content = CreateFrame("Frame", nil, scroller)
-    content:SetSize(480, 1)
+    content:SetSize(550, 1)
     scroller:SetScrollChild(content)
     local rows = {}
-    local function Refresh()
+    Refresh = function()
         local all = ns.GetAssociatedCharacters()
         local term = search:GetText():lower():match("^%s*(.-)%s*$")
         local filtered = {}
@@ -656,6 +705,7 @@ local function CreateAssociatedWindow()
                 filtered[#filtered + 1] = entry
             end
         end
+        Sort(filtered)
         count:SetText(#all .. " associated characters (" .. #filtered .. " shown)")
         content:SetHeight(math.max(1, #filtered * 28))
         for i, entry in ipairs(filtered) do
@@ -672,6 +722,10 @@ local function CreateAssociatedWindow()
                 row.source:SetPoint("LEFT", 208, 0)
                 row.source:SetWidth(154)
                 row.source:SetJustifyH("LEFT")
+                row.known = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                row.known:SetPoint("LEFT", 367, 0)
+                row.known:SetWidth(63)
+                row.known:SetJustifyH("LEFT")
                 row.historyButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
                 row.historyButton:SetSize(105, 22)
                 row.historyButton:SetPoint("RIGHT", -4, 0)
@@ -681,6 +735,7 @@ local function CreateAssociatedWindow()
             local row = rows[i]
             row.name:SetText(entry.name)
             row.source:SetText(entry.linkedTo or "Known player")
+            row.known:SetText(FormatKnownDuration(entry.firstSeen))
             row.historyButton:SetScript("OnClick", function()
                 ns.OpenPlayerHistory(entry.linkedPlayerKey)
             end)
@@ -703,7 +758,7 @@ end
 -- browser. NPC identities are read only for remembered or overridden entries.
 local function CreateNPCManagementWindow()
     local frame = CreateFrame("Frame", "KnownPlayersNPCManagerWindow", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(790, 595)
+    frame:SetSize(860, 595)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
@@ -808,9 +863,10 @@ local function CreateNPCManagementWindow()
     end
     clear:SetScript("OnClick", function() StaticPopup_Show(clearPopup) end)
 
+    local Sort = AddSortHeaders(frame, -248, 407, function() Refresh() end)
     for _, column in ipairs({
-        {26, "NPC name / ID"}, {211, "Categories / source"}, {407, "Visibility"},
-        {530, "Saved"}, {645, "Favorite"},
+        {211, "Categories / source"}, {477, "Visibility"},
+        {600, "Saved"}, {715, "Favorite"},
     }) do
         local heading = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         heading:SetPoint("TOPLEFT", frame, "TOPLEFT", column[1], -252)
@@ -820,7 +876,7 @@ local function CreateNPCManagementWindow()
     scroller:SetPoint("TOPLEFT", frame, "TOPLEFT", 22, -270)
     scroller:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -40, 19)
     local content = CreateFrame("Frame", nil, scroller)
-    content:SetSize(713, 1)
+    content:SetSize(783, 1)
     scroller:SetScrollChild(content)
     local rows = {}
     local HEIGHT = 36
@@ -838,16 +894,20 @@ local function CreateNPCManagementWindow()
         categoriesLabel:SetPoint("LEFT", item, "LEFT", 189, 0)
         categoriesLabel:SetWidth(186)
         categoriesLabel:SetJustifyH("LEFT")
+        local known = item:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        known:SetPoint("LEFT", item, "LEFT", 385, 0)
+        known:SetWidth(63)
+        known:SetJustifyH("LEFT")
         local mode = CreateFrame("Button", nil, item, "UIPanelButtonTemplate")
         mode:SetSize(115, 24)
-        mode:SetPoint("LEFT", item, "LEFT", 385, 0)
+        mode:SetPoint("LEFT", item, "LEFT", 455, 0)
         local manual = CreateFrame("Button", nil, item, "UIPanelButtonTemplate")
         manual:SetSize(105, 24)
-        manual:SetPoint("LEFT", item, "LEFT", 508, 0)
+        manual:SetPoint("LEFT", item, "LEFT", 578, 0)
         local pin = CreateFrame("Button", nil, item, "UIPanelButtonTemplate")
         pin:SetSize(67, 24)
-        pin:SetPoint("LEFT", item, "LEFT", 623, 0)
-        item.nameText, item.categoryText = name, categoriesLabel
+        pin:SetPoint("LEFT", item, "LEFT", 693, 0)
+        item.nameText, item.categoryText, item.knownText = name, categoriesLabel, known
         item.modeButton, item.manualButton, item.pinButton = mode, manual, pin
         rows[index] = item
         return item
@@ -871,6 +931,7 @@ local function CreateNPCManagementWindow()
                 filtered[#filtered + 1] = entry
             end
         end
+        Sort(filtered, true)
         count:SetText(#all .. " saved NPCs (" .. #filtered .. " shown)")
         clear:SetEnabled(#all > 0)
         content:SetHeight(math.max(1, #filtered * HEIGHT))
@@ -883,6 +944,7 @@ local function CreateNPCManagementWindow()
         for i, entry in ipairs(filtered) do
             local row = Row(i)
             row.nameText:SetText((entry.favorite and "|cffffd100*|r " or "") .. entry.name .. " (" .. entry.key .. ")")
+            row.knownText:SetText(FormatKnownDuration(entry.firstSeen))
             local roleNames = {}
             if entry.manual then roleNames[#roleNames + 1] = "Remembered" end
             if entry.services then

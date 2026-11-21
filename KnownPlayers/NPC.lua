@@ -235,12 +235,6 @@ function ns.GetNPCList()
         entry.realm = "" -- Compatibility with generic list/search helpers.
         list[#list + 1] = entry
     end
-    table.sort(list, function(a, b)
-        if a.favorite ~= b.favorite then return a.favorite end
-        local x, y = a.name:lower(), b.name:lower()
-        if x ~= y then return x < y end
-        return (tonumber(a.key) or 0) < (tonumber(b.key) or 0)
-    end)
     return list
 end
 

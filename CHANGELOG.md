@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Added clickable Name and Known for sorting to the player category lists, All Players, Battle.net Alts, and NPC Manager.
+
 ## [0.5.0b3] - 2026-11-21
 
 - Expanded the README to explain how everyday interactions make familiar players' nameplates visible.

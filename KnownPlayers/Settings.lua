@@ -70,7 +70,6 @@ local CATEGORIES = {
     { key = "whisper", label = "Whisper", tracking = "trackWhispers", description = "Remember whispered players" },
     { key = "target", label = "Target", tracking = "trackTargets", description = "Remember targeted players" },
     { key = "inspect", label = "Inspect", tracking = "trackInspects", description = "Remember inspected players" },
-    { key = "pvp", label = "PvP Attackers", tracking = "trackPvP", description = "Remember players who attack you" },
     { key = "manual", label = "Manually Added", tracking = "trackManual", description = "Show players saved manually" },
 }
 
@@ -407,7 +406,7 @@ local function BuildHomePage()
         local row = math.floor((index - 1) / 2)
         TrackingCheckbox(content, category, 16 + column * 224, -116 - row * 35)
     end
-    Checkbox(content, 240, -256, "Known Battle.net Alts",
+    Checkbox(content, 16, -256, "Known Battle.net Alts",
         KnownPlayersSettings.trackBattleNetAssociations, function(checked)
             KnownPlayersSettings.trackBattleNetAssociations = checked
             if checked and ns.ScanBattleNetFriends then ns.ScanBattleNetFriends() end
@@ -530,7 +529,7 @@ local function BuildPlayerPage()
     line:SetHeight(1)
 
     local palette = {
-        pvp="PvP Attackers", trade="Trade", guild="Guild", associated="Known Battle.net Alts",
+        trade="Trade", guild="Guild", associated="Known Battle.net Alts",
         whisper="Whisper", raid="Raid", party="Party", inspect="Inspect", target="Target",
         manual="Manually Added",
     }

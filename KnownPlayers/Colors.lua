@@ -1,8 +1,7 @@
 local addonName, ns = ...
 
-local DEFAULT_ORDER = { "pvp", "guild", "associated", "raid", "party", "trade", "whisper", "inspect", "target", "manual" }
+local DEFAULT_ORDER = { "guild", "associated", "raid", "party", "trade", "whisper", "inspect", "target", "manual" }
 local DEFAULT_COLORS = {
-    pvp = {1.0, 0.20, 0.20},
     trade = {1.0, 0.82, 0.40}, guild = {0.40, 0.85, 0.55},
     associated = {0.40, 0.67, 1.0}, whisper = {0.72, 0.55, 1.0},
     raid = {1.0, 0.53, 0.30}, party = {0.34, 0.85, 0.82},
@@ -32,7 +31,7 @@ local NPC_DEFAULT_ORDER = {
 }
 
 local TRACK_KEY = {
-    pvp = "trackPvP", trade = "trackTrades", guild = "trackGuild", whisper = "trackWhispers",
+    trade = "trackTrades", guild = "trackGuild", whisper = "trackWhispers",
     target = "trackTargets", inspect = "trackInspects", associated = "trackBattleNetAssociations",
     manual = "trackManual",
 }
@@ -53,8 +52,7 @@ function ns.InitializeNameplateColors()
     end
     for _, key in ipairs(DEFAULT_ORDER) do
         if not seen[key] then
-            if key == "pvp" then table.insert(clean, 1, key)
-            else clean[#clean+1] = key end
+            clean[#clean+1] = key
             seen[key] = true
         end
     end

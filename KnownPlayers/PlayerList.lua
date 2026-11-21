@@ -8,7 +8,6 @@ local CATEGORIES = {
     { key = "whisper", label = "Whisper" },
     { key = "target", label = "Target" },
     { key = "inspect", label = "Inspect" },
-    { key = "pvp", label = "PvP Attackers" },
     { key = "manual", label = "Manually Added" },
 }
 
@@ -310,7 +309,7 @@ local function CreatePlayersWindow()
         local first
         if type(record.categoryFirstSeen) == "table" then
             for category, stamp in pairs(record.categoryFirstSeen) do
-                if type(record.categories) == "table" and record.categories[category]
+                if ns.IsPlayerCategory(category) and record.categories[category]
                     and type(stamp) == "number" and (not first or stamp < first) then first = stamp end
             end
         end
@@ -347,7 +346,7 @@ local function CreatePlayersWindow()
     Refresh = function()
         local all = {}
         for key, record in pairs(KnownPlayersDB.players or {}) do
-            if type(record) == "table" and type(record.categories) == "table" and next(record.categories) then
+            if ns.HasPlayerCategory(record) then
                 local reasons = ReasonsFor(record)
                 all[#all + 1] = {
                     key = key, name = ns.GetDisplayName(key, record),

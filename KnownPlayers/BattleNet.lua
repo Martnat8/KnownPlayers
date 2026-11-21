@@ -34,15 +34,15 @@ local function DirectRecord(key, observed)
     return ns.FindDirectRecord and ns.FindDirectRecord(key, observed and observed.guid) or nil
 end
 
-local function HasAnyCategory(record)
+local function HasStoredCategory(record)
     return type(record) == "table" and type(record.categories) == "table"
         and next(record.categories) ~= nil
 end
 
-local function HasDirectAnchor(members)
+local function HasDirectAnchor(members, hasCategory)
     if type(members) ~= "table" then return false end
     for key, entry in pairs(members) do
-        if type(entry) == "table" and HasAnyCategory(DirectRecord(key, entry)) then
+        if type(entry) == "table" and hasCategory(DirectRecord(key, entry)) then
             return true
         end
     end
@@ -78,7 +78,7 @@ function ns.PruneUnlinkedBattleNetData()
     if type(KnownPlayersDB) ~= "table" then return end
     local groups = KnownPlayersDB.bnetCharacters or {}
     for tag, members in pairs(groups) do
-        if type(members) ~= "table" or not HasDirectAnchor(members) then
+        if type(members) ~= "table" or not HasDirectAnchor(members, HasStoredCategory) then
             if type(members) == "table" then
                 pending[tag] = pending[tag] or {}
                 MergeObservations(pending[tag], members)
@@ -96,7 +96,7 @@ function ns.PromotePendingBattleNetObservations()
     local changed = false
     for tag, members in pairs(pending) do
         local group = stored[tag]
-        if HasDirectAnchor(members) or HasDirectAnchor(group) then
+        if HasDirectAnchor(members, ns.HasPlayerCategory) or HasDirectAnchor(group, ns.HasPlayerCategory) then
             group = type(group) == "table" and group or {}
             MergeObservations(group, members)
             stored[tag] = group
@@ -172,7 +172,7 @@ local function IsTrackingEnabled(category)
     end
     local setting = {
         trade = "trackTrades", guild = "trackGuild", whisper = "trackWhispers",
-        target = "trackTargets", inspect = "trackInspects", pvp = "trackPvP",
+        target = "trackTargets", inspect = "trackInspects",
         manual = "trackManual",
     }
     local key = setting[category]
@@ -180,7 +180,7 @@ local function IsTrackingEnabled(category)
 end
 
 local function HasEnabledCategory(record)
-    if not HasAnyCategory(record) then return false end
+    if not HasStoredCategory(record) then return false end
     for category, present in pairs(record.categories) do
         if present and IsTrackingEnabled(category) then return true end
     end
@@ -198,7 +198,7 @@ local function BuildAssociationIndex()
             for key, observed in pairs(group) do
                 if type(observed) == "table" then
                     local record = DirectRecord(key, observed)
-                    if HasAnyCategory(record) then direct[#direct+1] = record end
+                    if ns.HasPlayerCategory(record) then direct[#direct+1] = record end
                 end
             end
             if #direct > 0 then
@@ -259,14 +259,14 @@ function ns.GetAssociatedCharacters()
         local anchor
         for key, observed in pairs(group.members) do
             local direct = type(observed) == "table" and DirectRecord(key, observed)
-            if HasAnyCategory(direct) then
+            if ns.HasPlayerCategory(direct) then
                 anchor = direct.displayName or observed.name
                 break
             end
         end
         if anchor then
             for key, observed in pairs(group.members) do
-                if type(observed) == "table" and not HasAnyCategory(DirectRecord(key, observed))
+                if type(observed) == "table" and not ns.HasPlayerCategory(DirectRecord(key, observed))
                     and IsCharacterName(observed.name) then
                     result[#result+1] = {
                         key = key, name = observed.name, realm = observed.realm,

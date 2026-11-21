@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0b4] - 2026-11-21
+
 - Added clickable Name and Known for sorting to the player category lists, All Players, Battle.net Alts, and NPC Manager.
 
 ## [0.5.0b3] - 2026-11-21

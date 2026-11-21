@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.5b3] - 2026-11-21
+
 - Removed PvP attacker tracking, its controls, and its player-list category. TODO: Revisit PvP tracking when it can be tested in WoW Forever.
 - Made `/kp remember` use the same identity checks as the portrait menu and explain when the targeted player cannot be identified.
 - Cleared old Guild reasons on confirmed guild departures and switches while preserving other encounter reasons.

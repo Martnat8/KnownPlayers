@@ -1,4 +1,4 @@
-KnownPlayers 0.4.5b2 (WoW Forever, Interface 16001)
+KnownPlayers 0.4.5b3 (WoW Forever, Interface 16001)
 
 INSTALL
 Extract the KnownPlayers folder into World of Warcraft/Interface/AddOns.

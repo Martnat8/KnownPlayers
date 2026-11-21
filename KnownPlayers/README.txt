@@ -6,21 +6,29 @@ Restart WoW or run /reload. Type /kp options to open settings.
 Keep a backup of your SavedVariables before installing a new development build.
 
 SETTINGS
-- KnownPlayers: enable player and NPC nameplate filtering separately, choose
-  which player interactions to track, and reset preferences without deleting
+- KnownPlayers: enable player and NPC nameplate filtering separately, adjust
+  nameplate distance and opacity, and reset preferences without deleting
   stored characters.
-- Player Nameplates & Lists: player name/guild/health-bar settings, category
-  colors and priority, per-reason player expiration,
+- Player Nameplates & Lists: player name/guild/health-bar settings, tracking
+  toggles alongside category colors and priority, per-reason player expiration,
   unified searchable Player List, Guild roster view and Known Battle.net Alts.
   Add players manually through the portrait right-click menu or /kp remember
   while targeting another player. Same-realm space/hyphen duplicates are merged on load
   when GUIDs do not conflict; category histories and timestamps are retained.
   The player list has reason filters, All/None, and an immediate Remove button
-  that forgets the entire character record. Clear All Lists
-  requires confirmation and also clears NPCs/alts.
+  that forgets the entire character record. Open History or use the portrait
+  menu to see the last interaction for each reason and edit personal notes
+  and comma-separated tags. Search matches notes and tags, and Most recent
+  first sorts by the latest tracked interaction. Favorites are pinned in the
+  player list and are exempt from inactivity expiration.
 - NPC Nameplates & Lists: NPC name/title/health-bar settings, remembered NPC
   list, and manual NPC retention. NPCs are remembered using the portrait's
-  right-click menu or /kp npctoggle while targeting a creature.
+  right-click menu or /kp npctoggle while targeting a creature. Pin an NPC in
+  the manager or portrait menu to keep it from expiring.
+
+Use Undo in the lists or /kp undo within 30 seconds of the last individual
+removal. Clear All Lists and other bulk clears still require confirmation and
+cannot be undone.
 
 RETENTION
 On a fresh install or Reset Settings, forgetting is enabled with 30 days for
@@ -80,7 +88,7 @@ in dungeons; unidentifiable units are left alone rather than causing errors.
 
 COMMANDS
 /kp options; /kp status; /kp list; /kp scan; /kp guildscan;
-/kp remember; /kp npctoggle; /kp dbtest; /kp help
+/kp remember; /kp npctoggle; /kp undo; /kp dbtest; /kp help
 
 0.3.3: Reset Settings to Defaults refreshes controls without /reload.
 0.3.4: Removed unreliable Add Player text field. Use right-click Remember Player

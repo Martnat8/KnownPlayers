@@ -85,7 +85,15 @@ function ns.SetNPCVisibilityOverride(id, name, mode)
     if not id:match("^%d+$") or (mode ~= "auto" and mode ~= "show" and mode ~= "hide")
         or not KnownPlayersDB or type(KnownPlayersDB.npcOverrides) ~= "table" then return false end
     if mode == "auto" then
+        local previous = KnownPlayersDB.npcOverrides[id]
         KnownPlayersDB.npcOverrides[id] = nil
+        if type(previous) == "table" then
+            ns.OfferRemovalUndo(function()
+                if KnownPlayersDB.npcOverrides[id] then return false end
+                KnownPlayersDB.npcOverrides[id] = previous
+                return true
+            end)
+        end
     else
         local old = KnownPlayersDB.npcOverrides[id]
         KnownPlayersDB.npcOverrides[id] = {
@@ -107,18 +115,27 @@ function ns.IsKnownNPC(unit, resolvedID)
         or ns.GetNPCNameplateCategory(id) ~= nil
 end
 
-function ns.RememberNPC(id, name)
+function ns.RememberNPC(id, name, favorite)
     if type(id) ~= "string" or not id:match("^%d+$")
         or type(name) ~= "string" or name == "" then return false end
     local store = KnownPlayersDB.npcs
     local entry = store[id]
-    if not entry then
+    if type(entry) ~= "table" then
         entry = { firstSeen = time() }
         store[id] = entry
     end
     entry.name = name
     entry.lastSeen = time()
+    if favorite then entry.favorite = true end
     if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+    if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
+    return true
+end
+
+function ns.ToggleNPCFavorite(id, name)
+    local entry = KnownPlayersDB.npcs[id]
+    if type(entry) ~= "table" then return ns.RememberNPC(id, name, true) end
+    entry.favorite = not entry.favorite or nil
     if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
     return true
 end
@@ -138,8 +155,21 @@ npcTargetFrame:SetScript("OnEvent", function()
 end)
 
 function ns.ForgetNPC(id)
-    if type(KnownPlayersDB.npcs[id]) ~= "table" then return false end
+    local entry = KnownPlayersDB.npcs[id]
+    if type(entry) ~= "table" then return false end
     KnownPlayersDB.npcs[id] = nil
+    ns.OfferRemovalUndo(function()
+        local current = KnownPlayersDB.npcs[id]
+        if type(current) == "table" then
+            current.favorite = (current.favorite or entry.favorite) and true or nil
+            if type(entry.firstSeen) == "number" then
+                current.firstSeen = math.min(tonumber(current.firstSeen) or entry.firstSeen, entry.firstSeen)
+            end
+        else
+            KnownPlayersDB.npcs[id] = entry
+        end
+        return true
+    end)
     if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
     if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
     return true
@@ -147,6 +177,7 @@ end
 
 function ns.ClearNPCs()
     local count = ns.CountNPCs()
+    ns.ClearRemovalUndo()
     KnownPlayersDB.npcs = {}
     if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
     if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
@@ -161,6 +192,7 @@ function ns.ClearNPCManagement()
     for id in pairs(KnownPlayersDB.npcOverrides or {}) do
         if not seen[id] then count = count + 1 end
     end
+    ns.ClearRemovalUndo()
     KnownPlayersDB.npcs = {}
     KnownPlayersDB.npcOverrides = {}
     if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
@@ -182,7 +214,7 @@ function ns.GetNPCList()
         if type(entry) == "table" then
             entries[id] = {
                 key = id, name = entry.name or ("NPC " .. id),
-                firstSeen = entry.firstSeen, manual = true,
+                firstSeen = entry.firstSeen, manual = true, favorite = entry.favorite == true,
             }
         end
     end
@@ -191,7 +223,7 @@ function ns.GetNPCList()
             local result = entries[id]
             if not result then
                 result = {key = id, name = entry.name or ("NPC " .. id),
-                    firstSeen = entry.firstSeen, manual = false}
+                    firstSeen = entry.firstSeen, manual = false, favorite = false}
                 entries[id] = result
             end
         end
@@ -204,6 +236,7 @@ function ns.GetNPCList()
         list[#list + 1] = entry
     end
     table.sort(list, function(a, b)
+        if a.favorite ~= b.favorite then return a.favorite end
         local x, y = a.name:lower(), b.name:lower()
         if x ~= y then return x < y end
         return (tonumber(a.key) or 0) < (tonumber(b.key) or 0)
@@ -221,7 +254,8 @@ local function AddNPCMenu(_, rootDescription, contextData)
     if not id then return end
     rootDescription:CreateDivider()
     rootDescription:CreateTitle("KnownPlayers")
-    if KnownPlayersDB.npcs[id] then
+    local saved = KnownPlayersDB.npcs[id]
+    if saved then
         rootDescription:CreateButton("Forget NPC", function()
             ns.ForgetNPC(id)
         end)
@@ -230,6 +264,9 @@ local function AddNPCMenu(_, rootDescription, contextData)
             ns.RememberNPC(id, name)
         end)
     end
+    rootDescription:CreateButton(saved and saved.favorite and "Remove from Favorites" or "Add to Favorites", function()
+        ns.ToggleNPCFavorite(id, name)
+    end)
     local mode = ns.GetNPCVisibilityOverride(id)
     rootDescription:CreateTitle("NPC visibility override")
     for _, choice in ipairs({

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- Added player history on portraits and in Player Lists, with per-reason interaction dates, searchable notes and tags, and recent sorting.
+- Added pinned player and NPC favorites that are exempt from inactivity expiration.
+- Added a 30-second undo for the most recent individual removal, available in lists and through `/kp undo`.
+- Displayed the installed KnownPlayers version in the About window.
+- Moved player tracking toggles into the player color and priority rows, matching the NPC settings layout.
+
 ## [0.4.5] - 2026-11-21
 
 - Promoted the 0.4.5 pre-release series with the About window, nameplate controls, QuestieDB fallback, and player and guild tracking fixes.

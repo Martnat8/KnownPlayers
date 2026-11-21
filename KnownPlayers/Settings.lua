@@ -46,6 +46,7 @@ StaticPopupDialogs["KNOWNPLAYERS_CLEAR_ALL_LISTS"] = {
     button2 = CANCEL,
     OnAccept = function()
         if type(KnownPlayersDB) ~= "table" then return end
+        ns.ClearRemovalUndo()
         KnownPlayersDB.players = {}
         KnownPlayersDB.npcs = {}
         KnownPlayersDB.npcOverrides = {}
@@ -72,6 +73,10 @@ local CATEGORIES = {
     { key = "inspect", label = "Inspect", tracking = "trackInspects", description = "Remember inspected players" },
     { key = "manual", label = "Manually Added", tracking = "trackManual", description = "Show players saved manually" },
 }
+local TRACKING_CATEGORIES = {
+    associated = { key = "associated", label = "Known Battle.net Alts", tracking = "trackBattleNetAssociations" },
+}
+for _, category in ipairs(CATEGORIES) do TRACKING_CATEGORIES[category.key] = category end
 
 local function Label(parent, value, x, y, font)
     local label = parent:CreateFontString(nil, "ARTWORK", font or "GameFontHighlightSmall")
@@ -103,16 +108,17 @@ local function ShowAbout(parent)
     if frame.TitleText then frame.TitleText:SetText("About KnownPlayers") end
     parent:HookScript("OnHide", function() frame:Hide() end)
 
-    local y = -38
+    Label(frame, "Version " .. ns.AddonVersion, 22, -38)
+    local y = -62
     for _, section in ipairs({
         {"Remembering players",
-            "KnownPlayers remembers players from the interactions you enable. To save someone manually, use their portrait menu or type /kp remember while targeting them. The highest-priority enabled category sets their name color."},
+            "Choose which interactions to track on Player Nameplates & Lists. Use a portrait menu or /kp remember to save someone manually. Open Player History to see why you know them and add a note, tags, or a favorite."},
         {"NPC filtering and overrides",
             "Automatic NPC categories use QuestieDB. The filter leaves attackable monsters and unclassified NPCs visible. In the NPC Manager, Overrides lists NPCs set to Always Show or Always Hide. Automatic clears the override."},
         {"Nameplate distance and opacity",
             "The sliders show the values WoW accepts. The game controls which nameplates exist and can cap their visible range. Always Show applies to nameplates the game supplies."},
         {"Saved lists",
-            "Player and NPC history and linked Battle.net characters are stored locally. Reset Settings to Defaults resets addon preferences and keeps your lists."},
+            "History and notes stay on this computer. Favorites stay saved when inactive. Use Undo or /kp undo within 30 seconds of an individual removal. Reset Settings to Defaults keeps your lists."},
     }) do
         Label(frame, section[1], 22, y, "GameFontNormal")
         local details = Label(frame, section[2], 22, y - 19, "GameFontHighlight")
@@ -161,28 +167,20 @@ local function NewScrollingPage(title, subtitle)
     return page, content
 end
 
--- Keep tracking controls visible on the home page.
--- Category-specific retention is managed on the player page.
-local function TrackingCheckbox(parent, category, x, y)
-    local function CurrentValue()
-        if category.group then
-            return KnownPlayersSettings.trackGroup[category.group]
+local function SetCategoryTracking(category, checked)
+    if category.group then
+        KnownPlayersSettings.trackGroup[category.group] = checked
+        if checked and ns.ScanGroupRoster then ns.ScanGroupRoster() end
+    else
+        KnownPlayersSettings[category.tracking] = checked
+        if checked and category.key == "guild" and ns.RequestGuildRoster then
+            ns.RequestGuildRoster()
+            if ns.ScanGuildRoster then ns.ScanGuildRoster() end
+        elseif checked and category.key == "associated" and ns.ScanBattleNetFriends then
+            ns.ScanBattleNetFriends()
         end
-        return KnownPlayersSettings[category.tracking]
     end
-    Checkbox(parent, x, y, category.label, CurrentValue(), function(checked)
-        if category.group then
-            KnownPlayersSettings.trackGroup[category.group] = checked
-            if checked and ns.ScanGroupRoster then ns.ScanGroupRoster() end
-        else
-            KnownPlayersSettings[category.tracking] = checked
-            if checked and category.key == "guild" and ns.RequestGuildRoster then
-                ns.RequestGuildRoster()
-                if ns.ScanGuildRoster then ns.ScanGuildRoster() end
-            end
-        end
-        if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
-    end, CurrentValue)
+    if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
 end
 
 local RETENTION_PRESETS = {
@@ -414,8 +412,8 @@ local function NameplateSliderRow(parent, anchor, option)
 end
 
 local function BuildHomePage()
-    -- Tracking preferences remain the first thing a user sees.
     local page, content = NewScrollingPage("KnownPlayers", "")
+    content:SetHeight(365)
     local about = Button(page, "About", 80, function() ShowAbout(page) end)
     about:SetPoint("TOPRIGHT", page, "TOPRIGHT", -22, -12)
 
@@ -440,26 +438,13 @@ local function BuildHomePage()
     RegisterSettingsRefresher(RefreshNPCFilterStatus)
     RefreshNPCFilterStatus()
 
-    Label(content, "What do you want to track?", 16, -88, "GameFontNormal")
-    for index, category in ipairs(CATEGORIES) do
-        local column = (index - 1) % 2
-        local row = math.floor((index - 1) / 2)
-        TrackingCheckbox(content, category, 16 + column * 224, -116 - row * 35)
-    end
-    Checkbox(content, 16, -256, "Known Battle.net Alts",
-        KnownPlayersSettings.trackBattleNetAssociations, function(checked)
-            KnownPlayersSettings.trackBattleNetAssociations = checked
-            if checked and ns.ScanBattleNetFriends then ns.ScanBattleNetFriends() end
-            if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
-        end, function() return KnownPlayersSettings.trackBattleNetAssociations end)
-
     local line = content:CreateTexture(nil, "ARTWORK")
     line:SetColorTexture(0.45, 0.45, 0.45, 0.4)
-    line:SetPoint("TOPLEFT", content, "TOPLEFT", 16, -299)
+    line:SetPoint("TOPLEFT", content, "TOPLEFT", 16, -89)
     line:SetPoint("RIGHT", content, "RIGHT", -16, 0)
     line:SetHeight(1)
 
-    local lastRow = Label(content, "Nameplate Distance and Opacity", 16, -316, "GameFontNormal")
+    local lastRow = Label(content, "Nameplate Distance and Opacity", 16, -106, "GameFontNormal")
     local refreshSliders = {}
     for _, option in ipairs({
         {label = "NPC / non-player nameplate distance", cvar = "nameplateMaxDistance",
@@ -568,19 +553,15 @@ local function BuildPlayerPage()
     line:SetWidth(432)
     line:SetHeight(1)
 
-    local palette = {
-        trade="Trade", guild="Guild", associated="Known Battle.net Alts",
-        whisper="Whisper", raid="Raid", party="Party", inspect="Inspect", target="Target",
-        manual="Manually Added",
-    }
-    Label(body, "Category colors and priority", 21, -182, "GameFontNormal")
-    Label(body, "Top category wins when a player belongs to several lists.", 21, -205)
+    Label(body, "Tracking, colors, and priority", 21, -182, "GameFontNormal")
+    Label(body, "Top enabled category wins when a player belongs to several lists.", 21, -205)
     local colorRows = {}
     local function RefreshOrder()
         for i, row in ipairs(colorRows) do
             local key = KnownPlayersSettings.nameplateColorOrder[i]
             row.key = key
-            row.title:SetText(i .. ". " .. (palette[key] or key))
+            row.checkbox.Text:SetText(i .. ". " .. TRACKING_CATEGORIES[key].label)
+            row.checkbox:SetChecked(ns.CategoryTrackingEnabled(key))
             local rgb = ns.GetNameplateCategoryColor(key)
             row.swatch:SetColorTexture(rgb[1], rgb[2], rgb[3], 1)
             row.up:SetEnabled(i > 1)
@@ -610,7 +591,9 @@ local function BuildPlayerPage()
     for i in ipairs(KnownPlayersSettings.nameplateColorOrder) do
         local row = {}
         local y = -236 - (i - 1) * colorRowSpacing
-        row.title = Label(body, "", 22, y - 3, "GameFontHighlightSmall")
+        row.checkbox = Checkbox(body, 20, y - 3, "", false, function(checked)
+            SetCategoryTracking(TRACKING_CATEGORIES[row.key], checked)
+        end)
         local button = Button(body, "Color", 72, function() PickColor(row.key) end)
         button:SetPoint("TOPLEFT", body, "TOPLEFT", 270, y)
         row.swatch = button:CreateTexture(nil,"OVERLAY")
@@ -801,8 +784,7 @@ local function BuildNPCPage()
             picker:Show()
         end
     end
-    -- Same single-column, numbered Color / up / down layout as players.
-    -- NPCs additionally have a checkbox so role filtering stays configurable.
+    -- Match the numbered category rows on the player page.
     for i = 1, #categoryInfo do
         local row = {}
         local y = -239 - (i - 1) * 29

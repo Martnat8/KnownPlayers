@@ -75,8 +75,11 @@ local function AddPlayerMenu(menuTag, rootDescription, contextData)
     rootDescription:CreateDivider()
     rootDescription:CreateTitle("KnownPlayers")
     if savedKey then
+        rootDescription:CreateButton("Why do I know this player?", function()
+            ns.OpenPlayerHistory(savedKey)
+        end)
         rootDescription:CreateButton("Forget Player", function()
-            if ns.ForgetPlayer(savedKey) then
+            if ns.ForgetPlayer(savedKey, true) then
                 Refresh()
             end
         end)

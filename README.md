@@ -2,7 +2,7 @@
 
 A World of Warcraft **Forever** addon that remembers characters you encounter and customizes their nameplates based on how you know them.
 
-**Version:** 0.1.7
+**Version:** 0.4.4
 
 **Tested target:** WoW Forever, interface `16001` (client-specific; standard retail compatibility is not established).
 

@@ -1,5 +1,8 @@
 # Changelog
 
+## [Unreleased]
+- Synchronized all version metadata to 0.4.4.
+
 ## 0.4.4
 - Added NPC visibility overrides: **Always Show**, **Always Hide**, and **Automatic**, accessible from NPC portrait right-click menus.
 - Added a searchable NPC Manager for manually remembered NPCs and NPCs with visibility overrides, including category filters and management actions.

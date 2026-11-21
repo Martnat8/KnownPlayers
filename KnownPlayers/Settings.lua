@@ -385,12 +385,21 @@ local function BuildHomePage()
         KnownPlayersSettings.knownOnlyNameplates, function(checked)
             if ns.SetKnownOnlyNameplates then ns.SetKnownOnlyNameplates(checked) end
         end, function() return KnownPlayersSettings.knownOnlyNameplates end)
-    Checkbox(content, 250, -37, "Enable NPC nameplate filtering",
+    local npcFilter = Checkbox(content, 250, -37, "Enable NPC nameplate filtering",
         KnownPlayersSettings.filterNPCNameplates, function(checked)
             KnownPlayersSettings.filterNPCNameplates = checked
             if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
             if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
         end, function() return KnownPlayersSettings.filterNPCNameplates end)
+    local npcFilterStatus = Label(content, "", 16, -66)
+    local function RefreshNPCFilterStatus()
+        local paused = KnownPlayersSettings.filterNPCNameplates and not ns.IsQuestieDBConnected()
+        npcFilterStatus:SetText(paused and "Automatic NPC filtering paused — QuestieDB unavailable" or "")
+    end
+    npcFilter:HookScript("OnClick", RefreshNPCFilterStatus)
+    page:HookScript("OnShow", RefreshNPCFilterStatus)
+    RegisterSettingsRefresher(RefreshNPCFilterStatus)
+    RefreshNPCFilterStatus()
 
     Label(content, "What do you want to track?", 16, -88, "GameFontNormal")
     for index, category in ipairs(CATEGORIES) do
@@ -430,12 +439,15 @@ local function BuildHomePage()
     page:SetScript("OnShow", RefreshSliders)
     RegisterSettingsRefresher(RefreshSliders)
     local events = CreateFrame("Frame", nil, page)
+    events:RegisterEvent("ADDON_LOADED")
     events:RegisterEvent("CVAR_UPDATE")
     events:RegisterEvent("PLAYER_REGEN_ENABLED")
     events:RegisterEvent("PLAYER_REGEN_DISABLED")
     events:SetScript("OnEvent", function(_, event, key)
         if not page:IsVisible() then return end
-        if event ~= "CVAR_UPDATE" then
+        if event == "ADDON_LOADED" then
+            if key == "QuestieDB" then RefreshNPCFilterStatus() end
+        elseif event ~= "CVAR_UPDATE" then
             RefreshSliders()
         elseif type(key) == "string" and ns.IsAccessibleValue(key) then
             local refresh = refreshSliders[key:lower()]

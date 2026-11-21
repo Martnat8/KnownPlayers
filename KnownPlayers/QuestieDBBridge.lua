@@ -4,7 +4,6 @@ local addonName, ns = ...
 -- QuestieDB is separately installed and its database is never redistributed
 -- or written into KnownPlayers SavedVariables.
 local provider
-local providerChecked = false
 local providerStatus = "QuestieDB not connected - automatic NPC categories unavailable"
 local servicesCache = {}
 
@@ -20,10 +19,17 @@ local function HasBit(value, flag)
 end
 
 local function ResolveProvider()
-    if providerChecked then return provider end
-    -- Do not cache absence: an optional addon could load later in the session.
     local lib = LibQuestieDB
-    if type(lib) ~= "table" then return nil end
+    if provider and provider.lib == lib then return provider end
+    if provider then
+        provider = nil
+        servicesCache = {}
+    end
+    -- Do not cache absence: an optional addon could load later in the session.
+    if type(lib) ~= "table" then
+        providerStatus = "QuestieDB not connected - automatic NPC categories unavailable"
+        return nil
+    end
     local npc = lib.Npc
     if type(npc) ~= "table" or type(npc.GetAll) ~= "function"
         or type(lib.RequireContract) ~= "function" then
@@ -35,25 +41,30 @@ local function ResolveProvider()
         providerStatus = "QuestieDB requires API contract 4"
         return nil
     end
-    local flags = lib.Enum and lib.Enum.npcFlags
+    local flags = type(lib.Enum) == "table" and lib.Enum.npcFlags
     if type(flags) ~= "table" then
         providerStatus = "QuestieDB NPC service flags unavailable"
         return nil
     end
-    provider = { npc = npc, flags = flags }
-    providerChecked = true
-    servicesCache = {} -- Invalidate old lookups when the bridge connects.
-    providerStatus = "QuestieDB connected - automatic NPC categories active"
+    provider = { lib = lib, npc = npc, flags = flags }
+    providerStatus = "QuestieDB connected"
     return provider
 end
 
-local function QuestieServices(id, active)
+function ns.GetNPCServiceInfo(id)
+    id = tostring(id or "")
     local numericID = tonumber(id)
-    if not numericID or numericID <= 0 or numericID % 1 ~= 0 then return nil end
-    -- QuestieDB GetAll returns nil for unknown entity IDs.
+    if not id:match("^%d+$") or not numericID or numericID <= 0 or numericID % 1 ~= 0 then return nil end
+    local active = ResolveProvider()
+    if not active then return nil end
+    local cached = servicesCache[id]
+    if cached ~= nil then return cached or nil end
+
     local ok, values = pcall(active.npc.GetAll, numericID, {
         "npcFlags", "questStarts", "questEnds",
     })
+    -- Cache unknown IDs while allowing a failed lookup to be retried.
+    if ok and values == nil then servicesCache[id] = false end
     if not ok or type(values) ~= "table" then return nil end
 
     local found = {}
@@ -66,19 +77,9 @@ local function QuestieServices(id, active)
         or type(values[3]) == "table" and next(values[3]) then
         found.quest = true
     end
-    return next(found) and found or nil
-end
-
-function ns.GetNPCServiceInfo(id)
-    id = tostring(id or "")
-    if not id:match("^%d+$") then return nil end
-    local active = ResolveProvider()
-    if not active then return nil end
-    local cached = servicesCache[id]
-    if cached ~= nil then return cached or nil end
-    local services = QuestieServices(id, active)
-    servicesCache[id] = services or false
-    return services
+    -- An empty table identifies a known NPC with no supported service roles.
+    servicesCache[id] = found
+    return found
 end
 
 function ns.IsQuestieDBConnected()

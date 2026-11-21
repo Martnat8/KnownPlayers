@@ -130,7 +130,7 @@ end
 function ns.SyncNPCNameplateCVars()
     if not KnownPlayersSettings or npcCVarsShuttingDown or npcSyncing then return end
     npcSyncing = true
-    if KnownPlayersSettings.filterNPCNameplates then
+    if KnownPlayersSettings.filterNPCNameplates and ns.IsQuestieDBConnected() then
         local backup = KnownPlayersSettings.npcCVarBackup
         if type(backup) ~= "table" then
             backup = {}
@@ -567,14 +567,15 @@ function ns.RefreshKnownNameplates()
                 -- Creature identity is read only once per plate per refresh.
                 -- Protected or unrecognized GUIDs are left visible (fail open).
                 local npcID = ns.GetNPCFromUnit and ns.GetNPCFromUnit(unit)
-                local category = npcID and ns.GetNPCNameplateCategory
-                    and ns.GetNPCNameplateCategory(npcID)
+                local category, classified
+                if npcID then
+                    category, classified = ns.GetNPCNameplateCategory(npcID)
+                end
                 local override = npcID and ns.GetNPCVisibilityOverride
                     and ns.GetNPCVisibilityOverride(npcID) or "auto"
                 RestoreNameColor(frame)
                 if npcID and (override == "hide"
-                    or (override ~= "show" and KnownPlayersSettings.filterNPCNameplates
-                        and not category)) then
+                    or (override ~= "show" and classified and not category)) then
                     HideNameOnlyLabel(frame)
                     MakeTransparent(frame)
                 elseif npcID and (category or override == "show") then
@@ -665,6 +666,7 @@ if type(hooksecurefunc) == "function" and type(CompactUnitFrame_UpdateName) == "
 end
 
 local frame = CreateFrame("Frame")
+frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
@@ -674,6 +676,13 @@ frame:RegisterEvent("PLAYER_LOGOUT")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("CVAR_UPDATE")
 frame:SetScript("OnEvent", function(_, event, unit)
+    if event == "ADDON_LOADED" then
+        if unit == "QuestieDB" then
+            ns.SyncNPCNameplateCVars()
+            ns.RefreshKnownNameplates()
+        end
+        return
+    end
     if event == "PLAYER_LOGOUT" then
         nativeNamesShuttingDown = true
         ns.RestoreNativeOverheadNames()

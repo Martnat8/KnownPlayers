@@ -25,6 +25,25 @@ end
 local windows = {}
 local RefreshAllWindows
 
+local function AddUndoButton(frame)
+    local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    button:SetSize(72, 22)
+    button:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -21, -35)
+    button:SetText("Undo")
+    button:SetEnabled(ns.HasRemovalUndo())
+    button:SetScript("OnClick", function()
+        local _, message = ns.UndoLastRemoval()
+        print("|cff33ff99KnownPlayers:|r " .. message)
+    end)
+    frame.undoButton = button
+end
+
+function ns.RefreshRemovalUndoButtons()
+    for _, frame in pairs(windows) do
+        if frame.undoButton then frame.undoButton:SetEnabled(ns.HasRemovalUndo()) end
+    end
+end
+
 local popupKey = "KNOWNPLAYERS_CLEAR_CATEGORY_WINDOW"
 StaticPopupDialogs[popupKey] = {
     text = "Clear all entries from the %s list?\nOther lists will be kept.",
@@ -32,6 +51,7 @@ StaticPopupDialogs[popupKey] = {
     button2 = CANCEL,
     OnAccept = function(_, categoryKey)
         if categoryKey then
+            ns.ClearRemovalUndo()
             if categoryKey == "npc" then ns.ClearNPCs()
             else ns.ClearPlayerCategory(categoryKey) end
             if RefreshAllWindows then RefreshAllWindows() end
@@ -85,6 +105,7 @@ local function CreateCategoryWindow(category, index)
 
     local count = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     count:SetPoint("TOPLEFT", frame, "TOPLEFT", 22, -40)
+    AddUndoButton(frame)
 
     local search = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     search:SetSize(300, 24)
@@ -182,7 +203,8 @@ local function CreateCategoryWindow(category, index)
             item.knownSinceText:SetText(FormatKnownDuration(entry.firstSeen))
             item.removeButton:SetScript("OnClick", function()
                 if category.key == "npc" then ns.ForgetNPC(entry.key)
-                else ns.RemovePlayerCategory(entry.key, category.key) end
+                else ns.RemovePlayerCategory(entry.key, category.key, true) end
+                if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
                 RefreshAllWindows()
             end)
             item:Show()
@@ -198,12 +220,116 @@ local function CreateCategoryWindow(category, index)
     return frame
 end
 
+local function LatestInteraction(record)
+    local latest
+    for _, category in ipairs(CATEGORIES) do
+        local stamp = record.categories[category.key] and record.categoryLastSeen
+            and record.categoryLastSeen[category.key]
+        if type(stamp) == "number" and (not latest or stamp > latest) then latest = stamp end
+    end
+    return latest or record.lastSeen
+end
+
+local function InteractionAge(stamp)
+    if type(stamp) ~= "number" then return "Unknown" end
+    return FormatKnownDuration(stamp) .. " ago"
+end
+
+local function CreatePlayerHistoryWindow()
+    local frame = CreateFrame("Frame", "KnownPlayersPlayerHistoryWindow", UIParent, "BasicFrameTemplateWithInset")
+    frame:SetSize(520, 470)
+    frame:SetPoint("CENTER")
+    frame:SetFrameStrata("DIALOG")
+    frame:SetClampedToScreen(true)
+    frame:EnableMouse(true)
+    frame:Hide()
+    if frame.TitleText then frame.TitleText:SetText("KnownPlayers - Player History") end
+
+    local name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    name:SetPoint("TOPLEFT", 23, -40)
+    local reasons = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    reasons:SetPoint("TOPLEFT", 23, -72)
+    reasons:SetWidth(468)
+    reasons:SetJustifyH("LEFT")
+
+    local noteLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    noteLabel:SetPoint("TOPLEFT", 23, -219)
+    noteLabel:SetText("Personal note")
+    local noteScroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelInputScrollFrameTemplate")
+    noteScroll:SetPoint("TOPLEFT", 27, -242)
+    noteScroll:SetSize(450, 69)
+    noteScroll.hideCharCount = true
+    local note = noteScroll.EditBox
+    note:SetWidth(445)
+
+    local tagsLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    tagsLabel:SetPoint("TOPLEFT", 23, -330)
+    tagsLabel:SetText("Tags (comma-separated)")
+    local tags = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+    tags:SetPoint("TOPLEFT", 27, -350)
+    tags:SetSize(450, 25)
+    tags:SetAutoFocus(false)
+    tags:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+    local favorite = CreateFrame("CheckButton", nil, frame, "InterfaceOptionsCheckButtonTemplate")
+    favorite:SetPoint("TOPLEFT", 20, -385)
+    favorite.Text:SetText("Favorite (keep when inactive)")
+
+    local save = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    save:SetPoint("BOTTOMRIGHT", -22, 21)
+    save:SetSize(82, 24)
+    save:SetText("Save")
+    local key, record
+    save:SetScript("OnClick", function()
+        if ns.GetPlayer(key) ~= record
+            or not ns.SavePlayerDetails(key, note:GetText(), tags:GetText(), favorite:GetChecked()) then
+            print("|cff33ff99KnownPlayers:|r The player record is no longer available. Reopen Player History to edit it.")
+        end
+        frame:Hide()
+    end)
+    frame:HookScript("OnHide", function()
+        note:ClearFocus()
+        tags:ClearFocus()
+    end)
+
+    function frame.Open(playerKey, player)
+        key, record = playerKey, player
+        local displayName = ns.GetDisplayName(key, record)
+        name:SetText(record.realm and displayName .. " (" .. record.realm .. ")" or displayName)
+        local history = {}
+        for _, category in ipairs(CATEGORIES) do
+            if record.categories[category.key] then
+                local stamp = record.categoryLastSeen and record.categoryLastSeen[category.key]
+                history[#history + 1] = category.label .. " (" .. InteractionAge(stamp) .. ")"
+            end
+        end
+        reasons:SetText(table.concat(history, "\n"))
+        noteScroll:SetVerticalScroll(0)
+        note:SetText(ns.SafeString(record.note) or "")
+        note:SetCursorPosition(0)
+        tags:SetText(ns.SafeString(record.tags) or "")
+        tags:SetCursorPosition(0)
+        favorite:SetChecked(record.favorite == true)
+        frame:Show()
+        frame:Raise()
+    end
+    return frame
+end
+
+local historyWindow
+function ns.OpenPlayerHistory(key)
+    local record = ns.GetPlayer(key)
+    if not ns.HasPlayerCategory(record) then return end
+    if not historyWindow then historyWindow = CreatePlayerHistoryWindow() end
+    historyWindow.Open(key, record)
+end
+
 -- All player interactions are already stored in one hash table:
 -- KnownPlayersDB.players[characterKey].categories[reason] = true.
 -- This consolidated window is a view of that table, not a second store.
 local function CreatePlayersWindow()
     local frame = CreateFrame("Frame", "KnownPlayersAllPlayersWindow", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(700, 635)
+    frame:SetSize(790, 635)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
@@ -227,16 +353,18 @@ local function CreatePlayersWindow()
 
     local count = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     count:SetPoint("TOPLEFT", 23, -43)
+    AddUndoButton(frame)
     local search = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     search:SetSize(300, 24)
     search:SetPoint("TOPLEFT", 26, -79)
     search:SetAutoFocus(false)
     search:SetMaxLetters(100)
+    search:SetText("")
     search:SetScript("OnEscapePressed", function(self) self:ClearFocus(); frame:Hide() end)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     local hint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     hint:SetPoint("LEFT", search, "RIGHT", 12, 0)
-    hint:SetText("Search names or reasons")
+    hint:SetText("Search names, reasons, notes, or tags")
 
     local filterEnabled = {}
     local Refresh
@@ -276,26 +404,36 @@ local function CreatePlayersWindow()
     noFilters:SetText("None")
     noFilters:SetScript("OnClick", function() SetAllFilters(false) end)
 
+    local recent = CreateFrame("CheckButton", nil, frame, "InterfaceOptionsCheckButtonTemplate")
+    recent:SetPoint("TOPLEFT", 22, -226)
+    recent.Text:SetText("Most recent first")
+    recent:SetScript("OnClick", function() Refresh() end)
+    local favorites = CreateFrame("CheckButton", nil, frame, "InterfaceOptionsCheckButtonTemplate")
+    favorites:SetPoint("TOPLEFT", 242, -226)
+    favorites.Text:SetText("Favorites only")
+    favorites:SetScript("OnClick", function() Refresh() end)
+
     local nameHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    nameHeader:SetPoint("TOPLEFT", 26, -238)
+    nameHeader:SetPoint("TOPLEFT", 26, -264)
     nameHeader:SetText("Character")
     local reasonHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    reasonHeader:SetPoint("TOPLEFT", 225, -238)
+    reasonHeader:SetPoint("TOPLEFT", 211, -264)
     reasonHeader:SetText("Reasons known")
     local durationHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    durationHeader:SetPoint("TOPLEFT", 477, -238)
+    durationHeader:SetPoint("TOPLEFT", 441, -264)
     durationHeader:SetText("Known for")
+    local recentHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    recentHeader:SetPoint("TOPLEFT", 508, -264)
+    recentHeader:SetText("Last interaction")
 
     local scroller = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-    scroller:SetPoint("TOPLEFT", 21, -259)
+    scroller:SetPoint("TOPLEFT", 21, -285)
     scroller:SetPoint("BOTTOMRIGHT", -37, 20)
     local content = CreateFrame("Frame", nil, scroller)
-    content:SetSize(625, 1)
+    content:SetSize(715, 1)
     scroller:SetScrollChild(content)
     local rows = {}
     local ROW_HEIGHT = 31
-    local categoryLabels = {}
-    for _, category in ipairs(CATEGORIES) do categoryLabels[category.key] = category.label end
     local function ReasonsFor(record)
         local result = {}
         for _, category in ipairs(CATEGORIES) do
@@ -324,20 +462,30 @@ local function CreatePlayersWindow()
         item:SetPoint("RIGHT", 0, 0)
         item.name = item:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
         item.name:SetPoint("LEFT", 4, 0)
-        item.name:SetWidth(190)
+        item.name:SetWidth(175)
         item.name:SetJustifyH("LEFT")
+        item.name:SetMaxLines(1)
         item.reasons = item:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        item.reasons:SetPoint("LEFT", 204, 0)
-        item.reasons:SetWidth(240)
+        item.reasons:SetPoint("LEFT", 190, 0)
+        item.reasons:SetWidth(225)
         item.reasons:SetJustifyH("LEFT")
+        item.reasons:SetMaxLines(1)
         item.known = item:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        item.known:SetPoint("LEFT", 455, 0)
+        item.known:SetPoint("LEFT", 420, 0)
         item.known:SetWidth(64)
         item.known:SetJustifyH("LEFT")
+        item.recent = item:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        item.recent:SetPoint("LEFT", 487, 0)
+        item.recent:SetWidth(72)
+        item.recent:SetJustifyH("LEFT")
         item.remove = CreateFrame("Button", nil, item, "UIPanelButtonTemplate")
         item.remove:SetSize(76, 23)
         item.remove:SetPoint("RIGHT", -3, 0)
         item.remove:SetText("Remove")
+        item.details = CreateFrame("Button", nil, item, "UIPanelButtonTemplate")
+        item.details:SetSize(68, 23)
+        item.details:SetPoint("RIGHT", item.remove, "LEFT", -6, 0)
+        item.details:SetText("History")
         rows[index] = item
         return item
     end
@@ -351,15 +499,23 @@ local function CreatePlayersWindow()
                 all[#all + 1] = {
                     key = key, name = ns.GetDisplayName(key, record),
                     realm = record.realm or "", reasons = table.concat(reasons, ", "),
-                    firstSeen = FirstSeen(record),
+                    firstSeen = FirstSeen(record), lastSeen = LatestInteraction(record),
+                    favorite = record.favorite == true,
                 }
             end
         end
+        local sortRecent = recent:GetChecked()
         table.sort(all, function(a,b)
+            if a.favorite ~= b.favorite then return a.favorite end
+            if sortRecent then
+                local aSeen, bSeen = tonumber(a.lastSeen) or 0, tonumber(b.lastSeen) or 0
+                if aSeen ~= bSeen then return aSeen > bSeen end
+            end
             if a.name:lower() ~= b.name:lower() then return a.name:lower() < b.name:lower() end
             return a.key < b.key
         end)
-        local term = search:GetText():lower():match("^%s*(.-)%s*$"):gsub("%-", " ")
+        local term = search:GetText():lower():match("^%s*(.-)%s*$")
+        local nameTerm = term:gsub("%-", " ")
         local filtered = {}
         for _, entry in ipairs(all) do
             local record = KnownPlayersDB.players[entry.key]
@@ -370,23 +526,28 @@ local function CreatePlayersWindow()
                     break
                 end
             end
-            if eligible and (term == "" or entry.name:lower():find(term, 1, true)
+            if eligible and (not favorites:GetChecked() or entry.favorite)
+                and (term == "" or entry.name:lower():find(nameTerm, 1, true)
                 or entry.realm:lower():find(term, 1, true)
-                or entry.reasons:lower():find(term, 1, true)) then
+                or entry.reasons:lower():find(term, 1, true)
+                or (ns.SafeString(record.note) or ""):lower():find(term, 1, true)
+                or (ns.SafeString(record.tags) or ""):lower():find(term, 1, true)) then
                 filtered[#filtered + 1] = entry
             end
         end
         count:SetText(#all .. " players (" .. #filtered .. " shown)")
         content:SetHeight(math.max(1, #filtered * ROW_HEIGHT))
         empty:SetShown(#filtered == 0)
-        if #filtered == 0 then empty:SetText("No players match the selected reasons and search.") end
+        if #filtered == 0 then empty:SetText("No players match the current filters.") end
         for index, entry in ipairs(filtered) do
             local item = GetRow(index)
-            item.name:SetText(entry.name)
+            item.name:SetText((entry.favorite and "|cffffd100*|r " or "") .. entry.name)
             item.reasons:SetText(entry.reasons)
             item.known:SetText(FormatKnownDuration(entry.firstSeen))
+            item.recent:SetText(InteractionAge(entry.lastSeen))
+            item.details:SetScript("OnClick", function() ns.OpenPlayerHistory(entry.key) end)
             item.remove:SetScript("OnClick", function()
-                if ns.ForgetPlayer(entry.key) then
+                if ns.ForgetPlayer(entry.key, true) then
                     if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
                     if RefreshAllWindows then RefreshAllWindows() end
                 end
@@ -510,7 +671,7 @@ end
 -- browser. NPC identities are read only for remembered or overridden entries.
 local function CreateNPCManagementWindow()
     local frame = CreateFrame("Frame", "KnownPlayersNPCManagerWindow", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(720, 595)
+    frame:SetSize(790, 595)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
@@ -535,6 +696,7 @@ local function CreateNPCManagementWindow()
     if frame.TitleText then frame.TitleText:SetText("KnownPlayers - NPC Manager") end
     local count = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     count:SetPoint("TOPLEFT", 22, -43)
+    AddUndoButton(frame)
     local hint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     hint:SetPoint("TOPLEFT", 22, -63)
     hint:SetText("Saved NPCs only. Click a Visibility button to cycle Automatic / Show / Hide.")
@@ -544,6 +706,7 @@ local function CreateNPCManagementWindow()
     search:SetPoint("TOPLEFT", 25, -91)
     search:SetAutoFocus(false)
     search:SetMaxLetters(100)
+    search:SetText("")
     search:SetScript("OnEscapePressed", function(self) self:ClearFocus(); frame:Hide() end)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     local searchHint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -579,6 +742,10 @@ local function CreateNPCManagementWindow()
         if Refresh then Refresh() end
     end)
     checkboxes.override = overrideCheck
+    local favorites = CreateFrame("CheckButton", nil, frame, "InterfaceOptionsCheckButtonTemplate")
+    favorites:SetPoint("TOPLEFT", frame, "TOPLEFT", 364, -203)
+    favorites.Text:SetText("Favorites only")
+    favorites:SetScript("OnClick", function() Refresh() end)
 
     local allFilters = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     allFilters:SetSize(85, 22)
@@ -609,14 +776,19 @@ local function CreateNPCManagementWindow()
     end
     clear:SetScript("OnClick", function() StaticPopup_Show(clearPopup) end)
 
-    local headings = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    headings:SetPoint("TOPLEFT", frame, "TOPLEFT", 25, -252)
-    headings:SetText("NPC name / ID                      Categories / source              Visibility             Saved")
+    for _, column in ipairs({
+        {26, "NPC name / ID"}, {211, "Categories / source"}, {407, "Visibility"},
+        {530, "Saved"}, {645, "Favorite"},
+    }) do
+        local heading = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        heading:SetPoint("TOPLEFT", frame, "TOPLEFT", column[1], -252)
+        heading:SetText(column[2])
+    end
     local scroller = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
     scroller:SetPoint("TOPLEFT", frame, "TOPLEFT", 22, -270)
     scroller:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -40, 19)
     local content = CreateFrame("Frame", nil, scroller)
-    content:SetSize(645, 1)
+    content:SetSize(713, 1)
     scroller:SetScrollChild(content)
     local rows = {}
     local HEIGHT = 36
@@ -640,8 +812,11 @@ local function CreateNPCManagementWindow()
         local manual = CreateFrame("Button", nil, item, "UIPanelButtonTemplate")
         manual:SetSize(105, 24)
         manual:SetPoint("LEFT", item, "LEFT", 508, 0)
+        local pin = CreateFrame("Button", nil, item, "UIPanelButtonTemplate")
+        pin:SetSize(67, 24)
+        pin:SetPoint("LEFT", item, "LEFT", 623, 0)
         item.nameText, item.categoryText = name, categoriesLabel
-        item.modeButton, item.manualButton = mode, manual
+        item.modeButton, item.manualButton, item.pinButton = mode, manual, pin
         rows[index] = item
         return item
     end
@@ -660,7 +835,9 @@ local function CreateNPCManagementWindow()
                     matchesCategory = true
                 end
             end
-            if matchesSearch and matchesCategory then filtered[#filtered + 1] = entry end
+            if matchesSearch and matchesCategory and (not favorites:GetChecked() or entry.favorite) then
+                filtered[#filtered + 1] = entry
+            end
         end
         count:SetText(#all .. " saved NPCs (" .. #filtered .. " shown)")
         clear:SetEnabled(#all > 0)
@@ -673,7 +850,7 @@ local function CreateNPCManagementWindow()
         for _, category in ipairs(categories) do roleLabels[category.key] = category.label end
         for i, entry in ipairs(filtered) do
             local row = Row(i)
-            row.nameText:SetText(entry.name .. " (" .. entry.key .. ")")
+            row.nameText:SetText((entry.favorite and "|cffffd100*|r " or "") .. entry.name .. " (" .. entry.key .. ")")
             local roleNames = {}
             if entry.manual then roleNames[#roleNames + 1] = "Remembered" end
             if entry.services then
@@ -697,6 +874,10 @@ local function CreateNPCManagementWindow()
                 if entry.manual then ns.ForgetNPC(entry.key)
                 else ns.RememberNPC(entry.key, entry.name) end
                 Refresh()
+            end)
+            row.pinButton:SetText(entry.favorite and "Unpin" or "Pin")
+            row.pinButton:SetScript("OnClick", function()
+                ns.ToggleNPCFavorite(entry.key, entry.name)
             end)
             row:Show()
         end

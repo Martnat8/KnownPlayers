@@ -18,6 +18,66 @@ function ns.HasPlayerCategory(record)
     end
     return false
 end
+
+local function TrimmedText(value)
+    return ns.SafeString((ns.SafeString(value) or ""):match("^%s*(.-)%s*$"))
+end
+
+local function NormalizeTags(text)
+    local tags, seen = {}, {}
+    for value in text:gmatch("[^,]+") do
+        local tag = TrimmedText(value)
+        if tag and not seen[tag:lower()] then
+            tags[#tags + 1] = tag
+            seen[tag:lower()] = true
+        end
+    end
+    return ns.SafeString(table.concat(tags, ", "))
+end
+
+function ns.SavePlayerDetails(key, note, tags, favorite)
+    local record = KnownPlayersDB.players[key]
+    if not ns.HasPlayerCategory(record) then return false end
+    record.note = TrimmedText(note)
+    record.tags = NormalizeTags(ns.SafeString(tags) or "")
+    record.favorite = favorite and true or nil
+    if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
+    return true
+end
+
+local UNDO_SECONDS = 30
+local lastRemoval
+
+function ns.HasRemovalUndo()
+    return lastRemoval ~= nil and time() < lastRemoval.expires
+end
+
+function ns.ClearRemovalUndo()
+    lastRemoval = nil
+    if ns.RefreshRemovalUndoButtons then ns.RefreshRemovalUndoButtons() end
+end
+
+function ns.OfferRemovalUndo(restore)
+    local removal = {restore = restore, expires = time() + UNDO_SECONDS}
+    lastRemoval = removal
+    if ns.RefreshRemovalUndoButtons then ns.RefreshRemovalUndoButtons() end
+    if C_Timer and type(C_Timer.After) == "function" then
+        C_Timer.After(UNDO_SECONDS, function()
+            if lastRemoval == removal then ns.ClearRemovalUndo() end
+        end)
+    end
+    print("|cff33ff99KnownPlayers:|r Use /kp undo within " .. UNDO_SECONDS .. " seconds to restore this removal.")
+end
+
+function ns.UndoLastRemoval()
+    local removal = ns.HasRemovalUndo() and lastRemoval
+    ns.ClearRemovalUndo()
+    if not removal then return false, "There is no recent removal to undo." end
+    if not removal.restore() then return false, "Could not restore the removal because the record changed." end
+    if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+    if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
+    return true, "Restored the last removal."
+end
 local function SecondsForDuration(duration)
     if type(duration) ~= "table" then return 30 * SECONDS_PER_DAY end
     return math.max(60, (tonumber(duration.days) or 0) * SECONDS_PER_DAY
@@ -264,7 +324,7 @@ function ns.MigratePlayerRecords()
     return changed
 end
 
-MergeInto = function(destination, source)
+MergeInto = function(destination, source, keepDestinationDetails)
     destination.categories = type(destination.categories) == "table" and destination.categories or {}
     if type(source.categories) == "table" then
         for category, enabled in pairs(source.categories) do
@@ -298,6 +358,17 @@ MergeInto = function(destination, source)
     destination.guid = destination.guid or source.guid
     destination.realm = destination.realm or source.realm
     destination.displayName = destination.displayName or source.displayName
+    if keepDestinationDetails then return end
+    destination.favorite = (destination.favorite or source.favorite) and true or nil
+    local originalNote = ns.SafeString(destination.note)
+    local sourceNote = ns.SafeString(source.note)
+    if sourceNote and originalNote and sourceNote ~= originalNote then
+        destination.note = originalNote .. "\n\n" .. sourceNote
+    else
+        destination.note = originalNote or sourceNote
+    end
+    local tags = ns.SafeString(source.tags)
+    if tags then destination.tags = NormalizeTags((ns.SafeString(destination.tags) or "") .. "," .. tags) end
 end
 
 -- Optional GUID lets another interaction recognize a character whose name
@@ -370,11 +441,43 @@ function ns.GetPlayer(name)
     return KnownPlayersDB.players[name]
 end
 
-function ns.ForgetPlayer(name)
-    if KnownPlayersDB.players[name] == nil then return false end
+local function RestorePlayer(key, saved, guildClubID, originalRecord)
+    if saved.categories.guild and guildClubID ~= KnownPlayersDB.guildRosterClubID then
+        saved.categories.guild = nil
+        if saved.categoryFirstSeen then saved.categoryFirstSeen.guild = nil end
+        if saved.categoryLastSeen then saved.categoryLastSeen.guild = nil end
+        if not next(saved.categories) then return false end
+    end
+    local players = KnownPlayersDB.players
+    local guid = ns.SafePlayerGUID(saved.guid)
+    local match = guid and ns.FindDirectKeyByGUID and ns.FindDirectKeyByGUID(guid)
+    if not match and ns.FindDirectKeyByName then
+        match = ns.FindDirectKeyByName(key, guid)
+    end
+    if match then
+        MergeInto(players[match], saved, players[match] == originalRecord)
+    else
+        if players[key] ~= nil then
+            if not guid or players["guid:" .. guid] ~= nil then return false end
+            key = "guid:" .. guid
+        end
+        players[key] = saved
+    end
+    if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
+    if ns.PromotePendingBattleNetObservations then ns.PromotePendingBattleNetObservations() end
+    return true
+end
+
+function ns.ForgetPlayer(name, undoable)
+    local record = KnownPlayersDB.players[name]
+    if record == nil then return false end
     KnownPlayersDB.players[name] = nil
     if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
     if ns.PruneUnlinkedBattleNetData then ns.PruneUnlinkedBattleNetData() end
+    if undoable and type(record) == "table" and type(record.categories) == "table" then
+        local guildClubID = KnownPlayersDB.guildRosterClubID
+        ns.OfferRemovalUndo(function() return RestorePlayer(name, record, guildClubID) end)
+    end
     return true
 end
 
@@ -382,7 +485,7 @@ function ns.PruneExpiredPlayers(now)
     local currentTime = now or time()
     local removed = 0
     for key, record in pairs(KnownPlayersDB.players) do
-        if type(record) == "table" and type(record.categories) == "table" then
+        if type(record) == "table" and type(record.categories) == "table" and not record.favorite then
             for category, present in pairs(record.categories) do
                 local retention = KnownPlayersSettings.categoryRetention[category]
                 if present and supportedCategories[category] and type(retention) == "table" and retention.enabled then
@@ -415,7 +518,8 @@ function ns.PruneExpiredNPCs(now)
     local cutoff = (now or time()) - SecondsForDuration(retention)
     local removed = 0
     for id, npc in pairs(KnownPlayersDB.npcs) do
-        if type(npc) == "table" and type(npc.lastSeen) == "number" and npc.lastSeen < cutoff then
+        if type(npc) == "table" and not npc.favorite and type(npc.lastSeen) == "number"
+            and npc.lastSeen < cutoff then
             KnownPlayersDB.npcs[id] = nil
             removed = removed + 1
         end
@@ -437,7 +541,7 @@ end
 
 -- A player may belong to several tracking categories. Removing a category
 -- never removes the others; an empty record is deleted altogether.
-local function RemovePlayerCategory(key, category)
+local function RemovePlayerCategory(key, category, preserveFavorites)
     local record = KnownPlayersDB.players[key]
     if type(record) ~= "table" or type(record.categories) ~= "table"
         or not record.categories[category] then
@@ -446,6 +550,13 @@ local function RemovePlayerCategory(key, category)
     record.categories[category] = nil
     if type(record.categoryLastSeen) == "table" then record.categoryLastSeen[category] = nil end
     if type(record.categoryFirstSeen) == "table" then record.categoryFirstSeen[category] = nil end
+    if preserveFavorites and record.favorite and not ns.HasPlayerCategory(record) then
+        record.categories.manual = true
+        record.categoryFirstSeen = record.categoryFirstSeen or {}
+        record.categoryLastSeen = record.categoryLastSeen or {}
+        local stamp = record.lastSeen or time()
+        record.categoryFirstSeen.manual, record.categoryLastSeen.manual = stamp, stamp
+    end
     if not next(record.categories) then
         KnownPlayersDB.players[key] = nil
     end
@@ -457,16 +568,32 @@ local function RefreshAfterCategoryRemoval()
     if ns.PruneUnlinkedBattleNetData then ns.PruneUnlinkedBattleNetData() end
 end
 
-function ns.RemovePlayerCategory(key, category)
+function ns.RemovePlayerCategory(key, category, undoable)
+    local record = KnownPlayersDB.players[key]
+    local saved
+    if undoable and type(record) == "table" and type(record.categories) == "table"
+        and record.categories[category] then
+        saved = {
+            displayName = record.displayName, realm = record.realm, guid = record.guid,
+            note = record.note, tags = record.tags, favorite = record.favorite, lastSeen = record.lastSeen,
+            categories = {[category] = true},
+            categoryFirstSeen = {[category] = type(record.categoryFirstSeen) == "table" and record.categoryFirstSeen[category] or nil},
+            categoryLastSeen = {[category] = type(record.categoryLastSeen) == "table" and record.categoryLastSeen[category] or nil},
+        }
+    end
     if not RemovePlayerCategory(key, category) then return false end
     RefreshAfterCategoryRemoval()
+    if saved then
+        local guildClubID = KnownPlayersDB.guildRosterClubID
+        ns.OfferRemovalUndo(function() return RestorePlayer(key, saved, guildClubID, record) end)
+    end
     return true
 end
 
-function ns.ClearPlayerCategory(category, keep)
+function ns.ClearPlayerCategory(category, keep, preserveFavorites)
     local removed = 0
     for key in pairs(KnownPlayersDB.players) do
-        if (not keep or not keep[key]) and RemovePlayerCategory(key, category) then
+        if (not keep or not keep[key]) and RemovePlayerCategory(key, category, preserveFavorites) then
             removed = removed + 1
         end
     end

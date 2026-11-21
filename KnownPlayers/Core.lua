@@ -1,6 +1,7 @@
 local addonName, ns = ...
 
 local ADDON_VERSION = "0.4.5"
+ns.AddonVersion = ADDON_VERSION
 local PRUNE_INTERVAL = 600
 local elapsedSincePrune = 0
 
@@ -82,6 +83,7 @@ local function HandleSlashCommand(message)
         Print("/kp npctoggle - Remember/remove current target NPC.")
         Print("/kp npcsource - Show the NPC database source.")
         Print("/kp remember - Add the targeted player to Manually Added.")
+        Print("/kp undo - Restore the last individual removal within 30 seconds.")
         Print("/kp help - Show this help.")
         return
     end
@@ -101,6 +103,12 @@ local function HandleSlashCommand(message)
         if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
         if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
         Print("Added to Manually Added: " .. name)
+        return
+    end
+
+    if command == "undo" then
+        local _, status = ns.UndoLastRemoval()
+        Print(status)
         return
     end
 

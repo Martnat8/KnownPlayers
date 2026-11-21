@@ -258,7 +258,7 @@ local function ReconcileGuildMembership(clubID, members, count)
     -- removal, require the current club's member list to corroborate the roster.
     if missing > math.max(2, math.floor(savedGuildCount * 0.1))
         and not ClubRosterMatches(clubID, members, count) then return false end
-    ns.ClearPlayerCategory("guild", members)
+    ns.ClearPlayerCategory("guild", members, true)
     return true
 end
 
@@ -267,7 +267,7 @@ local function ClearOldGuild()
     reconcileGuildOnNextUpdate = true
     -- Wait for a fresh roster for the new guild before reading cached entries.
     KnownPlayersDB.guildRosterClubID = nil
-    if ns.ClearPlayerCategory("guild") > 0 then RefreshGuildViews() end
+    if ns.ClearPlayerCategory("guild", nil, true) > 0 then RefreshGuildViews() end
 end
 
 local function CheckGuildSwitch(clubID)

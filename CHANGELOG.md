@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Added player and NPC nameplate distance and minimum opacity sliders to the main settings page.
+
 ## [0.4.5b0] - 2026-11-21
 - Restored the packaged README header format expected by release validation.
 - Synchronized all version metadata to 0.4.4.

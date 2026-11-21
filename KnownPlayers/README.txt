@@ -1,112 +1,113 @@
-KnownPlayers 0.1.7 (WoW Forever, Interface 16001)
+KnownPlayers 0.4.3 — WoW Forever (Interface 16001)
 
-Install: Extract KnownPlayers into Interface/AddOns, replacing prior files; /reload.
-Options: /kp options, then KnownPlayers in the AddOns settings menu.
+INSTALL
+Extract the KnownPlayers folder into World of Warcraft/Interface/AddOns.
+Restart WoW or run /reload. Type /kp options to open settings.
+Keep a backup of your SavedVariables before installing a new development build.
 
-Seven direct-interaction lists have independent retention settings, searching,
-and manual removal. Category expiration uses each category's last encounter
-and is checked at startup and every 10 minutes during play.
+SETTINGS
+- KnownPlayers: enable player and NPC nameplate filtering separately, choose
+  which player interactions to track, and reset preferences without deleting
+  stored characters.
+- Player Nameplates & Lists: player name/guild/health-bar settings, category
+  colors and priority, per-reason player expiration,
+  unified searchable Player List, Guild roster view and Known Battle.net Alts.
+  Add players manually through the portrait right-click menu or /kp remember
+  while targeting another player. Same-realm space/hyphen duplicates are merged on load
+  when GUIDs do not conflict; category histories and timestamps are retained.
+  The player list has reason filters, All/None, and an immediate Remove button
+  that forgets the entire character record. Clear All Lists
+  requires confirmation and also clears NPCs/alts.
+- NPC Nameplates & Lists: NPC name/title/health-bar settings, remembered NPC
+  list, and manual NPC retention. NPCs are remembered using the portrait's
+  right-click menu or /kp npctoggle while targeting a creature.
 
-Battle.net associations (new in 1.2.0):
-- The "Automatically recognize Battle.net friends' alts" setting is on by default.
-- The addon observes currently exposed WoW character name/realm/GUID for
-  Battle.net friends, and remembers those observations by BattleTag.
-- When any observed character matches a directly known record by exact
-  Name-Realm or GUID, other observed characters on that BattleTag appear in
-  the "Associated" pop-out list on the main settings page.
-- Alts do not inherit a Trade/Party/etc. interaction they never performed.
-  Direct interaction player counts are unchanged.
-- Only observed characters can be discovered. The friend's full alt roster
-  is not available; the original known character must be observed at least
-  once as a Battle.net friend for automatic linking to activate.
-- A BattleTag is stored in SavedVariables as an internal account-level link;
-  temporary Battle.net numeric IDs are not stored. No BattleTags are shown
-  in the list window.
-- Associated entries are derived from observed identities and live direct
-  records, so associations cease being active if their last directly known
-  character expires or is removed. Observations remain cached until cleared
-  manually from the SavedVariables file (future UI management possible).
-- If BattleTags are unavailable or privacy-masked, associations will not be
-  created rather than using potentially incorrect account IDs.
+RETENTION
+On a fresh install or Reset Settings, forgetting is enabled with 30 days for
+all applicable player reasons. Guild membership does not expire based on time.
+Manually remembered NPCs separately default to 30-day expiration enabled.
+Existing saved retention settings are preserved when upgrading. Expiration
+runs on load and periodically, not precisely at the minute of expiration.
 
-Commands: /kp status, /kp list, /kp dbtest, /kp options, /kp scan, /kp guildscan
+PLAYER DATA
+One player record can contain multiple reasons: Trade, Party, Raid, Guild,
+Whisper, Target, Inspect, PvP Attackers and Manually Added. Removing a reason
+preserves the remaining reasons. NPC records are kept separately by creature
+ID. Battle.net associations are based on friends' observed characters and
+require a directly known character to anchor recognition.
 
-The feature has not been tested in the user's WoW Forever build yet.
+NPC CATEGORIES & COLORS
+Automatic NPC service recognition uses the separately installed QuestieDB
+addon (API contract 4). KnownPlayers contains no built-in NPC identity or
+classification database. Manually remembered NPCs remain available without
+QuestieDB, since they are user-saved records rather than a bundled fallback.
+Enable NPC nameplate filtering and the desired service categories, then use
+NPC Nameplates & Lists to choose their name colors. NPCs with multiple enabled roles use your saved priority order: the
+highest enabled category wins. The defaults match version 0.4.2 (manual,
+flight, banker, auctioneer, repair, trainer, innkeeper, vendor, quest).
+Use the up/down buttons in NPC Nameplates & Lists to change the order.
+Use /kp npcsource to view the live connection status. If QuestieDB is missing
+or incompatible, automatic service classifications will not be available.
+The addon does not copy QuestieDB data into SavedVariables. The settings
+page displays green for a connected QuestieDB bridge and red otherwise.
 
-1.2.1 settings layout:
-- All tracking and category-specific retention options live on the scrollable main settings page.
-- Open List launches search, remove, and clear controls only.
-- Associated list is labeled Known Battle.net Alts.
+NPC MANAGEMENT & OVERRIDES
+Right-click an NPC target to choose Always Show, Always Hide, or Automatic.
+Overrides take precedence over category settings for NPCs that have a
+nameplate. The NPC Manager shows only manually remembered NPCs and explicit
+visibility overrides; it does not track every NPC encountered. Search the
+saved list, filter by service category, and cycle override modes there.
+Blizzard still determines which NPCs have nameplates in range; Always Show
+cannot generate a nameplate for a unit Blizzard has not provided.
 
-1.3.1: Settings reorganized into Player Tracking (expandable), Nameplate Appearance (placeholder), and Player Lists.
+NAMEPLATE APPEARANCE
+KnownPlayers does not set Blizzard's nameplate width, height or global scale.
+Normal full-name displays use Blizzard's own name font; custom first-name,
+guild/title, and names-only labels mirror the live native font and frame scale.
+To filter names individually, active filtering temporarily manages the native
+overhead-name CVars (and friendly NPC nameplate availability), restoring the
+previous values when disabled. Other game nameplate sizing options are left
+alone. Combat-only health bars remain experimental on protected frames.
 
-1.3.1: Main KnownPlayers page now shows grouped tracking toggles and per-category retention controls. Nameplate Appearance and Player Lists remain subpages.
+PRIVACY
+Saved character data and linked BattleTags remain local in WoW SavedVariables.
+Do not commit or publish your personal SavedVariables files.
 
-1.3.2 nameplate experiment: Use the Nameplate Appearance page to temporarily
-hide/restore your currently targeted player's visible nameplate. No automated
-nameplate changes. Also accessible via /kp platehide and /kp plateshow.
+KNOWN LIMITATIONS
+Native overhead names are game-engine labels: individual names outside
+nameplate range cannot be selectively modified. NPC GUIDs may be restricted
+in dungeons; unidentifiable units are left alone rather than causing errors.
 
-For new installations, automatic forgetting is OFF and each list's initial
-retention duration is 30 days; existing saved preferences are preserved.
+COMMANDS
+/kp options; /kp status; /kp list; /kp scan; /kp guildscan;
+/kp remember; /kp npctoggle; /kp dbtest; /kp help
 
-1.3.7: Adds optional guild-name second line to Names Only nameplates.
+0.3.3: Reset Settings to Defaults refreshes controls without /reload.
+0.3.4: Removed unreliable Add Player text field. Use right-click Remember Player
+or /kp remember while targeting a player. No other behavior changed.
 
-1.3.8: Category nameplate colors and priority controls, opacity fix for guild text,
-retention presets (1 min / 5 min / etc.), Guild retention removed. Existing retention settings preserved.
+0.3.6: Player Health Bar modes: Always, In Combat (your character's combat),
+and Never. Previous Show Health Bar preference is preserved on upgrade.
+Only players are affected; NPC display settings remain independent.
+The combat-only mode is experimental. WoW Forever may block updates to
+protected nameplates during combat; those frames are left unchanged until
+combat ends rather than triggering an unsafe protected-frame operation.
 
-1.3.14: Reapply category name colors to native nameplates after Blizzard name updates and hover; preserve original vertex colors when restoring.
+0.4.0: Initial limited Classic service NPC list and category toggles.
+0.4.1: Optional QuestieDB API integration with a local fallback.
+0.4.2: Removed the 83-NPC local database and its documentation. QuestieDB is
+now the only source of automatic NPC classifications. The NPC settings page
+shows bridge status and explains the dependency. Each service category and
+manually remembered NPCs have independently customizable nameplate colors.
+Color choices persist across reloads. Existing manual NPC records are kept.
 
-1.3.15: PvP Attackers category (opt-in, red/highest priority).
-Records direct player attacks against your character from combat-log damage and missed attacks.
-Does not identify pet owners or capture combat events outside logging range.
+0.4.3: Added editable NPC category priority, matching the player Color / up /
+down row layout, while retaining NPC enable checkboxes. The top enabled
+category determines color for multi-role NPCs. Priority survives reloads and
+reset-to-defaults restores the pre-0.4.3 order. The QuestieDB bridge and
+saved/manual NPCs are unchanged.
 
-1.3.18: Move nameplate filtering toggle to top of main settings and remove subtitle.
-
-0.1.1 Privacy and performance:
-- Battle.net character observations are retained in SavedVariables only after
-  at least one character in that friend group is directly known. Unlinked
-  observations are temporary in-memory data and are lost at logout/reload.
-- Existing unlinked observations are removed from persistent storage at startup,
-  but can still be linked during the same session. Linked groups are preserved.
-- BattleTags remain stored locally for linked Battle.net friends; no addon data
-  is transmitted by KnownPlayers. Do not share your SavedVariables publicly.
-- Indexed lookups reduce repeated GUID and Battle.net group scans during
-  nameplate updates. Nameplate rendering cadence remains unchanged.
-
-Native overhead-name setting management (0.1.7):
-- When "Enable KnownPlayers nameplate filtering" is turned on, KnownPlayers
-  temporarily sets UnitNameFriendlyPlayerName and UnitNameEnemyPlayerName to 0.
-  This prevents distant 3D overhead names from bypassing nameplate filtering.
-- The previous CVar values are restored when filtering is disabled, when
-  settings are reset, or when the game logs out/reloads normally.
-- NPC, minion, own-name, and actual nameplate settings are not changed.
-- Beyond Blizzard's nameplate range, even recognized players have no native
-  overhead names; selective distance-based names remain unavailable.
-- If the game crashes or the addon is removed while filtering is active,
-  manually restore friendly/enemy overhead names in WoW's Names settings.
-
-NPC list and right-click menu (0.1.7)
-------------------------------------
-Right-click a targeted creature NPC's unit frame to choose "Remember NPC" or
-"Remove NPC from KnownPlayers". You can also use /kp npctoggle while targeting
-a creature NPC. Browse, search, remove, or clear entries from Settings >
-Player & NPC Lists > NPCs. The records are saved separately from players.
-
-NPC entries are keyed by the stable creature template ID, not the temporary
-individual spawn GUID: different spawns of the same NPC type share recognition.
-NPCs are never auto-added simply by targeting them, and do not expire.
-
-Optional "Filter NPC nameplates" is off by default. With both it and the main
-known-player nameplate filter enabled, creature NPCs on this list retain their
-nameplates and other creature NPC nameplates become transparent. Quest/NPC
-nameplates may be hidden: disable NPC filtering if desired. Pets, other
-units, and the base game's native NPC overhead names are not changed.
-
-The target right-click integration uses Blizzard's Menu.ModifyMenu API, when
-available; /kp npctoggle is a fallback for unsupported menu variants.
-
-0.1.7: Independent NPC filtering, managed NPC visibility CVars, optional NPC inactivity retention.
-
-0.1.7: Independent NPC nameplate options (full/first name, optional NPC title,
-and show health bar). These apply to remembered NPCs. NPC titles are read
-from tooltip data when available; they are not player guild names.
+0.4.4: Added saved-NPC visibility overrides and a searchable management list,
+color-coded QuestieDB bridge status, and nameplate font/scale reconciliation.
+Normal names remain Blizzard-rendered unless custom text is specifically
+required by a KnownPlayers appearance option.

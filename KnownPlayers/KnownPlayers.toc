@@ -1,11 +1,15 @@
 ## Interface: 16001
 ## Title: KnownPlayers
 ## Notes: Recognizes players based on configurable interactions.
-## Version: 0.1.7
+## Version: 0.4.4
+## OptionalDeps: QuestieDB
 ## SavedVariables: KnownPlayersDB, KnownPlayersSettings
 
+Safety.lua
 Database.lua
+QuestieDBBridge.lua
 NPC.lua
+PlayerMenu.lua
 Identity.lua
 Colors.lua
 Nameplates.lua

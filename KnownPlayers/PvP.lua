@@ -11,7 +11,8 @@ local ATTACK_EVENTS = {
 }
 
 local function FullKey(name)
-    if type(name) ~= "string" or name == "" then return nil end
+    name = ns.SafeString(name)
+    if not name then return nil end
     -- Combat log names normally include the realm for cross-realm players.
     if name:find("-", 1, true) then return name end
     local realm = GetNormalizedRealmName and GetNormalizedRealmName()
@@ -25,9 +26,13 @@ frame:SetScript("OnEvent", function()
     if type(CombatLogGetCurrentEventInfo) ~= "function" then return end
 
     local _, subevent, _, sourceGUID, sourceName, _, _, destGUID = CombatLogGetCurrentEventInfo()
-    if not ATTACK_EVENTS[subevent] then return end
-    if type(sourceGUID) ~= "string" or not sourceGUID:match("^Player%-") then return end
-    if destGUID ~= UnitGUID("player") or sourceGUID == destGUID then return end
+    subevent = ns.SafeString(subevent)
+    sourceGUID = ns.SafePlayerGUID(sourceGUID)
+    destGUID = ns.SafeString(destGUID)
+    local myGUID = ns.SafeUnitGUID("player")
+    if not subevent or not ATTACK_EVENTS[subevent] or not sourceGUID
+        or not destGUID or not myGUID then return end
+    if destGUID ~= myGUID or sourceGUID == destGUID then return end
 
     local key = FullKey(sourceName)
     if not key then return end

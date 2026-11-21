@@ -9,15 +9,16 @@ local indexedMembersByKey, indexedMembersByGUID = {}, {}
 local linkedGroups = {}
 
 local function IsPlayerGUID(guid)
-    return type(guid) == "string" and guid:match("^Player%-") ~= nil
+    return ns.SafePlayerGUID(guid) ~= nil
 end
 
 local function IsCharacterName(name)
-    return type(name) == "string" and name ~= "" and name ~= UNKNOWNOBJECT
+    return ns.SafeString(name) ~= nil and name ~= UNKNOWNOBJECT
 end
 
 local function ValidBattleTag(tag)
-    return type(tag) == "string" and tag ~= "" and tag:find("#", 1, true) ~= nil
+    local safe = ns.SafeString(tag)
+    return safe ~= nil and safe:find("#", 1, true) ~= nil
 end
 
 function ns.InvalidateBattleNetIndex()
@@ -172,6 +173,7 @@ local function IsTrackingEnabled(category)
     local setting = {
         trade = "trackTrades", guild = "trackGuild", whisper = "trackWhispers",
         target = "trackTargets", inspect = "trackInspects", pvp = "trackPvP",
+        manual = "trackManual",
     }
     local key = setting[category]
     return key ~= nil and KnownPlayersSettings[key] == true

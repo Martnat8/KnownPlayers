@@ -1,7 +1,7 @@
 local addonName, ns = ...
 
 local SECONDS_PER_DAY = 86400
-local CATEGORIES = { "trade", "party", "raid", "guild", "whisper", "target", "inspect", "pvp" }
+local CATEGORIES = { "trade", "party", "raid", "guild", "whisper", "target", "inspect", "pvp", "manual" }
 local function SecondsForDuration(duration)
     if type(duration) ~= "table" then return 30 * SECONDS_PER_DAY end
     return math.max(60, (tonumber(duration.days) or 0) * SECONDS_PER_DAY
@@ -19,7 +19,7 @@ local DEFAULT_SETTINGS = {
     categoryRetention = {},
     trackBattleNetAssociations = true,
     knownOnlyNameplates = false,
-    namesOnlyNameplates = false,
+    namesOnlyNameplates = false, -- Legacy preference, retained for upgrades.
     nameDisplayMode = "full",
     showGuildInNamesOnly = false,
     nameplateCategoryColors = {},
@@ -31,7 +31,15 @@ local DEFAULT_SETTINGS = {
     trackTargets = true,
     trackInspects = true,
     trackPvP = false,
+    trackManual = true,
     filterNPCNameplates = false,
+    npcServiceCategories = {
+        vendor = true, trainer = true, banker = true, auctioneer = true,
+        flight = true, innkeeper = true, repair = true, quest = false,
+        manual = true,
+    },
+    npcNameplateCategoryColors = {},
+    npcNameplateColorOrder = {},
     npcNameDisplayMode = "full",
     showNPCTitle = false,
     npcNamesOnlyNameplates = false,
@@ -60,18 +68,34 @@ function ns.InitializeDatabase()
     if type(KnownPlayersDB.npcs) ~= "table" then
         KnownPlayersDB.npcs = {}
     end
+    -- User-specific visibility overrides are keyed by creature template ID.
+    -- Do not duplicate QuestieDB classifications in SavedVariables.
+    if type(KnownPlayersDB.npcOverrides) ~= "table" then
+        KnownPlayersDB.npcOverrides = {}
+    end
     if type(KnownPlayersSettings) ~= "table" then
         KnownPlayersSettings = {}
     end
     CopyDefaults(DEFAULT_SETTINGS, KnownPlayersSettings)
+    -- Preserve the existing Show Health Bar preference on upgrade. A fresh
+    -- install defaults to Always, while legacy Names Only maps to Never.
+    if KnownPlayersSettings.playerHealthBarMode ~= "always"
+        and KnownPlayersSettings.playerHealthBarMode ~= "combat"
+        and KnownPlayersSettings.playerHealthBarMode ~= "never" then
+        KnownPlayersSettings.playerHealthBarMode =
+            KnownPlayersSettings.namesOnlyNameplates and "never" or "always"
+    end
+    -- Keep the legacy boolean coherent for older consumers of SavedVariables.
+    KnownPlayersSettings.namesOnlyNameplates =
+        KnownPlayersSettings.playerHealthBarMode == "never"
     if type(KnownPlayersDB.bnetCharacters) ~= "table" then KnownPlayersDB.bnetCharacters = {} end
     -- Upgrade previous global retention preference once. All categories
     -- initially inherit the same behavior, then become independent.
     for _, category in ipairs(CATEGORIES) do
         if category ~= "guild" and type(KnownPlayersSettings.categoryRetention[category]) ~= "table" then
             KnownPlayersSettings.categoryRetention[category] = {
-                enabled = false,
-                days = math.max(1, math.min(180, tonumber(KnownPlayersSettings.expirationDays) or 30)),
+                enabled = true,
+                days = 30,
                 hours = 0,
                 minutes = 0,
             }
@@ -80,7 +104,7 @@ function ns.InitializeDatabase()
     -- NPC retention is separate from player interactions and off by default.
     if type(KnownPlayersSettings.categoryRetention.npc) ~= "table" then
         KnownPlayersSettings.categoryRetention.npc = {
-            enabled = false, days = 30, hours = 0, minutes = 0,
+            enabled = true, days = 30, hours = 0, minutes = 0,
         }
     end
     -- Guild membership is roster-based, not an inactivity-based relationship.
@@ -90,11 +114,19 @@ end
 -- Preserve existing SavedVariables keys. Identify players by GUID when available,
 -- then by exact name + realm. Never merge solely on a similar-looking name.
 local function ValidGUID(guid)
-    return type(guid) == "string" and guid:match("^Player%-") ~= nil
+    return ns.SafePlayerGUID(guid) ~= nil
 end
 
-local function SplitKnownRealm(key)
+local function SplitKnownRealm(key, realmHint)
     if type(key) ~= "string" then return nil, nil end
+    -- A separately supplied realm resolves cross-realm names without treating
+    -- a hyphen within the character name as a realm separator.
+    if type(realmHint) == "string" and realmHint ~= "" then
+        local suffix = "-" .. realmHint
+        if key:sub(-#suffix):lower() == suffix:lower() then
+            return key:sub(1, -#suffix - 1), realmHint
+        end
+    end
     -- The Forever realm token is an internal identifier. The same character
     -- can also have hyphens in their *name*, so don't split on the first '-'.
     local name, realm = key:match("^(.-)%-(CAMWOW[%w]+)$")
@@ -109,13 +141,33 @@ local function SplitKnownRealm(key)
     return key, nil
 end
 
+-- WoW Forever may report a character as "First Second" on guild rosters and
+-- "First-Second" in unit APIs. Normalize only the CHARACTER portion of a
+-- realm-qualified key; never merge characters from different known realms.
+function ns.NormalizePlayerKey(key, realmHint)
+    key = ns.SafeString(key)
+    if not key then return nil end
+    local name, realm = SplitKnownRealm(key, realmHint)
+    if not name or not realm then return nil end
+    name = name:match("^%s*(.-)%s*$"):gsub("%s+", "-")
+    if name == "" then return nil end
+    return name .. "-" .. realm, name, realm
+end
+
+local function ReadableCharacterName(name)
+    -- Display only: stored identities retain their canonical hyphens/realm.
+    return name:gsub("%-", " "):gsub("%s+", " ")
+end
+
 function ns.GetDisplayName(key, record)
     if type(record) == "table" and type(record.displayName) == "string" and record.displayName ~= "" then
-        return record.displayName
+        return ReadableCharacterName(record.displayName)
     end
-    local name = SplitKnownRealm(key)
-    return name or tostring(key)
+    local name = SplitKnownRealm(key, type(record) == "table" and record.realm or nil)
+    return ReadableCharacterName(name or tostring(key))
 end
+
+local MergeInto
 
 function ns.MigratePlayerRecords()
     local changed = 0
@@ -143,11 +195,60 @@ function ns.MigratePlayerRecords()
             end
         end
     end
+    -- Merge legacy space/hyphen variants on the SAME realm. A GUID conflict
+    -- blocks the merge, even when the displayed names look identical.
+    -- Choose an already-canonical key first, so roster refreshes and direct
+    -- encounters continue writing to that one SavedVariables entry.
+    local entries = {}
+    for key, record in pairs(KnownPlayersDB.players) do
+        if type(record) == "table" then
+            local canonical, _, realm = ns.NormalizePlayerKey(key, record.realm)
+            if canonical and realm then
+                entries[#entries + 1] = {key = key, canonical = canonical,
+                    group = canonical:lower(), record = record}
+            end
+        end
+    end
+    table.sort(entries, function(a, b)
+        if a.group ~= b.group then return a.group < b.group end
+        if (a.key == a.canonical) ~= (b.key == b.canonical) then
+            return a.key == a.canonical
+        end
+        return a.key < b.key
+    end)
+    local leaders = {}
+    for _, entry in ipairs(entries) do
+        local record = KnownPlayersDB.players[entry.key]
+        if record == entry.record then
+            local leaderKey = leaders[entry.group]
+            local leader = leaderKey and KnownPlayersDB.players[leaderKey]
+            local oldGUID = ns.SafePlayerGUID(record.guid)
+            local leaderGUID = leader and ns.SafePlayerGUID(leader.guid)
+            if leader and (not oldGUID or not leaderGUID or oldGUID == leaderGUID) then
+                if record ~= leader then
+                    MergeInto(leader, record)
+                    KnownPlayersDB.players[entry.key] = nil
+                    changed = changed + 1
+                end
+            elseif not leader then
+                -- Re-key to the familiar hyphenated spelling when unoccupied.
+                local destination = entry.canonical
+                if destination ~= entry.key and KnownPlayersDB.players[destination] == nil then
+                    KnownPlayersDB.players[destination] = record
+                    KnownPlayersDB.players[entry.key] = nil
+                    changed = changed + 1
+                    entry.key = destination
+                end
+                leaders[entry.group] = entry.key
+            end
+            -- A conflicting-GUID record remains separate and untouched.
+        end
+    end
     if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
     return changed
 end
 
-local function MergeInto(destination, source)
+MergeInto = function(destination, source)
     destination.categories = type(destination.categories) == "table" and destination.categories or {}
     if type(source.categories) == "table" then
         for category, enabled in pairs(source.categories) do
@@ -186,20 +287,18 @@ end
 -- Optional GUID lets another interaction recognize a character whose name
 -- spelling / realm format differs. Identical names without a GUID are not
 -- proof that two records belong to the same player.
-function ns.RememberPlayer(name, category, seenAt, guid)
-    if type(name) ~= "string" or name == "" then return nil end
-    local players = KnownPlayersDB.players
-    local displayName, realm = SplitKnownRealm(name)
+function ns.RememberPlayer(name, category, seenAt, guid, realmHint)
+    name = ns.SafeString(name)
+    if not name then return nil end
+    local normalized, displayName, realm = ns.NormalizePlayerKey(name, realmHint)
+    if normalized then name = normalized end
+    if not displayName then displayName, realm = SplitKnownRealm(name, realmHint) end
     if not ValidGUID(guid) then guid = nil end
+    local players = KnownPlayersDB.players
 
-    local matchedKey = nil
-    if guid then
-        for key, record in pairs(players) do
-            if type(record) == "table" and record.guid == guid then
-                matchedKey = key
-                break
-            end
-        end
+    local matchedKey = guid and ns.FindDirectKeyByGUID and ns.FindDirectKeyByGUID(guid) or nil
+    if not matchedKey and ns.FindDirectKeyByName then
+        matchedKey = ns.FindDirectKeyByName(name, guid)
     end
 
     local record = matchedKey and players[matchedKey] or nil

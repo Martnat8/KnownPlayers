@@ -1,6 +1,6 @@
 local addonName, ns = ...
 
-local ADDON_VERSION = "0.1.7"
+local ADDON_VERSION = "0.4.4"
 local PRUNE_INTERVAL = 600
 local elapsedSincePrune = 0
 
@@ -80,12 +80,44 @@ local function HandleSlashCommand(message)
         Print("/kp platehide - Temporarily hide the target player nameplate.")
         Print("/kp plateshow - Restore the target player nameplate.")
         Print("/kp npctoggle - Remember/remove current target NPC.")
+        Print("/kp npcsource - Show the NPC database source.")
+        Print("/kp remember - Add the targeted player to Manually Added.")
         Print("/kp help - Show this help.")
         return
     end
 
     if command == "platehide" or command == "plateshow" then
         if ns.TestTargetNameplate then ns.TestTargetNameplate(command == "platehide") end
+        return
+    end
+
+    if command == "remember" then
+        if not UnitExists("target") or not UnitIsPlayer("target") or UnitIsUnit("target", "player") then
+            Print("Target another player first.")
+            return
+        end
+        local name, realm = UnitFullName("target")
+        if type(name) ~= "string" or name == "" then
+            Print("Could not identify the targeted player.")
+            return
+        end
+        if type(realm) ~= "string" or realm == "" then
+            realm = GetNormalizedRealmName()
+        end
+        if type(realm) ~= "string" or realm == "" then
+            Print("Could not identify the player's realm.")
+            return
+        end
+        ns.RememberPlayer(name .. "-" .. realm, "manual", nil, UnitGUID("target"))
+        if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+        if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
+        Print("Added to Manually Added: " .. name)
+        return
+    end
+
+    if command == "npcsource" then
+        Print(ns.GetNPCDataSourceStatus and ns.GetNPCDataSourceStatus()
+            or "QuestieDB bridge unavailable")
         return
     end
 
@@ -177,6 +209,7 @@ eventFrame:SetScript("OnEvent", function(self, event, loadedAddon)
     if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
     ns.CreateSettingsPanel()
     if ns.InitializeNPCMenu then ns.InitializeNPCMenu() end
+    if ns.InitializePlayerMenu then ns.InitializePlayerMenu() end
     -- Capture an existing group when the addon is loaded or reloaded.
     ns.ScanGroupRoster()
     ns.RequestGuildRoster()

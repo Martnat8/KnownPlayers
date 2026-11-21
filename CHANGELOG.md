@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.5b5] - 2026-11-21
+
 - Clarified the NPC Management description to say “Search manually saved NPCs.”
 - Kept attackable NPC nameplates visible by default when automatic NPC filtering is enabled and restored the game's hostile NPC name setting on upgrade.
 

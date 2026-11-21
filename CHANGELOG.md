@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+- Redesigned Settings around three tabs and added an optional minimap button that opens the same layout in a vertically resizable window. The button works with MinimapButtonButton.
+- Added draggable Player History from player portraits and lists. See why and when you met each player, their race and class when available, and edit searchable notes and tags. Escape closes windows in reverse opening order.
+- Added shortcuts to each player category list and `/kp players` for All Players. Player lists show class and race icons and can filter by class. The Battle.net Alts list links to the saved player's history.
+- Added Name and Known for sorting to the player lists, Battle.net Alts, and NPC Manager. All Players can also sort by most recent interaction.
+- Added stars and trash cans beside player names. Stars save immediately and keep favorites from expiring, including after a reload. NPCs can also be favorited. Undo an individual removal within 30 seconds from the lists or with `/kp undo`.
+- Check for inactivity expiration every five seconds and update open lists and nameplates when entries expire.
+- Show the installed version in About, explain how interactions reveal nameplates in the README, and fold earlier changelog entries into an expandable history.
+
+## Release history
+
+<details>
+
+<summary>Show previous releases and prereleases</summary>
+
 ## [0.5.0b8] - 2026-11-21
 
 - Made Player History draggable from the portrait menu and player lists.
@@ -183,3 +197,5 @@
 
 ## 0.1.0
 - Initial public-release baseline with interaction tracking, configurable retention, searchable lists, Battle.net alt recognition, and nameplate display and color options.
+
+</details>

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Added an About button on the main settings page with help for tracking, NPC overrides, nameplates, and saved lists.
+
 ## [0.4.5b5] - 2026-11-21
 
 - Clarified the NPC Management description to say “Search manually saved NPCs.”

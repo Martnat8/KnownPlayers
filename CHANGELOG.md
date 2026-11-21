@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.5b4] - 2026-11-21
+
 - Fixed a startup error after PvP removal by sizing the player nameplate color-priority list to the available categories.
 
 ## [0.4.5b3] - 2026-11-21

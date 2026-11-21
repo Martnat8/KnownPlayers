@@ -31,7 +31,7 @@ runs on load and periodically, not precisely at the minute of expiration.
 
 PLAYER DATA
 One player record can contain multiple reasons: Trade, Party, Raid, Guild,
-Whisper, Target, Inspect, PvP Attackers and Manually Added. Removing a reason
+Whisper, Target, Inspect and Manually Added. Removing a reason
 preserves the remaining reasons. NPC records are kept separately by creature
 ID. Battle.net associations are based on friends' observed characters and
 require a directly known character to anchor recognition.

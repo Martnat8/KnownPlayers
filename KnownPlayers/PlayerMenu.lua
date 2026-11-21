@@ -5,22 +5,32 @@ local addonName, ns = ...
 -- Manual additions have their own category, separate from automatic targeting.
 local menuRegistered = {}
 
-local function PlayerFromUnit(unit)
-    if type(unit) ~= "string" or not UnitExists(unit)
-        or not UnitIsPlayer(unit) or UnitIsUnit(unit, "player") then
-        return nil
+function ns.GetPlayerFromUnit(unit)
+    if not ns.SafeString(unit) or not UnitExists(unit) or not UnitIsPlayer(unit) then
+        return nil, "Target another player first."
     end
-    local name, realm = UnitFullName(unit)
+    local unidentified = "Could not identify the targeted player."
+    local compared, isSelf = pcall(UnitIsUnit, unit, "player")
+    if not compared or not ns.IsAccessibleValue(isSelf) then
+        return nil, unidentified
+    end
+    if isSelf then return nil, "Target another player first." end
+
+    local ok, name, realm = pcall(UnitFullName, unit)
+    if not ok or not ns.IsAccessibleValue(realm) then
+        return nil, unidentified
+    end
     name = ns.SafeString(name)
-    realm = ns.SafeString(realm)
     if not name or name == UNKNOWNOBJECT then
-        return nil
+        return nil, unidentified
     end
-    if type(realm) ~= "string" or realm == "" then
-        realm = GetNormalizedRealmName()
+    if realm == nil or realm == "" then
+        local readRealm, localRealm = pcall(GetNormalizedRealmName)
+        if readRealm then realm = localRealm end
     end
-    if type(realm) ~= "string" or realm == "" then return nil end
-    return name .. "-" .. realm, ns.SafePlayerGUID(ns.SafeUnitGUID(unit)), name
+    realm = ns.SafeString(realm)
+    if not realm then return nil, "Could not identify the player's realm." end
+    return name .. "-" .. realm, ns.SafePlayerGUID(ns.SafeUnitGUID(unit)), name, realm
 end
 
 local function FindSavedKey(name, guid)
@@ -28,10 +38,10 @@ local function FindSavedKey(name, guid)
     if type(records) ~= "table" then return nil end
     if guid and ns.FindDirectKeyByGUID then
         local matched = ns.FindDirectKeyByGUID(guid)
-        if matched then return matched end
+        if matched then return ns.HasPlayerCategory(records[matched]) and matched or nil end
     end
     local record = records[name]
-    if type(record) == "table"
+    if ns.HasPlayerCategory(record)
         and (not guid or not record.guid or record.guid == guid) then
         return name
     end
@@ -58,7 +68,7 @@ local function AddPlayerMenu(menuTag, rootDescription, contextData)
         end
         unit = "target"
     end
-    local key, guid, displayName = PlayerFromUnit(unit)
+    local key, guid, _, realm = ns.GetPlayerFromUnit(unit)
     if not key then return end
 
     local savedKey = FindSavedKey(key, guid)
@@ -72,7 +82,7 @@ local function AddPlayerMenu(menuTag, rootDescription, contextData)
         end)
     else
         rootDescription:CreateButton("Remember Player", function()
-            ns.RememberPlayer(key, "manual", nil, guid)
+            ns.RememberPlayer(key, "manual", nil, guid, realm)
             Refresh()
             if not KnownPlayersSettings.trackManual then
                 print("|cff33ff99KnownPlayers:|r Player saved. Enable Manually Added tracking to display its nameplate.")

@@ -92,23 +92,12 @@ local function HandleSlashCommand(message)
     end
 
     if command == "remember" then
-        if not UnitExists("target") or not UnitIsPlayer("target") or UnitIsUnit("target", "player") then
-            Print("Target another player first.")
+        local key, guidOrReason, name, realm = ns.GetPlayerFromUnit("target")
+        if not key then
+            Print(guidOrReason)
             return
         end
-        local name, realm = UnitFullName("target")
-        if type(name) ~= "string" or name == "" then
-            Print("Could not identify the targeted player.")
-            return
-        end
-        if type(realm) ~= "string" or realm == "" then
-            realm = GetNormalizedRealmName()
-        end
-        if type(realm) ~= "string" or realm == "" then
-            Print("Could not identify the player's realm.")
-            return
-        end
-        ns.RememberPlayer(name .. "-" .. realm, "manual", nil, UnitGUID("target"))
+        ns.RememberPlayer(key, "manual", nil, guidOrReason, realm)
         if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
         if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
         Print("Added to Manually Added: " .. name)
@@ -140,11 +129,14 @@ local function HandleSlashCommand(message)
         Print("Saved player records: " .. ns.CountPlayers())
         Print("Saved NPCs: " .. ns.CountNPCs())
         Print("Associated characters: " .. ns.CountAssociatedCharacters())
-        local enabled = 0
-        for _, retention in pairs(KnownPlayersSettings.categoryRetention) do
-            if retention.enabled then enabled = enabled + 1 end
+        local enabled, total = 0, 0
+        for category, retention in pairs(KnownPlayersSettings.categoryRetention) do
+            if (category == "npc" or ns.IsPlayerCategory(category)) and type(retention) == "table" then
+                total = total + 1
+                if retention.enabled then enabled = enabled + 1 end
+            end
         end
-        Print("Category expiration: " .. enabled .. " of 8 enabled")
+        Print("Category expiration: " .. enabled .. " of " .. total .. " enabled")
         return
     end
 
@@ -173,12 +165,14 @@ local function HandleSlashCommand(message)
             local categories = {}
             if type(record) == "table" and type(record.categories) == "table" then
                 for category, enabled in pairs(record.categories) do
-                    if enabled then table.insert(categories, category) end
+                    if enabled and ns.IsPlayerCategory(category) then table.insert(categories, category) end
                 end
             end
-            table.sort(categories)
-            Print(ns.GetDisplayName(name, record) .. " [" .. table.concat(categories, ", ") .. "]")
-            shown = shown + 1
+            if #categories > 0 then
+                table.sort(categories)
+                Print(ns.GetDisplayName(name, record) .. " [" .. table.concat(categories, ", ") .. "]")
+                shown = shown + 1
+            end
         end
         if shown == 0 then Print("No saved players.") end
         if ns.CountPlayers() > shown then Print("Showing " .. shown .. " of " .. ns.CountPlayers() .. " players.") end

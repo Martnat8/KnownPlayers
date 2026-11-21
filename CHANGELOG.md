@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Removed PvP attacker tracking, its controls, and its player-list category. TODO: Revisit PvP tracking when it can be tested in WoW Forever.
+- Made `/kp remember` use the same identity checks as the portrait menu and explain when the targeted player cannot be identified.
+- Cleared old Guild reasons on confirmed guild departures and switches while preserving other encounter reasons.
+
 ## [0.4.5b2] - 2026-11-21
 
 - Paused automatic NPC filtering when QuestieDB is unavailable and kept unclassified NPCs visible while honoring manual overrides.

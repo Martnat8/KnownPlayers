@@ -16,6 +16,5 @@ Nameplates.lua
 Settings.lua
 PlayerList.lua
 Tracking.lua
-PvP.lua
 BattleNet.lua
 Core.lua

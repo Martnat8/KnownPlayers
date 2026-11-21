@@ -1,7 +1,23 @@
 local addonName, ns = ...
 
 local SECONDS_PER_DAY = 86400
-local CATEGORIES = { "trade", "party", "raid", "guild", "whisper", "target", "inspect", "pvp", "manual" }
+local CATEGORIES = { "trade", "party", "raid", "guild", "whisper", "target", "inspect", "manual" }
+local supportedCategories = {}
+for _, category in ipairs(CATEGORIES) do supportedCategories[category] = true end
+
+function ns.IsPlayerCategory(category)
+    return supportedCategories[category] == true
+end
+
+-- Keep older interaction history available in SavedVariables. Only currently
+-- supported categories count as known players or supply Battle.net anchors.
+function ns.HasPlayerCategory(record)
+    if type(record) ~= "table" or type(record.categories) ~= "table" then return false end
+    for category, present in pairs(record.categories) do
+        if present and supportedCategories[category] then return true end
+    end
+    return false
+end
 local function SecondsForDuration(duration)
     if type(duration) ~= "table" then return 30 * SECONDS_PER_DAY end
     return math.max(60, (tonumber(duration.days) or 0) * SECONDS_PER_DAY
@@ -30,7 +46,6 @@ local DEFAULT_SETTINGS = {
     trackGuild = true,
     trackTargets = true,
     trackInspects = true,
-    trackPvP = false,
     trackManual = true,
     filterNPCNameplates = false,
     npcServiceCategories = {
@@ -131,8 +146,9 @@ local function SplitKnownRealm(key, realmHint)
     -- can also have hyphens in their *name*, so don't split on the first '-'.
     local name, realm = key:match("^(.-)%-(CAMWOW[%w]+)$")
     if name and name ~= "" then return name, realm end
-    local localRealm = type(GetNormalizedRealmName) == "function" and GetNormalizedRealmName() or nil
-    if type(localRealm) == "string" and localRealm ~= "" then
+    local ok, realmValue = pcall(GetNormalizedRealmName)
+    local localRealm = ok and ns.SafeString(realmValue)
+    if localRealm then
         local suffix = "-" .. localRealm
         if key:sub(-#suffix) == suffix then
             return key:sub(1, -#suffix - 1), localRealm
@@ -369,7 +385,7 @@ function ns.PruneExpiredPlayers(now)
         if type(record) == "table" and type(record.categories) == "table" then
             for category, present in pairs(record.categories) do
                 local retention = KnownPlayersSettings.categoryRetention[category]
-                if present and type(retention) == "table" and retention.enabled then
+                if present and supportedCategories[category] and type(retention) == "table" and retention.enabled then
                     local stamp = type(record.categoryLastSeen) == "table"
                         and record.categoryLastSeen[category] or record.lastSeen
                     if type(stamp) == "number"
@@ -413,15 +429,15 @@ end
 
 function ns.CountPlayers()
     local count = 0
-    for _ in pairs(KnownPlayersDB.players) do
-        count = count + 1
+    for _, record in pairs(KnownPlayersDB.players) do
+        if ns.HasPlayerCategory(record) then count = count + 1 end
     end
     return count
 end
 
 -- A player may belong to several tracking categories. Removing a category
 -- never removes the others; an empty record is deleted altogether.
-function ns.RemovePlayerCategory(key, category)
+local function RemovePlayerCategory(key, category)
     local record = KnownPlayersDB.players[key]
     if type(record) ~= "table" or type(record.categories) ~= "table"
         or not record.categories[category] then
@@ -433,21 +449,28 @@ function ns.RemovePlayerCategory(key, category)
     if not next(record.categories) then
         KnownPlayersDB.players[key] = nil
     end
-    if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
-    if ns.PruneUnlinkedBattleNetData then ns.PruneUnlinkedBattleNetData() end
     return true
 end
 
-function ns.ClearPlayerCategory(category)
+local function RefreshAfterCategoryRemoval()
+    if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
+    if ns.PruneUnlinkedBattleNetData then ns.PruneUnlinkedBattleNetData() end
+end
+
+function ns.RemovePlayerCategory(key, category)
+    if not RemovePlayerCategory(key, category) then return false end
+    RefreshAfterCategoryRemoval()
+    return true
+end
+
+function ns.ClearPlayerCategory(category, keep)
     local removed = 0
-    for key, record in pairs(KnownPlayersDB.players) do
-        if type(record) == "table" and type(record.categories) == "table"
-            and record.categories[category] then
-            if ns.RemovePlayerCategory(key, category) then
-                removed = removed + 1
-            end
+    for key in pairs(KnownPlayersDB.players) do
+        if (not keep or not keep[key]) and RemovePlayerCategory(key, category) then
+            removed = removed + 1
         end
     end
+    if removed > 0 then RefreshAfterCategoryRemoval() end
     return removed
 end
 

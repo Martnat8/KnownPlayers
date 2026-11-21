@@ -8,7 +8,7 @@ A World of Warcraft **Forever** addon that remembers characters you encounter an
 
 ## Features
 
-- Recognize players through trade, party, raid, guild, whispers, targeting, inspecting, and PvP attacks.
+- Recognize players through trade, party, raid, guild, whispers, targeting, and inspecting.
 - Keep independently searchable player lists with individual removal and clear-list controls.
 - Set optional, category-specific inactivity expiration (guild membership is exempt).
 - Hide unknown player nameplates; choose health bars, name format, and guild name display.

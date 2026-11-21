@@ -216,6 +216,7 @@ eventFrame:SetScript("OnEvent", function(self, event, loadedAddon)
     if ns.PruneExpiredNPCs then ns.PruneExpiredNPCs() end
     if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
     ns.CreateSettingsPanel()
+    ns.RefreshMinimapButton()
     if ns.InitializeNPCMenu then ns.InitializeNPCMenu() end
     if ns.InitializePlayerMenu then ns.InitializePlayerMenu() end
     -- Capture an existing group when the addon is loaded or reloaded.

@@ -24,6 +24,7 @@ end
 
 local windows = {}
 local openWindows = {}
+local hidingForNavigation
 local RefreshAllWindows
 
 local function RemoveOpenWindow(frame)
@@ -35,16 +36,43 @@ local function RemoveOpenWindow(frame)
     end
 end
 
+local function UpdateOpenWindows()
+    local singleWindow = false
+    for _, frame in ipairs(openWindows) do
+        if frame.hideOtherWindows == true then
+            singleWindow = true
+            break
+        end
+    end
+    local latest = openWindows[#openWindows]
+    for _, frame in ipairs(openWindows) do
+        if frame ~= latest and singleWindow and frame:IsShown() then
+            -- Keep this frame in the navigation stack so closing the child returns to it.
+            hidingForNavigation = frame
+            frame:Hide()
+            hidingForNavigation = nil
+        end
+    end
+    for _, frame in ipairs(openWindows) do
+        if frame == latest or not singleWindow then frame:Show() end
+    end
+    if latest then latest:Raise() end
+end
+
 local function ShowWindow(frame)
     RemoveOpenWindow(frame)
     openWindows[#openWindows + 1] = frame
-    frame:Show()
-    frame:Raise()
+    UpdateOpenWindows()
 end
 
 local function CloseLatestWindow()
     local frame = openWindows[#openWindows]
-    if frame then frame:Hide() end
+    if not frame then return end
+    if frame.classFilter and frame.classFilter:IsMenuOpen() then
+        frame.classFilter:CloseMenu()
+    else
+        frame:Hide()
+    end
 end
 
 local function EnableWindowKeyboard(frame)
@@ -65,7 +93,11 @@ local function EnableWindowEscape(frame)
         self:UnregisterEvent("PLAYER_REGEN_ENABLED")
         if self:IsShown() then EnableWindowKeyboard(self) end
     end)
-    frame:HookScript("OnHide", RemoveOpenWindow)
+    frame:HookScript("OnHide", function(self)
+        if self == hidingForNavigation or self:IsShown() then return end
+        RemoveOpenWindow(self)
+        UpdateOpenWindows()
+    end)
     frame:SetScript("OnKeyDown", function(self, key)
         if InCombatLockdown and InCombatLockdown() then return end
         local escape = key == "ESCAPE"
@@ -74,9 +106,134 @@ local function EnableWindowEscape(frame)
     end)
 end
 
+ns.ShowWindow = ShowWindow
+ns.EnableWindowEscape = EnableWindowEscape
+
 local function EscapeFromEditBox(self)
     self:ClearFocus()
     CloseLatestWindow()
+end
+
+local classTokens
+local function GetRowClass(appearance)
+    if not classTokens then
+        classTokens = {}
+        for _, names in ipairs({LOCALIZED_CLASS_NAMES_MALE or {}, LOCALIZED_CLASS_NAMES_FEMALE or {}}) do
+            for token, name in pairs(names) do classTokens[name:lower()] = token:lower() end
+        end
+    end
+    local name = ns.SafeString(appearance.class)
+    local token = ns.SafeString(appearance.classToken)
+    token = (token and token:lower()) or (name and classTokens[name:lower()])
+    local key = token or (name and name:lower()) or ""
+    local localized = token and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[token:upper()]
+    return key, localized or name or token, token and ("classicon-" .. token)
+end
+
+local CLASS_COLUMN_WIDTH = 112
+
+local function AddClassFilter(frame, x, y, refresh)
+    local selected, labels, options = "all", {}, {}
+    local dropdown = CreateFrame("DropdownButton", nil, frame, "WowStyle1DropdownTemplate")
+    frame.classFilter = dropdown
+    dropdown:SetSize(CLASS_COLUMN_WIDTH, 22)
+    dropdown:SetPoint("TOPLEFT", x, y)
+    dropdown:SetSelectionText(function()
+        if selected == "all" then return "Class" end
+        return labels[selected] or "Unknown class"
+    end)
+    local function IsSelected(key) return selected == key end
+    local function Select(key)
+        selected = key
+        refresh()
+    end
+    dropdown:SetupMenu(function(_, menu)
+        menu:CreateRadio("All classes", IsSelected, Select, "all")
+        for _, key in ipairs(options) do menu:CreateRadio(labels[key], IsSelected, Select, key) end
+        menu:CreateRadio("Unknown class", IsSelected, Select, "")
+    end)
+
+    return function(entries)
+        local changed = false
+        for _, entry in ipairs(entries) do
+            local key, label, atlas = GetRowClass(entry.appearance)
+            entry.classKey, entry.classLabel, entry.classAtlas = key, label, atlas
+            if key ~= "" and not labels[key] then
+                labels[key] = label
+                options[#options + 1] = key
+                changed = true
+            end
+        end
+        if changed then
+            table.sort(options, function(a, b)
+                local aLabel, bLabel = labels[a]:lower(), labels[b]:lower()
+                if aLabel ~= bLabel then return aLabel < bLabel end
+                return a < b
+            end)
+            dropdown:GenerateMenu()
+        end
+        return selected
+    end
+end
+
+local atlasAvailable = {}
+local function HasAtlas(atlas)
+    if not atlas or not C_Texture or not C_Texture.GetAtlasInfo then return false end
+    if atlasAvailable[atlas] == nil then atlasAvailable[atlas] = type(C_Texture.GetAtlasInfo(atlas)) == "table" end
+    return atlasAvailable[atlas]
+end
+
+local function GetRaceAtlas(appearance)
+    local atlas = ns.SafeString(appearance.raceAtlas)
+    if atlas and not HasAtlas(atlas) then atlas = atlas:gsub("^raceicon128%-", "raceicon-") end
+    return HasAtlas(atlas) and atlas or nil
+end
+
+local function AddAppearanceIcons(row, x)
+    local function CreateIcon()
+        local icon = CreateFrame("Frame", nil, row)
+        icon:SetSize(18, 18)
+        icon:EnableMouse(true)
+        icon.texture = icon:CreateTexture(nil, "ARTWORK")
+        icon.texture:SetAllPoints()
+        icon:SetScript("OnEnter", function(self)
+            if not GameTooltip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(self.label)
+            GameTooltip:Show()
+        end)
+        local function HideTooltip(self)
+            if GameTooltip and GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+        end
+        icon:SetScript("OnLeave", HideTooltip)
+        icon:SetScript("OnHide", HideTooltip)
+        return icon
+    end
+    row.appearanceCenter = x + CLASS_COLUMN_WIDTH / 2
+    row.classIcon = CreateIcon()
+    row.raceIcon = CreateIcon()
+end
+
+local function ShowAppearanceIcons(row, entry)
+    local classAtlas = HasAtlas(entry.classAtlas) and entry.classAtlas or nil
+    local raceAtlas = GetRaceAtlas(entry.appearance)
+    local function SetIcon(icon, atlas, label, offset)
+        icon.label = label
+        if atlas then
+            icon:ClearAllPoints()
+            icon:SetPoint("CENTER", row, "LEFT", row.appearanceCenter + offset, 0)
+            icon.texture:SetAtlas(atlas)
+        end
+        icon:SetShown(atlas ~= nil)
+    end
+    SetIcon(row.classIcon, classAtlas, ns.SafeString(entry.appearance.class) or entry.classLabel or "Class",
+        raceAtlas and -12 or 0)
+    SetIcon(row.raceIcon, raceAtlas, ns.SafeString(entry.appearance.race) or "Race", classAtlas and 12 or 0)
+end
+
+local function AppearanceText(label, atlas)
+    if HasAtlas(atlas) then return CreateAtlasMarkup(atlas, 16, 16) .. " " .. label end
+    return label
 end
 
 local function AddSortHeaders(frame, y, knownX, refresh, recent)
@@ -187,7 +344,7 @@ local function CreateCategoryWindow(category, index)
     -- A separate top-level window for each category, independent from Settings.
     local frameName = "KnownPlayers" .. category.label:gsub("%s+", "") .. "ListWindow"
     local frame = CreateFrame("Frame", frameName, UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(570, 440)
+    frame:SetSize(670, 440)
     frame:SetPoint("CENTER", UIParent, "CENTER", (index - 4) * 28, (index - 4) * 16)
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
@@ -226,7 +383,8 @@ local function CreateCategoryWindow(category, index)
     searchHint:SetText("Search names")
 
     local Refresh
-    local Sort = AddSortHeaders(frame, -137, 269, function() Refresh() end)
+    local Sort = AddSortHeaders(frame, -137, 365, function() Refresh() end)
+    local ReadClassFilter = AddClassFilter(frame, 239, -138, function() Refresh() end)
 
     local clear = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     clear:SetSize(115, 24)
@@ -241,7 +399,7 @@ local function CreateCategoryWindow(category, index)
     scroller:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -39, 20)
 
     local content = CreateFrame("Frame", nil, scroller)
-    content:SetSize(480, 1)
+    content:SetSize(580, 1)
     scroller:SetScrollChild(content)
 
     local rows = {}
@@ -255,11 +413,13 @@ local function CreateCategoryWindow(category, index)
 
         local name = item:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
         name:SetPoint("LEFT", item, "LEFT", 4, 0)
-        name:SetWidth(240)
+        name:SetWidth(205)
         name:SetJustifyH("LEFT")
+        name:SetMaxLines(1)
+        AddAppearanceIcons(item, 218)
 
         local knownSince = item:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        knownSince:SetPoint("LEFT", name, "RIGHT", 8, 0)
+        knownSince:SetPoint("LEFT", item, "LEFT", 344, 0)
         knownSince:SetWidth(62)
         knownSince:SetJustifyH("LEFT")
 
@@ -286,11 +446,13 @@ local function CreateCategoryWindow(category, index)
 
     Refresh = function()
         local all = ns.GetCategoryPlayers(category.key)
+        local classFilter = ReadClassFilter(all)
         local term = search:GetText():lower():match("^%s*(.-)%s*$")
         local filtered = {}
         for _, entry in ipairs(all) do
-            if term == "" or entry.name:lower():find(term, 1, true)
-                or entry.realm:lower():find(term, 1, true) then
+            if (classFilter == "all" or entry.classKey == classFilter)
+                and (term == "" or entry.name:lower():find(term, 1, true)
+                or entry.realm:lower():find(term, 1, true)) then
                 filtered[#filtered + 1] = entry
             end
         end
@@ -301,12 +463,13 @@ local function CreateCategoryWindow(category, index)
         content:SetHeight(math.max(1, #filtered * ROW_HEIGHT))
         empty:SetShown(#filtered == 0)
         if #filtered == 0 then
-            empty:SetText(term ~= "" and "No matching entries." or "No saved entries in this list.")
+            empty:SetText(#all > 0 and "No matching entries." or "No saved entries in this list.")
         end
 
         for i, entry in ipairs(filtered) do
             local item = GetRow(i)
             item.nameText:SetText(entry.name)
+            ShowAppearanceIcons(item, entry)
             item.knownSinceText:SetText(FormatKnownDuration(entry.firstSeen))
             item.historyButton:SetScript("OnClick", function() ns.OpenPlayerHistory(entry.key) end)
             item.removeButton:SetScript("OnClick", function()
@@ -418,8 +581,9 @@ local function CreatePlayerHistoryWindow()
         name:SetText(ns.GetDisplayName(key, record))
         name:SetWidth(math.min(name:GetUnboundedStringWidth(), 255))
         realm:SetText(ns.SafeString(record.realm) or "")
-        appearance:SetText("Race: " .. (ns.SafeString(record.race) or "Unknown")
-            .. "    Class: " .. (ns.SafeString(record.class) or "Unknown"))
+        local _, classLabel, classAtlas = GetRowClass(record)
+        appearance:SetText("Race: " .. AppearanceText(ns.SafeString(record.race) or "Unknown", GetRaceAtlas(record))
+            .. "    Class: " .. AppearanceText(ns.SafeString(record.class) or classLabel or "Unknown", classAtlas))
         local history = {}
         for _, category in ipairs(CATEGORIES) do
             if record.categories[category.key] then
@@ -453,7 +617,7 @@ end
 -- This consolidated window is a view of that table, not a second store.
 local function CreatePlayersWindow()
     local frame = CreateFrame("Frame", "KnownPlayersAllPlayersWindow", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(790, 635)
+    frame:SetSize(910, 635)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
@@ -528,19 +692,20 @@ local function CreatePlayersWindow()
     favorites.Text:SetText("Favorites only")
     favorites:SetScript("OnClick", function() Refresh() end)
 
-    local Sort = AddSortHeaders(frame, -260, 441, function() Refresh() end, recent)
+    local Sort = AddSortHeaders(frame, -260, 561, function() Refresh() end, recent)
+    local ReadClassFilter = AddClassFilter(frame, 211, -261, function() Refresh() end)
     local reasonHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    reasonHeader:SetPoint("TOPLEFT", 211, -264)
+    reasonHeader:SetPoint("TOPLEFT", 331, -264)
     reasonHeader:SetText("Reasons known")
     local recentHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    recentHeader:SetPoint("TOPLEFT", 508, -264)
+    recentHeader:SetPoint("TOPLEFT", 628, -264)
     recentHeader:SetText("Last interaction")
 
     local scroller = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
     scroller:SetPoint("TOPLEFT", 21, -285)
     scroller:SetPoint("BOTTOMRIGHT", -37, 20)
     local content = CreateFrame("Frame", nil, scroller)
-    content:SetSize(715, 1)
+    content:SetSize(835, 1)
     scroller:SetScrollChild(content)
     local rows = {}
     local ROW_HEIGHT = 31
@@ -575,17 +740,18 @@ local function CreatePlayersWindow()
         item.name:SetWidth(175)
         item.name:SetJustifyH("LEFT")
         item.name:SetMaxLines(1)
+        AddAppearanceIcons(item, 190)
         item.reasons = item:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        item.reasons:SetPoint("LEFT", 190, 0)
+        item.reasons:SetPoint("LEFT", 310, 0)
         item.reasons:SetWidth(225)
         item.reasons:SetJustifyH("LEFT")
         item.reasons:SetMaxLines(1)
         item.known = item:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        item.known:SetPoint("LEFT", 420, 0)
+        item.known:SetPoint("LEFT", 540, 0)
         item.known:SetWidth(64)
         item.known:SetJustifyH("LEFT")
         item.recent = item:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        item.recent:SetPoint("LEFT", 487, 0)
+        item.recent:SetPoint("LEFT", 607, 0)
         item.recent:SetWidth(72)
         item.recent:SetJustifyH("LEFT")
         item.remove = CreateFrame("Button", nil, item, "UIPanelButtonTemplate")
@@ -611,9 +777,11 @@ local function CreatePlayersWindow()
                     realm = record.realm or "", reasons = table.concat(reasons, ", "),
                     firstSeen = FirstSeen(record), lastSeen = LatestInteraction(record),
                     favorite = record.favorite == true,
+                    appearance = record,
                 }
             end
         end
+        local classFilter = ReadClassFilter(all)
         local term = search:GetText():lower():match("^%s*(.-)%s*$")
         local nameTerm = term:gsub("%-", " ")
         local filtered = {}
@@ -626,7 +794,8 @@ local function CreatePlayersWindow()
                     break
                 end
             end
-            if eligible and (not favorites:GetChecked() or entry.favorite)
+            if eligible and (classFilter == "all" or entry.classKey == classFilter)
+                and (not favorites:GetChecked() or entry.favorite)
                 and (term == "" or entry.name:lower():find(nameTerm, 1, true)
                 or entry.realm:lower():find(term, 1, true)
                 or entry.reasons:lower():find(term, 1, true)
@@ -643,6 +812,7 @@ local function CreatePlayersWindow()
         for index, entry in ipairs(filtered) do
             local item = GetRow(index)
             item.name:SetText((entry.favorite and "|cffffd100*|r " or "") .. entry.name)
+            ShowAppearanceIcons(item, entry)
             item.reasons:SetText(entry.reasons)
             item.known:SetText(FormatKnownDuration(entry.firstSeen))
             item.recent:SetText(InteractionAge(entry.lastSeen))
@@ -667,7 +837,7 @@ end
 
 local function CreateAssociatedWindow()
     local frame = CreateFrame("Frame", "KnownPlayersAssociatedListWindow", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(640, 490)
+    frame:SetSize(760, 490)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
@@ -698,26 +868,29 @@ local function CreateAssociatedWindow()
     searchLabel:SetText("Search names")
 
     local Refresh
-    local Sort = AddSortHeaders(frame, -136, 388, function() Refresh() end)
+    local Sort = AddSortHeaders(frame, -136, 508, function() Refresh() end)
+    local ReadClassFilter = AddClassFilter(frame, 229, -137, function() Refresh() end)
     local linkHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    linkHeader:SetPoint("TOPLEFT", 229, -140)
+    linkHeader:SetPoint("TOPLEFT", 349, -140)
     linkHeader:SetText("Recognized through")
 
     local scroller = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
     scroller:SetPoint("TOPLEFT", 21, -160)
     scroller:SetPoint("BOTTOMRIGHT", -39, 20)
     local content = CreateFrame("Frame", nil, scroller)
-    content:SetSize(550, 1)
+    content:SetSize(670, 1)
     scroller:SetScrollChild(content)
     local rows = {}
     Refresh = function()
         local all = ns.GetAssociatedCharacters()
+        local classFilter = ReadClassFilter(all)
         local term = search:GetText():lower():match("^%s*(.-)%s*$")
         local filtered = {}
         for _, entry in ipairs(all) do
-            if term == "" or entry.name:lower():find(term, 1, true)
+            if (classFilter == "all" or entry.classKey == classFilter)
+                and (term == "" or entry.name:lower():find(term, 1, true)
                 or (entry.realm or ""):lower():find(term, 1, true)
-                or (entry.linkedTo or ""):lower():find(term, 1, true) then
+                or (entry.linkedTo or ""):lower():find(term, 1, true)) then
                 filtered[#filtered + 1] = entry
             end
         end
@@ -734,12 +907,14 @@ local function CreateAssociatedWindow()
                 row.name:SetPoint("LEFT", 5, 0)
                 row.name:SetWidth(195)
                 row.name:SetJustifyH("LEFT")
+                row.name:SetMaxLines(1)
+                AddAppearanceIcons(row, 208)
                 row.source = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                row.source:SetPoint("LEFT", 208, 0)
+                row.source:SetPoint("LEFT", 328, 0)
                 row.source:SetWidth(154)
                 row.source:SetJustifyH("LEFT")
                 row.known = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                row.known:SetPoint("LEFT", 367, 0)
+                row.known:SetPoint("LEFT", 487, 0)
                 row.known:SetWidth(63)
                 row.known:SetJustifyH("LEFT")
                 row.historyButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
@@ -750,6 +925,7 @@ local function CreateAssociatedWindow()
             end
             local row = rows[i]
             row.name:SetText(entry.name)
+            ShowAppearanceIcons(row, entry)
             row.source:SetText(entry.linkedTo or "Known player")
             row.known:SetText(FormatKnownDuration(entry.firstSeen))
             row.historyButton:SetScript("OnClick", function()

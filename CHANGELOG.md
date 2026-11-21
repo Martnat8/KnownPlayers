@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- Added a Class / Race icon column and a class filter to player category lists, All Players, and Known Battle.net Alts.
+- Centered class and race icons under the Class dropdown and added them beside their labels in Player History.
+- Added an optional minimap button that opens a height-resizable KnownPlayers window with three settings tabs, with support for MinimapButtonButton collection.
+- Made KnownPlayers dialogs replace the minimap settings window until they close, and moved the player appearance controls below the forgetting settings.
+- Replaced AddOns settings subcategories with the same three tabs as the minimap window, and moved remembered NPC retention above NPC management.
+
 ## [0.5.0b5] - 2026-11-21
 
 - Made Escape close Player History and list windows in reverse opening order, and clarified the Favorite label in Player History.

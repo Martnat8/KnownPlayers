@@ -1,5 +1,5 @@
 local addonName, ns = ...
-local panel, aboutWindow
+local panel, settingsWindow
 local settingsRefreshers = {}
 local function RegisterSettingsRefresher(callback)
     settingsRefreshers[#settingsRefreshers + 1] = callback
@@ -26,6 +26,7 @@ StaticPopupDialogs["KNOWNPLAYERS_RESET_SETTINGS"] = {
         -- Rebind retention rows to their new SavedVariables tables, then repaint
         -- every existing control. A full UI reload would be unnecessary.
         RefreshSettingsControls()
+        ns.RefreshMinimapButton()
         if ns.InvalidateBattleNetIndex then ns.InvalidateBattleNetIndex() end
         if ns.SyncNativeOverheadNames then ns.SyncNativeOverheadNames() end
         if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
@@ -70,19 +71,23 @@ local function Button(parent, value, width, click)
 end
 
 local function ShowAbout(parent)
-    if aboutWindow then
-        aboutWindow:Show()
+    if parent.aboutWindow then
+        ns.ShowWindow(parent.aboutWindow)
         return
     end
 
-    local frame = CreateFrame("Frame", "KnownPlayersAboutWindow", parent, "BasicFrameTemplateWithInset")
+    local standalone = settingsWindow and parent:GetParent() == settingsWindow
+    local name = standalone and "KnownPlayersStandaloneAboutWindow" or "KnownPlayersAboutWindow"
+    local frame = CreateFrame("Frame", name, UIParent, "BasicFrameTemplateWithInset")
     frame:SetWidth(520)
     frame:SetPoint("CENTER", UIParent, "CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
     frame:EnableMouse(true)
     if frame.TitleText then frame.TitleText:SetText("About KnownPlayers") end
-    parent:HookScript("OnHide", function() frame:Hide() end)
+    frame:Hide()
+    ns.EnableWindowEscape(frame)
+    if not standalone then parent:HookScript("OnHide", function() frame:Hide() end) end
 
     Label(frame, "Version " .. ns.AddonVersion, 22, -38)
     local y = -62
@@ -104,8 +109,8 @@ local function ShowAbout(parent)
     end
     frame:SetHeight(-y + 8)
 
-    aboutWindow = frame
-    frame:Show()
+    parent.aboutWindow = frame
+    ns.ShowWindow(frame)
 end
 
 local function Checkbox(parent, x, y, title, current, onClick, getCurrent)
@@ -122,17 +127,10 @@ local function Checkbox(parent, x, y, title, current, onClick, getCurrent)
     return button
 end
 
-local function NewPage(title, subtitle)
-    local page = CreateFrame("Frame")
-    Label(page, title, 18, -16, "GameFontNormalLarge")
-    Label(page, subtitle, 18, -46)
-    return page
-end
-
-local function NewScrollingPage(title, subtitle)
-    local page = NewPage(title, subtitle or "")
+local function NewScrollingPage(parent)
+    local page = CreateFrame("Frame", nil, parent)
     local scroller = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
-    scroller:SetPoint("TOPLEFT", page, "TOPLEFT", 3, (subtitle and subtitle ~= "") and -75 or -55)
+    scroller:SetPoint("TOPLEFT", page, "TOPLEFT", 3, -4)
     scroller:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -28, 6)
     local content = CreateFrame("Frame", nil, scroller)
     content:SetSize(465, 600)
@@ -200,19 +198,19 @@ local function RetentionRow(parent, category, onLayoutChanged, compact)
         end
     end
 
-    local function Refresh()
-        local enabled = retention.enabled == true
-        local title = "Custom..."
-        if not customMode then
-            for _, choice in ipairs(RETENTION_PRESETS) do
-                if retention.days == choice[2] and retention.hours == choice[3]
-                    and retention.minutes == choice[4] then
-                    title = choice[1]
-                    break
-                end
+    local function MatchingPreset()
+        for _, choice in ipairs(RETENTION_PRESETS) do
+            if retention.days == choice[2] and retention.hours == choice[3]
+                and retention.minutes == choice[4] then
+                return choice
             end
         end
-        UIDropDownMenu_SetText(list, title)
+    end
+
+    local function Refresh()
+        local enabled = retention.enabled == true
+        local preset = not customMode and MatchingPreset()
+        UIDropDownMenu_SetText(list, preset and preset[1] or "Custom...")
         if enabled then UIDropDownMenu_EnableDropDown(list)
         else UIDropDownMenu_DisableDropDown(list) end
         custom:SetShown(customMode)
@@ -277,33 +275,20 @@ local function RetentionRow(parent, category, onLayoutChanged, compact)
         UIDropDownMenu_AddButton(info, level)
     end)
 
-    local isPreset = false
-    for _, option in ipairs(RETENTION_PRESETS) do
-        if retention.days == option[2] and retention.hours == option[3]
-            and retention.minutes == option[4] then
-            isPreset = true
-            break
-        end
-    end
-    customMode = not isPreset
+    customMode = not MatchingPreset()
     Refresh()
     RegisterSettingsRefresher(function()
         -- Reset replaces KnownPlayersSettings, so cached retention references
         -- must point to the new settings table before the user edits them.
-        retention = ns.GetCategoryRetention(category.key)
-        if not retention then return end
+        local current = ns.GetCategoryRetention(category.key)
+        if not current then return end
+        local replaced = current ~= retention
+        retention = current
         forgetToggle:SetChecked(retention.enabled == true)
         for _, unit in ipairs({"days", "hours", "minutes"}) do
             fields[unit]:SetText(tostring(retention[unit] or 0))
         end
-        customMode = true
-        for _, option in ipairs(RETENTION_PRESETS) do
-            if retention.days == option[2] and retention.hours == option[3]
-                and retention.minutes == option[4] then
-                customMode = false
-                break
-            end
-        end
+        if replaced or not customMode then customMode = not MatchingPreset() end
         Refresh()
     end)
     return row
@@ -387,9 +372,9 @@ local function NameplateSliderRow(parent, anchor, option)
     return row, Refresh
 end
 
-local function BuildHomePage()
-    local page, content = NewScrollingPage("KnownPlayers", "")
-    content:SetHeight(365)
+local function BuildHomePage(parent)
+    local page, content = NewScrollingPage(parent)
+    content:SetHeight(400)
     local about = Button(page, "About", 80, function() ShowAbout(page) end)
     about:SetPoint("TOPRIGHT", page, "TOPRIGHT", -22, -12)
 
@@ -410,7 +395,6 @@ local function BuildHomePage()
         npcFilterStatus:SetText(paused and "Automatic NPC filtering paused — QuestieDB unavailable" or "")
     end
     npcFilter:HookScript("OnClick", RefreshNPCFilterStatus)
-    page:HookScript("OnShow", RefreshNPCFilterStatus)
     RegisterSettingsRefresher(RefreshNPCFilterStatus)
     RefreshNPCFilterStatus()
 
@@ -436,7 +420,6 @@ local function BuildHomePage()
     local function RefreshSliders()
         for _, refresh in pairs(refreshSliders) do refresh() end
     end
-    page:SetScript("OnShow", RefreshSliders)
     RegisterSettingsRefresher(RefreshSliders)
     local events = CreateFrame("Frame", nil, page)
     events:RegisterEvent("ADDON_LOADED")
@@ -455,19 +438,30 @@ local function BuildHomePage()
         end
     end)
 
+    local minimap = Checkbox(content, 16, 0, "Show minimap button",
+        KnownPlayersSettings.showMinimapButton, function(checked)
+            KnownPlayersSettings.showMinimapButton = checked
+            ns.RefreshMinimapButton()
+        end, function() return KnownPlayersSettings.showMinimapButton end)
+    minimap:ClearAllPoints()
+    minimap:SetPoint("TOPLEFT", lastRow, "BOTTOMLEFT", 0, -12)
+
     local reset = Button(content, "Reset Settings to Defaults", 205, function()
         StaticPopup_Show("KNOWNPLAYERS_RESET_SETTINGS")
     end)
-    reset:SetPoint("TOPLEFT", lastRow, "BOTTOMLEFT", 0, -12)
+    reset:SetPoint("TOPLEFT", minimap, "BOTTOMLEFT", 0, -12)
     return page
 end
 
-local function BuildPlayerPage()
-    -- Color controls + retention now share this scrollable page. Only the
-    -- retention rows reflow when a custom duration is selected.
-    local page, body = NewScrollingPage("Player Nameplates & Lists", "")
+local function CreatePlayerAppearance(parent)
+    local body = CreateFrame("Frame", nil, parent)
+    body:SetSize(455, 200)
+    local line = body:CreateTexture(nil, "ARTWORK")
+    line:SetColorTexture(0.45, 0.45, 0.45, 0.4)
+    line:SetPoint("TOPLEFT", body, "TOPLEFT", 20, 0)
+    line:SetSize(432, 1)
 
-    local nameTop, healthTop, trackingTop = -10, -112, -214
+    local nameTop, healthTop = -13, -115
     Label(body, "Character name", 21, nameTop, "GameFontNormal")
     Label(body, "Choose how character names and guild names appear on player nameplates.", 21, nameTop - 23)
     local full, first
@@ -523,13 +517,12 @@ local function BuildPlayerPage()
             button:SetChecked(KnownPlayersSettings.playerHealthBarMode == mode)
         end
     end)
+    return body
+end
 
-    local line = body:CreateTexture(nil, "ARTWORK")
-    line:SetColorTexture(0.45, 0.45, 0.45, 0.4)
-    line:SetPoint("TOPLEFT", body, "TOPLEFT", 20, trackingTop + 13)
-    line:SetWidth(432)
-    line:SetHeight(1)
-
+local function BuildPlayerPage(parent)
+    local page, body = NewScrollingPage(parent)
+    local trackingTop = -10
     Label(body, "Tracking, colors, and priority", 21, trackingTop, "GameFontNormal")
     Label(body, "Top enabled category wins when a player belongs to several lists.", 21, trackingTop - 23)
     local colorRows = {}
@@ -609,6 +602,7 @@ local function BuildPlayerPage()
     Label(body, "Duration", 188, retentionTop - 47, "GameFontNormalSmall")
 
     local guildNote = Label(body, "Guild membership is roster-based and does not expire.", 21, -800)
+    local appearance = CreatePlayerAppearance(body)
 
     local retentionRows = {}
     local function LayoutRetentionRows()
@@ -620,7 +614,9 @@ local function BuildPlayerPage()
         end
         guildNote:ClearAllPoints()
         guildNote:SetPoint("TOPLEFT", body, "TOPLEFT", 21, y - 8)
-        body:SetHeight(-y + 34)
+        appearance:ClearAllPoints()
+        appearance:SetPoint("TOPLEFT", body, "TOPLEFT", 0, y - 33)
+        body:SetHeight(-y + 33 + appearance:GetHeight() + 25)
     end
     for _, category in ipairs(CATEGORIES) do
         if category.key ~= "guild" then
@@ -631,8 +627,8 @@ local function BuildPlayerPage()
     return page
 end
 
-local function BuildNPCPage()
-    local page, body = NewScrollingPage("NPC Nameplates & Lists", "")
+local function BuildNPCPage(parent)
+    local page, body = NewScrollingPage(parent)
 
     Label(body, "NPC database", 21, -8, "GameFontNormal")
     Label(body, "Automatic NPC roles come from the separately installed QuestieDB addon.", 21, -32)
@@ -649,7 +645,6 @@ local function BuildNPCPage()
             sourceStatus:SetTextColor(1.0, 0.33, 0.33, 1) -- missing/incompatible: red
         end
     end
-    page:HookScript("OnShow", RefreshSourceStatus)
     RegisterSettingsRefresher(RefreshSourceStatus)
     local sourceEvents = CreateFrame("Frame", nil, page)
     sourceEvents:RegisterEvent("ADDON_LOADED")
@@ -778,20 +773,128 @@ local function BuildNPCPage()
     rule:SetPoint("TOPLEFT", body, "TOPLEFT", 20, bottom)
     rule:SetSize(432, 1)
 
-    Label(body, "NPC management", 21, bottom - 20, "GameFontNormal")
-    Label(body, "Search manually saved NPCs, change overrides, and manage remembered NPCs.", 21, bottom - 42)
-    local npcList = Button(body, "Open NPC Manager", 180, function() ns.OpenPlayerList("npc") end)
-    npcList:SetPoint("TOPLEFT", body, "TOPLEFT", 20, bottom - 61)
+    Label(body, "Forget manually remembered NPCs over time", 21, bottom - 20, "GameFontNormal")
+    Label(body, "Forget", 22, bottom - 54, "GameFontNormalSmall")
+    Label(body, "Duration", 187, bottom - 54, "GameFontNormalSmall")
 
-    Label(body, "Forget manually remembered NPCs over time", 21, bottom - 96, "GameFontNormal")
-    Label(body, "Forget", 22, bottom - 130, "GameFontNormalSmall")
-    Label(body, "Duration", 187, bottom - 130, "GameFontNormalSmall")
-    local retentionRow = RetentionRow(body, {key="npc", label="NPCs"})
-    if retentionRow then
-        retentionRow:SetPoint("TOPLEFT", body, "TOPLEFT", 20, bottom - 148)
+    local management = CreateFrame("Frame", nil, body)
+    management:SetSize(455, 96)
+    local managementRule = management:CreateTexture(nil, "ARTWORK")
+    managementRule:SetColorTexture(0.45, 0.45, 0.45, 0.4)
+    managementRule:SetPoint("TOPLEFT", management, "TOPLEFT", 20, 0)
+    managementRule:SetSize(432, 1)
+    Label(management, "NPC management", 21, -15, "GameFontNormal")
+    Label(management, "Search manually saved NPCs, change overrides, and manage remembered NPCs.", 21, -37)
+    local npcList = Button(management, "Open NPC Manager", 180, function() ns.OpenPlayerList("npc") end)
+    npcList:SetPoint("TOPLEFT", management, "TOPLEFT", 20, -56)
+
+    local retentionTop = bottom - 72
+    local retentionRow
+    local function LayoutNPCManagement()
+        local y = retentionTop - (retentionRow and retentionRow:GetHeight() or 0) - 16
+        management:ClearAllPoints()
+        management:SetPoint("TOPLEFT", body, "TOPLEFT", 0, y)
+        body:SetHeight(math.max(700, -y + management:GetHeight()))
     end
-    body:SetHeight(math.max(700, -bottom + 240))
+    retentionRow = RetentionRow(body, {key = "npc", label = "NPCs"}, LayoutNPCManagement)
+    if retentionRow then
+        retentionRow:SetPoint("TOPLEFT", body, "TOPLEFT", 20, retentionTop)
+    end
+    LayoutNPCManagement()
     return page
+end
+
+local SETTINGS_PAGES = {
+    {title = "KnownPlayers", build = BuildHomePage},
+    {title = "Player Nameplates & Lists", build = BuildPlayerPage},
+    {title = "NPC Nameplates & Lists", build = BuildNPCPage},
+}
+
+local function CreateSettingsPage(definition, parent)
+    local firstRefresher = #settingsRefreshers + 1
+    local page = definition.build(parent)
+    local lastRefresher = #settingsRefreshers
+    -- Either window can edit the same settings. Refresh only the page becoming visible.
+    page:HookScript("OnShow", function()
+        for i = firstRefresher, lastRefresher do settingsRefreshers[i]() end
+    end)
+    return page
+end
+
+local function CreateSettingsTabs(frame, tabTop, bottomInset)
+    local pages = {}
+    frame.Tabs = {}
+    local function FitTabs(width)
+        if width <= 34 then return end
+        for _, tab in ipairs(frame.Tabs) do PanelTemplates_TabResize(tab, 10) end
+        PanelTemplates_ResizeTabsToFit(frame, width - 34)
+    end
+    local function SelectTab(selected)
+        PanelTemplates_SetTab(frame, selected)
+        FitTabs(frame:GetWidth())
+        for index, page in ipairs(pages) do page:SetShown(index == selected) end
+    end
+    for index, definition in ipairs(SETTINGS_PAGES) do
+        local page = CreateSettingsPage(definition, frame)
+        page:SetPoint("TOPLEFT", frame, "TOPLEFT", 11, tabTop - 30)
+        page:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -11, bottomInset)
+        page:Hide()
+        pages[index] = page
+
+        local tab = CreateFrame("Button", nil, frame, "PanelTopTabButtonTemplate")
+        tab:SetID(index)
+        tab:SetText(definition.title)
+        PanelTemplates_TabResize(tab, 10)
+        tab:SetScript("OnClick", function(self) SelectTab(self:GetID()) end)
+        frame.Tabs[index] = tab
+    end
+    frame.Tabs[1]:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, tabTop)
+    PanelTemplates_SetNumTabs(frame, #pages)
+    SelectTab(1)
+    local previousWidth = frame:GetWidth()
+    frame:HookScript("OnSizeChanged", function(_, width)
+        if width == previousWidth then return end
+        previousWidth = width
+        FitTabs(width)
+    end)
+end
+
+local function CreateSettingsWindow()
+    local frame = CreateFrame("Frame", "KnownPlayersSettingsWindow", UIParent, "BasicFrameTemplateWithInset")
+    local width = 620
+    frame:SetSize(width, 560)
+    frame:SetPoint("CENTER")
+    frame:SetFrameStrata("DIALOG")
+    frame:SetClampedToScreen(true)
+    frame:SetMovable(true)
+    frame:SetResizable(true)
+    frame:SetResizeBounds(width, 340, width)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+    frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+    frame:Hide()
+    frame.hideOtherWindows = true
+    ns.EnableWindowEscape(frame)
+    frame:HookScript("OnHide", function(self) self:StopMovingOrSizing() end)
+    frame.TitleText:SetText("KnownPlayers")
+
+    local resize = CreateFrame("Button", nil, frame, "PanelResizeButtonTemplate")
+    resize:SetPoint("BOTTOMRIGHT", -6, 6)
+    resize:SetScript("OnMouseDown", function(_, mouseButton)
+        if mouseButton == "LeftButton" then frame:StartSizing("BOTTOM", true) end
+    end)
+    resize:SetScript("OnMouseUp", function(_, mouseButton)
+        if mouseButton == "LeftButton" then frame:StopMovingOrSizing() end
+    end)
+
+    CreateSettingsTabs(frame, -22, 22)
+    return frame
+end
+
+function ns.OpenSettingsWindow()
+    if not settingsWindow then settingsWindow = CreateSettingsWindow() end
+    ns.ShowWindow(settingsWindow)
 end
 
 function ns.OpenSettings()
@@ -806,23 +909,15 @@ end
 
 function ns.CreateSettingsPanel()
     if panel then return end
-    panel = BuildHomePage()
-    panel.name = "KnownPlayers"
-    local players = BuildPlayerPage()
-    local npcs = BuildNPCPage()
-    if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterCanvasLayoutSubcategory then
-        local parent = Settings.RegisterCanvasLayoutCategory(panel, "KnownPlayers")
-        Settings.RegisterAddOnCategory(parent)
-        panel.categoryID = parent:GetID()
-        Settings.RegisterCanvasLayoutSubcategory(parent, players, "Player Nameplates & Lists")
-        Settings.RegisterCanvasLayoutSubcategory(parent, npcs, "NPC Nameplates & Lists")
+    panel = CreateFrame("Frame")
+    panel.name = SETTINGS_PAGES[1].title
+    CreateSettingsTabs(panel, -12, 6)
+    if Settings and Settings.RegisterCanvasLayoutCategory then
+        local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
+        Settings.RegisterAddOnCategory(category)
+        panel.categoryID = category:GetID()
     elseif InterfaceOptions_AddCategory then
         InterfaceOptions_AddCategory(panel)
-        for _, child in ipairs({ {players,"Player Nameplates & Lists"}, {npcs,"NPC Nameplates & Lists"} }) do
-            child[1].name = child[2]
-            child[1].parent = "KnownPlayers"
-            InterfaceOptions_AddCategory(child[1])
-        end
     else
         print("|cffff5555KnownPlayers:|r Unable to register settings panel on this client.")
     end

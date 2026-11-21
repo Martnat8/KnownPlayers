@@ -12,6 +12,8 @@ Maybe you trade with someone in town, exchange a few whispers, or group up for a
 
 - Recognize players through trade, party, raid, guild, whispers, targeting, and inspecting.
 - Open searchable category lists from the tracking settings, with player history, individual removal, and clear-list controls.
+- See class and race icons and filter by class in player lists.
+- Optionally open a tabbed settings window with adjustable height from a minimap button that MinimapButtonButton can collect.
 - See why a player is known, search private notes and tags, and sort by recent interactions.
 - Pin favorite players and NPCs to protect them from inactivity expiration, or undo the most recent individual removal within 30 seconds.
 - Set optional, category-specific inactivity expiration (guild membership is exempt).
@@ -24,7 +26,7 @@ Maybe you trade with someone in town, exchange a few whispers, or group up for a
 1. Download the release ZIP from the **Releases** page (once published).
 2. Place the `KnownPlayers` folder into your WoW Forever `Interface/AddOns/` directory.
 3. Enable the addon and use `/reload` if the game is running.
-4. Open **Options → AddOns → KnownPlayers** to configure tracking, nameplates, and player lists.
+4. Open **Options → AddOns → KnownPlayers** and use the tabs to configure tracking, nameplates, and player lists.
 
 The GitHub source archive contains repository files as well as the addon folder; install **only** the `KnownPlayers` folder.
 
@@ -40,7 +42,7 @@ The GitHub source archive contains repository files as well as the addon folder;
 
 ## Privacy and saved data
 
-The addon stores character names, realms, identifiers, interaction categories, and timestamps in WoW **SavedVariables** on your computer. It also saves race and class when available. For linked Battle.net friends, it also stores BattleTags and observed character associations locally to support alt recognition across sessions. Unlinked friend observations are session-only. The addon does **not** upload this information.
+The addon stores character names, realms, identifiers, interaction categories, and timestamps in WoW **SavedVariables** on your computer. It also saves available race, portrait, and class information for known characters and linked Battle.net alts. For linked Battle.net friends, it stores BattleTags and observed character associations locally to support alt recognition across sessions. Unlinked friend observations are session-only. The addon does **not** upload this information.
 
 **Do not publish or attach your personal SavedVariables files to bug reports.** To back up your lists, copy your SavedVariables before upgrading or clearing a list.
 

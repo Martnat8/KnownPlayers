@@ -61,6 +61,7 @@ local function MergeObservations(destination, source)
                     saved.lastObserved = entry.lastObserved
                 end
                 saved.guid = saved.guid or entry.guid
+                ns.MergePlayerAppearance(saved, entry)
             end
         end
     end
@@ -124,6 +125,9 @@ local function ObserveCharacter(tag, game)
     entry.name = game.characterName
     entry.realm = game.realmName
     if IsPlayerGUID(game.playerGuid) then entry.guid = game.playerGuid end
+    ns.SetPlayerClass(entry, game.className, game.classFilename)
+    ns.SetPlayerRace(entry, game.raceName)
+    ns.RefreshPlayerAppearance(entry)
     entry.lastObserved = time()
     ns.InvalidateBattleNetIndex()
 end
@@ -270,6 +274,7 @@ function ns.GetAssociatedCharacters()
                         key = key, name = observed.name, realm = observed.realm,
                         linkedTo = anchor, linkedPlayerKey = anchorKey, battleTag = group.tag,
                         firstSeen = observed.firstObserved,
+                        appearance = observed,
                     }
                 end
             end

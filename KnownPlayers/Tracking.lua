@@ -194,7 +194,7 @@ function ns.ScanGuildRoster()
         local key = NormalizeGuildName(name)
         if key and key ~= selfKey then
             local record = ns.RememberPlayer(key, "guild", now)
-            record.class = ns.SafeString(class) or record.class
+            ns.SetPlayerClass(record, class)
             updated = updated + 1
         end
     end

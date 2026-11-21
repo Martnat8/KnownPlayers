@@ -94,6 +94,7 @@ local DEFAULT_SETTINGS = {
     expirationDays = 30,
     categoryRetention = {},
     trackBattleNetAssociations = true,
+    showMinimapButton = false,
     knownOnlyNameplates = false,
     namesOnlyNameplates = false, -- Legacy preference, retained for upgrades.
     nameDisplayMode = "full",
@@ -324,6 +325,17 @@ function ns.MigratePlayerRecords()
     return changed
 end
 
+function ns.MergePlayerAppearance(destination, source)
+    if not destination.class or destination.class == source.class then
+        destination.classToken = destination.classToken or source.classToken
+    end
+    if not destination.race or destination.race == source.race then
+        destination.raceAtlas = destination.raceAtlas or source.raceAtlas
+    end
+    destination.class = ns.SafeString(destination.class) or ns.SafeString(source.class)
+    destination.race = ns.SafeString(destination.race) or ns.SafeString(source.race)
+end
+
 MergeInto = function(destination, source, keepDestinationDetails)
     destination.categories = type(destination.categories) == "table" and destination.categories or {}
     if type(source.categories) == "table" then
@@ -358,8 +370,7 @@ MergeInto = function(destination, source, keepDestinationDetails)
     destination.guid = destination.guid or source.guid
     destination.realm = destination.realm or source.realm
     destination.displayName = destination.displayName or source.displayName
-    destination.race = ns.SafeString(destination.race) or ns.SafeString(source.race)
-    destination.class = ns.SafeString(destination.class) or ns.SafeString(source.class)
+    ns.MergePlayerAppearance(destination, source)
     if keepDestinationDetails then return end
     destination.favorite = (destination.favorite or source.favorite) and true or nil
     local originalNote = ns.SafeString(destination.note)
@@ -373,22 +384,49 @@ MergeInto = function(destination, source, keepDestinationDetails)
     if tags then destination.tags = NormalizeTags((ns.SafeString(destination.tags) or "") .. "," .. tags) end
 end
 
+function ns.SetPlayerClass(record, class, token)
+    class, token = ns.SafeString(class), ns.SafeString(token)
+    if class and class ~= record.class then
+        record.class = class
+        record.classToken = nil
+    end
+    if token then record.classToken = token:lower():gsub("%s+", "") end
+end
+
+function ns.SetPlayerRace(record, race, token, sex)
+    race, token = ns.SafeString(race), ns.SafeString(token)
+    if race and race ~= record.race then
+        record.race = race
+        record.raceAtlas = nil
+    end
+    if not token or not ns.IsAccessibleValue(sex) then return end
+    local variant = sex == 2 and "male" or sex == 3 and "female"
+    if not variant then return end
+    token = token:lower():gsub("%s+", "")
+    if token == "scourge" then token = "undead" end
+    record.raceAtlas = "raceicon128-" .. token .. "-" .. variant
+end
+
 function ns.RefreshPlayerAppearance(record, unit)
     if unit then
-        local raceOK, race = pcall(UnitRace, unit)
-        local classOK, class = pcall(UnitClass, unit)
-        record.race = (raceOK and ns.SafeString(race)) or record.race
-        record.class = (classOK and ns.SafeString(class)) or record.class
+        local raceOK, race, raceToken = pcall(UnitRace, unit)
+        local classOK, class, classToken = pcall(UnitClass, unit)
+        local sexOK, sex = pcall(UnitSex, unit)
+        if raceOK then ns.SetPlayerRace(record, race, raceToken, sexOK and sex) end
+        if classOK then ns.SetPlayerClass(record, class, classToken) end
     end
 
     -- Cached GUID data can fill gaps for whispers and older saved records.
-    if ns.SafeString(record.race) and ns.SafeString(record.class) then return end
+    if record.race and record.raceAtlas and record.class and record.classToken then return end
     local guid = ns.SafePlayerGUID(record.guid)
     if not guid then return end
-    local ok, class, _, race = pcall(GetPlayerInfoByGUID, guid)
-    if ok then
-        record.race = ns.SafeString(record.race) or ns.SafeString(race)
-        record.class = ns.SafeString(record.class) or ns.SafeString(class)
+    local ok, class, classToken, race, raceToken, sex = pcall(GetPlayerInfoByGUID, guid)
+    if not ok then return end
+    if not record.class or record.class == ns.SafeString(class) then
+        ns.SetPlayerClass(record, class, record.classToken or classToken)
+    end
+    if not record.race or (not record.raceAtlas and record.race == ns.SafeString(race)) then
+        ns.SetPlayerRace(record, race, raceToken, sex)
     end
 end
 
@@ -597,7 +635,8 @@ function ns.RemovePlayerCategory(key, category, undoable)
         and record.categories[category] then
         saved = {
             displayName = record.displayName, realm = record.realm, guid = record.guid,
-            race = record.race, class = record.class,
+            race = record.race, raceAtlas = record.raceAtlas,
+            class = record.class, classToken = record.classToken,
             note = record.note, tags = record.tags, favorite = record.favorite, lastSeen = record.lastSeen,
             categories = {[category] = true},
             categoryFirstSeen = {[category] = type(record.categoryFirstSeen) == "table" and record.categoryFirstSeen[category] or nil},
@@ -633,6 +672,7 @@ function ns.GetCategoryPlayers(category)
                 key = key,
                 name = ns.GetDisplayName(key, record),
                 realm = record.realm or "",
+                appearance = record,
                 firstSeen = type(record.categoryFirstSeen) == "table"
                     and record.categoryFirstSeen[category] or nil,
             }

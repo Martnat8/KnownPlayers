@@ -1,6 +1,14 @@
 local addonName, ns = ...
 local panel, settingsWindow
 local settingsRefreshers = {}
+
+local TRACKING_CONTROLS = {x = 246, color = 72, arrow = 25, list = 60, gap = 8, arrowGap = 3}
+local CONTENT_RIGHT_PADDING = 18
+local SCROLL_LEFT, SCROLL_RIGHT = 3, 28
+local PAGE_PADDING, WINDOW_PADDING = 6, 10
+local CONTENT_WIDTH = TRACKING_CONTROLS.x + TRACKING_CONTROLS.color + TRACKING_CONTROLS.list
+    + 2 * (TRACKING_CONTROLS.arrow + TRACKING_CONTROLS.gap) + TRACKING_CONTROLS.arrowGap + CONTENT_RIGHT_PADDING
+local INSET_WIDTH = CONTENT_WIDTH + SCROLL_LEFT + SCROLL_RIGHT + 2 * PAGE_PADDING
 local function RegisterSettingsRefresher(callback)
     settingsRefreshers[#settingsRefreshers + 1] = callback
 end
@@ -130,13 +138,14 @@ end
 local function NewScrollingPage(parent)
     local page = CreateFrame("Frame", nil, parent)
     local scroller = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
-    scroller:SetPoint("TOPLEFT", page, "TOPLEFT", 3, -4)
-    scroller:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -28, 6)
+    scroller:SetPoint("TOPLEFT", page, "TOPLEFT", SCROLL_LEFT, -4)
+    scroller:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -SCROLL_RIGHT, 6)
     local content = CreateFrame("Frame", nil, scroller)
-    content:SetSize(465, 600)
+    content:SetSize(CONTENT_WIDTH, 600)
     scroller:SetScrollChild(content)
     scroller:SetScript("OnSizeChanged", function(self)
-        content:SetWidth(math.max(455, self:GetWidth() - 18))
+        local width = self:GetWidth()
+        if width > 0 then content:SetWidth(math.min(CONTENT_WIDTH, width)) end
     end)
     return page, content
 end
@@ -376,7 +385,7 @@ local function BuildHomePage(parent)
     local page, content = NewScrollingPage(parent)
     content:SetHeight(400)
     local about = Button(page, "About", 80, function() ShowAbout(page) end)
-    about:SetPoint("TOPRIGHT", page, "TOPRIGHT", -22, -12)
+    about:SetPoint("TOPRIGHT", page, "TOPRIGHT", -SCROLL_RIGHT - CONTENT_RIGHT_PADDING, -12)
 
     Label(content, "Nameplate Filtering", 16, -10, "GameFontNormal")
     Checkbox(content, 16, -37, "Enable player nameplate filtering",
@@ -564,27 +573,27 @@ local function BuildPlayerPage(parent)
         row.checkbox = Checkbox(body, 20, y - 3, "", false, function(checked)
             SetCategoryTracking(TRACKING_CATEGORIES[row.key], checked)
         end)
-        local button = Button(body, "Color", 72, function() PickColor(row.key) end)
-        button:SetPoint("TOPLEFT", body, "TOPLEFT", 246, y)
+        local button = Button(body, "Color", TRACKING_CONTROLS.color, function() PickColor(row.key) end)
+        button:SetPoint("TOPLEFT", body, "TOPLEFT", TRACKING_CONTROLS.x, y)
         row.swatch = button:CreateTexture(nil,"OVERLAY")
         row.swatch:SetSize(14,14)
         row.swatch:SetPoint("LEFT",button,"LEFT",5,0)
-        row.up = Button(body,"^",25,function()
+        row.up = Button(body,"^",TRACKING_CONTROLS.arrow,function()
             if i <= 1 then return end
             local order=KnownPlayersSettings.nameplateColorOrder
             order[i],order[i-1]=order[i-1],order[i]
             RefreshOrder()
         end)
-        row.up:SetPoint("LEFT", button, "RIGHT", 8, 0)
-        row.down = Button(body,"v",25,function()
+        row.up:SetPoint("LEFT", button, "RIGHT", TRACKING_CONTROLS.gap, 0)
+        row.down = Button(body,"v",TRACKING_CONTROLS.arrow,function()
             if i >= #colorRows then return end
             local order=KnownPlayersSettings.nameplateColorOrder
             order[i],order[i+1]=order[i+1],order[i]
             RefreshOrder()
         end)
-        row.down:SetPoint("LEFT",row.up,"RIGHT",3,0)
-        local list = Button(body, "List", 60, function() ns.OpenPlayerList(row.key) end)
-        list:SetPoint("LEFT", row.down, "RIGHT", 8, 0)
+        row.down:SetPoint("LEFT", row.up, "RIGHT", TRACKING_CONTROLS.arrowGap, 0)
+        local list = Button(body, "List", TRACKING_CONTROLS.list, function() ns.OpenPlayerList(row.key) end)
+        list:SetPoint("LEFT", row.down, "RIGHT", TRACKING_CONTROLS.gap, 0)
         colorRows[#colorRows+1] = row
     end
     RefreshOrder()
@@ -823,11 +832,23 @@ end
 
 local function CreateSettingsTabs(frame, tabTop, bottomInset)
     local pages = {}
+    local inset = CreateFrame("Frame", nil, frame, "InsetFrameTemplate")
+    inset:SetPoint("BOTTOM", frame, "BOTTOM", 0, bottomInset)
     frame.Tabs = {}
     local function FitTabs(width)
-        if width <= 34 then return end
+        local available = width - 2 * WINDOW_PADDING
+        local insetWidth = available > 0 and math.min(INSET_WIDTH, available) or INSET_WIDTH
+        inset:SetWidth(insetWidth)
+        -- Blizzard's tab anchors leave three units between adjacent tabs.
+        local spacing = 3 * (#frame.Tabs - 1)
         for _, tab in ipairs(frame.Tabs) do PanelTemplates_TabResize(tab, 10) end
-        PanelTemplates_ResizeTabsToFit(frame, width - 34)
+        local tabSpace = insetWidth - 16 - spacing
+        if tabSpace > 0 then PanelTemplates_ResizeTabsToFit(frame, tabSpace) end
+        local tabWidth = spacing
+        for _, tab in ipairs(frame.Tabs) do tabWidth = tabWidth + tab:GetWidth() end
+        local first = frame.Tabs[1]
+        first:ClearAllPoints()
+        first:SetPoint("TOPLEFT", frame, "TOP", -tabWidth / 2, tabTop)
     end
     local function SelectTab(selected)
         PanelTemplates_SetTab(frame, selected)
@@ -836,8 +857,8 @@ local function CreateSettingsTabs(frame, tabTop, bottomInset)
     end
     for index, definition in ipairs(SETTINGS_PAGES) do
         local page = CreateSettingsPage(definition, frame)
-        page:SetPoint("TOPLEFT", frame, "TOPLEFT", 11, tabTop - 30)
-        page:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -11, bottomInset)
+        page:SetPoint("TOPLEFT", inset, "TOPLEFT", PAGE_PADDING, -PAGE_PADDING)
+        page:SetPoint("BOTTOMRIGHT", inset, "BOTTOMRIGHT", -PAGE_PADDING, PAGE_PADDING)
         page:Hide()
         pages[index] = page
 
@@ -848,7 +869,7 @@ local function CreateSettingsTabs(frame, tabTop, bottomInset)
         tab:SetScript("OnClick", function(self) SelectTab(self:GetID()) end)
         frame.Tabs[index] = tab
     end
-    frame.Tabs[1]:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, tabTop)
+    inset:SetPoint("TOP", frame, "TOP", 0, tabTop - frame.Tabs[1]:GetHeight() + 1)
     PanelTemplates_SetNumTabs(frame, #pages)
     SelectTab(1)
     local previousWidth = frame:GetWidth()
@@ -861,7 +882,7 @@ end
 
 local function CreateSettingsWindow()
     local frame = CreateFrame("Frame", "KnownPlayersSettingsWindow", UIParent, "BasicFrameTemplateWithInset")
-    local width = 620
+    local width = INSET_WIDTH + 2 * WINDOW_PADDING
     frame:SetSize(width, 560)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")

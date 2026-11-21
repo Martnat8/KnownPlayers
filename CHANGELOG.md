@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Fit the settings window to the player tracking controls and centered the tabs above an inset border shared by both settings views.
+
 ## [0.5.0b6] - 2026-11-21
 
 - Added a Class / Race icon column and a class filter to player category lists, All Players, and Known Battle.net Alts.

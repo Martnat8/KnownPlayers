@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0b2] - 2026-11-21
+
 - Added History to player category lists and Linked History to Known Battle.net Alts.
 - Removed the four Player Lists shortcuts from settings and added `/kp players` to open All Players.
 

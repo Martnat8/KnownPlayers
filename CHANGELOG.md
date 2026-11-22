@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Moved the NPC priority explanation above QuestieDB status while preserving the category table's position.
+- Grouped player and NPC appearance controls in matching side-by-side panels and aligned the distance, opacity, and default controls.
+
 ## [0.5.1b1] - 2026-11-22
 
 - Added one Nameplate setup panel that explains missing WoW settings and enables friendly player, friendly NPC, and out-of-combat nameplates together. Separate checks cover tracking categories, QuestieDB, and native names outside the filter.

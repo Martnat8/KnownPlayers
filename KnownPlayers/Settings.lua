@@ -331,16 +331,18 @@ end
 local function NameplateSliderRow(parent, anchor, option)
     local row = CreateFrame("Frame", nil, parent)
     row:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -6)
-    row:SetSize(423, 56)
-    Label(row, option.label, 0, 0, "GameFontHighlight")
+    row:SetSize(CONTENT_WIDTH - 2 * TABLE_LEFT, 44)
+    Label(row, option.label, 0, -7, "GameFontHighlight")
     local slider = CreateFrame("Slider", nil, row, "UISliderTemplate")
-    slider:SetPoint("TOPLEFT", row, "TOPLEFT", 5, -22)
-    slider:SetSize(245, 17)
+    slider:SetPoint("TOPLEFT", row, "TOPLEFT", 146, -4)
+    slider:SetSize(145, 17)
     slider:SetMinMaxValues(option.min, option.max)
     slider:SetValueStep(1)
     slider:SetObeyStepOnDrag(true)
-    local valueLabel = Label(row, "", 260, -23)
-    local status = Label(row, "", 0, -42)
+    local valueLabel = Label(row, "", 296, -7)
+    valueLabel:SetWidth(46)
+    valueLabel:SetJustifyH("RIGHT")
+    local status = Label(row, "", 146, -28)
 
     local function ReadNumber(getter)
         local ok, value = pcall(getter, option.cvar)
@@ -398,7 +400,7 @@ local function NameplateSliderRow(parent, anchor, option)
         local defaultValue = ReadNumber(C_CVar and C_CVar.GetCVarDefault)
         if defaultValue then Apply(defaultValue) end
     end)
-    defaultButton:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, -17)
+    defaultButton:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
     slider:SetScript("OnValueChanged", function(_, value)
         if not refreshing then Apply(math.floor(value + 0.5) / option.scale) end
     end)
@@ -706,7 +708,8 @@ local function BuildNPCPage(parent)
 
     Label(body, "NPC database", 21, -12, "GameFontNormal")
     Label(body, "Automatic NPC roles come from the separately installed QuestieDB addon.", 21, -36)
-    local sourceStatus = Label(body, "", 21, -56)
+    Label(body, "Higher categories take priority for NPCs with several roles.", 21, -56)
+    local sourceStatus = Label(body, "", 21, -90)
     local function RefreshSourceStatus()
         sourceStatus:SetText(ns.GetNPCDataSourceStatus())
         if ns.IsQuestieDBConnected() then
@@ -723,7 +726,6 @@ local function BuildNPCPage(parent)
     end)
     RefreshSourceStatus()
 
-    Label(body, "Higher categories take priority for NPCs with several roles.", 21, -90)
     local management = CreateFrame("Frame", nil, body)
     management:SetSize(425, 100)
     Label(management, "Forget manually remembered NPCs over time", 0, -4, "GameFontNormal")
@@ -759,9 +761,9 @@ local function BuildNPCPage(parent)
     return page
 end
 
-local function AddChoiceDropdown(body, x, y, title, choices, get, set)
+local function AddChoiceDropdown(body, x, y, width, title, choices, get, set)
     Label(body, title, x + 3, y + 19, "GameFontNormalSmall")
-    local dropdown = Dropdown(body, x, y, 132)
+    local dropdown = Dropdown(body, x, y, width)
     local function IsSelected(value) return get() == value end
     dropdown:SetSelectionText(function()
         for _, choice in ipairs(choices) do
@@ -777,25 +779,27 @@ end
 local NAME_CHOICES = {{"full", "Full name"}, {"first", "First name"}}
 local HEALTH_CHOICES = {{"always", "Always"}, {"combat", "In combat"}, {"never", "Never"}}
 
-local function AddAppearanceControls(body, top, isNPC)
-    Label(body, isNPC and "NPC nameplates" or "Player nameplates", 21, top, "GameFontNormal")
+local function AddAppearanceControls(box, isNPC)
+    local padding = 12
+    local width = box:GetWidth() - 2 * padding
+    Label(box, isNPC and "NPC nameplates" or "Player nameplates", padding, -12, "GameFontNormal")
     local nameKey = isNPC and "npcNameDisplayMode" or "nameDisplayMode"
     local healthKey = isNPC and "npcHealthBarMode" or "playerHealthBarMode"
     local setHealth = isNPC and ns.SetNPCHealthBarMode or ns.SetPlayerHealthBarMode
-    AddChoiceDropdown(body, 21, top - 48, isNPC and "Name" or "Character name",
+    AddChoiceDropdown(box, padding, -53, width, isNPC and "NPC name" or "Character name",
         NAME_CHOICES, function() return KnownPlayersSettings[nameKey] end, function(mode)
             KnownPlayersSettings[nameKey] = mode
             ns.RefreshKnownNameplates()
         end)
-    AddChoiceDropdown(body, 221, top - 48, "Health bar", HEALTH_CHOICES,
-        function() return KnownPlayersSettings[healthKey] end, setHealth)
-    local label = isNPC and "NPC title" or "Guild name"
+    local label = isNPC and "Show NPC title" or "Show guild name"
     local extraKey = isNPC and "showNPCTitle" or "showGuildInNamesOnly"
-    Checkbox(body, 20, top - 73, label, KnownPlayersSettings[extraKey], function(checked)
+    Checkbox(box, padding, -82, label, KnownPlayersSettings[extraKey], function(checked)
         KnownPlayersSettings[extraKey] = checked
         ns.RefreshKnownNameplates()
     end, function() return KnownPlayersSettings[extraKey] end)
-    if not isNPC then AddFriendlyMinionVisibility(body, 20, top - 101) end
+    if not isNPC then AddFriendlyMinionVisibility(box, padding, -107) end
+    AddChoiceDropdown(box, padding, -165, width, "Health bar", HEALTH_CHOICES,
+        function() return KnownPlayersSettings[healthKey] end, setHealth)
 end
 
 local function AddNameplateSliders(page, body, anchor)
@@ -803,11 +807,11 @@ local function AddNameplateSliders(page, body, anchor)
     local height = 0
     local refreshByCVar = {}
     for _, option in ipairs({
-        {label = "Player nameplate distance", cvar = "nameplatePlayerMaxDistance",
+        {label = "Player distance", cvar = "nameplatePlayerMaxDistance",
             min = 20, max = 60, scale = 1, suffix = " yd"},
-        {label = "NPC / non-player nameplate distance", cvar = "nameplateMaxDistance",
+        {label = "NPC / non-player distance", cvar = "nameplateMaxDistance",
             min = 20, max = 60, scale = 1, suffix = " yd"},
-        {label = "Minimum nameplate opacity", cvar = "nameplateMinAlpha",
+        {label = "Minimum opacity", cvar = "nameplateMinAlpha",
             min = 0, max = 100, scale = 100, suffix = "%"},
     }) do
         row, refreshByCVar[option.cvar:lower()] = NameplateSliderRow(body, row, option)
@@ -889,23 +893,31 @@ local function AddColorTable(box, title, orderKey, labels, getColor, colorKey)
     RegisterSettingsRefresher(Refresh)
 end
 
+local function AddAppearanceBoxes(body, anchor, anchorPoint, x, y, height)
+    local gap = 12
+    local width = math.floor((CONTENT_WIDTH - 2 * TABLE_LEFT - gap) / 2)
+    local left = CreateFrame("Frame", nil, body, "InsetFrameTemplate")
+    left:SetSize(width, height)
+    left:SetPoint("TOPLEFT", anchor, anchorPoint, x, y)
+    local right = CreateFrame("Frame", nil, body, "InsetFrameTemplate")
+    right:SetSize(width, height)
+    right:SetPoint("TOPLEFT", left, "TOPRIGHT", gap, 0)
+    return left, right
+end
+
 local function BuildAppearancePage(parent)
     local page, body = NewScrollingPage(parent)
-    AddAppearanceControls(body, -14, false)
-    AddAppearanceControls(body, -154, true)
-    local sliderTop = -274
-    local heading = Label(body, "Distance and opacity", 21, sliderTop, "GameFontNormal")
+    local appearanceTop, appearanceHeight = -14, 204
+    local playerAppearance, npcAppearance =
+        AddAppearanceBoxes(body, body, "TOPLEFT", TABLE_LEFT, appearanceTop, appearanceHeight)
+    AddAppearanceControls(playerAppearance, false)
+    AddAppearanceControls(npcAppearance, true)
+    local sliderTop = appearanceTop - appearanceHeight - 21
+    local heading = Label(body, "Distance and opacity", TABLE_LEFT, sliderTop, "GameFontNormal")
     local last, sliderHeight = AddNameplateSliders(page, body, heading)
-    local colorGap = 12
-    local colorWidth = math.floor((CONTENT_WIDTH - 2 * TABLE_LEFT - colorGap) / 2)
     local colorHeight = 40 + math.max(#KnownPlayersSettings.nameplateColorOrder,
         #KnownPlayersSettings.npcNameplateColorOrder) * ROW_HEIGHT
-    local playerColors = CreateFrame("Frame", nil, body, "InsetFrameTemplate")
-    playerColors:SetSize(colorWidth, colorHeight)
-    playerColors:SetPoint("TOPLEFT", last, "BOTTOMLEFT", TABLE_LEFT - 21, -19)
-    local npcColors = CreateFrame("Frame", nil, body, "InsetFrameTemplate")
-    npcColors:SetSize(colorWidth, colorHeight)
-    npcColors:SetPoint("TOPLEFT", playerColors, "TOPRIGHT", colorGap, 0)
+    local playerColors, npcColors = AddAppearanceBoxes(body, last, "BOTTOMLEFT", 0, -19, colorHeight)
     AddColorTable(playerColors, "Player category colors", "nameplateColorOrder",
         PLAYER_LABELS, ns.GetNameplateCategoryColor, "nameplateCategoryColors")
     AddColorTable(npcColors, "NPC category colors", "npcNameplateColorOrder",

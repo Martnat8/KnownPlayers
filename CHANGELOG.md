@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.1b1] - 2026-11-22
+
 - Added one Nameplate setup panel that explains missing WoW settings and enables friendly player, friendly NPC, and out-of-combat nameplates together. Separate checks cover tracking categories, QuestieDB, and native names outside the filter.
 
 ## [0.5.1b0] - 2026-11-22

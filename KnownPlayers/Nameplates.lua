@@ -78,6 +78,39 @@ local function WriteNativeNameCVar(name, value)
     return ok and ReadNativeNameCVar(name) == value
 end
 
+local nameplateSettings = {
+    player = "nameplateShowFriendlyPlayers",
+    npc = "nameplateShowFriendlyNpcs",
+    always = "nameplateShowAll",
+}
+
+function ns.GetNameplateSetting(key)
+    local cvar = nameplateSettings[key]
+    local value = cvar and ReadNativeNameCVar(cvar)
+    if value == "1" then return true end
+    if value == "0" then return false end
+end
+
+function ns.EnableNameplateSettings(keys)
+    if InCombatLockdown() then return false end
+    local applied, changed = true, false
+    for _, key in ipairs(keys) do
+        local cvar = nameplateSettings[key]
+        if cvar and ns.GetNameplateSetting(key) == false then
+            if WriteNativeNameCVar(cvar, "1") then
+                changed = true
+                if key == "npc" and KnownPlayersSettings and type(KnownPlayersSettings.npcCVarBackup) == "table" then
+                    KnownPlayersSettings.npcCVarBackup[cvar] = nil
+                end
+            else
+                applied = false
+            end
+        end
+    end
+    if changed then ns.RefreshKnownNameplates() end
+    return applied
+end
+
 function ns.RestoreNativeOverheadNames()
     if not KnownPlayersSettings then return end
     local old = KnownPlayersSettings.overheadNameCVarsBackup
@@ -155,21 +188,29 @@ function ns.SetFriendlyMinionVisibility(visible)
 end
 
 -- The NPC filter is independent from the player Known Only filter.
--- When active, request friendly NPC nameplate frames and suppress native
--- overhead NPC labels that would otherwise bypass the per-NPC filter.
+-- When active, suppress native overhead labels that would otherwise bypass
+-- the per-NPC filter. Friendly NPC plates are enabled explicitly in Settings.
 -- Leave the client's dedicated hostile NPC name setting alone.
 local npcNameCVars = {
     "UnitNameNPC", "UnitNameInteractiveNPC", "UnitNameFriendlySpecialNPCName",
 }
-local hostileNPCNameCVar = "UnitNameHostleNPC"
+local legacyNPCNameplateCVars = {nameplateSettings.npc, "UnitNameHostleNPC"}
 local npcCVarsShuttingDown = false
 local npcSyncing = false
+
+function ns.HasUnfilteredOverheadNames(key)
+    local cvars = key == "npc" and npcNameCVars or nativePlayerNameCVars
+    for _, name in ipairs(cvars) do
+        if ReadNativeNameCVar(name) == "1" then return true end
+    end
+    return false
+end
 
 local function RestoreNPCNameplateCVar(key, prior)
     if type(prior) ~= "string" then return true end
     local current = ReadNativeNameCVar(key)
     if current == nil then return false end
-    local forced = key == "nameplateShowFriendlyNpcs" and "1" or "0"
+    local forced = key == nameplateSettings.npc and "1" or "0"
     return current ~= forced or prior == forced or WriteNativeNameCVar(key, prior)
 end
 
@@ -189,28 +230,17 @@ function ns.SyncNPCNameplateCVars()
     npcSyncing = true
     if KnownPlayersSettings.filterNPCNameplates and ns.IsQuestieDBConnected() then
         local backup = KnownPlayersSettings.npcCVarBackup
-        if type(backup) == "table" and backup[hostileNPCNameCVar] ~= nil
-            and RestoreNPCNameplateCVar(hostileNPCNameCVar, backup[hostileNPCNameCVar]) then
-            -- Earlier versions suppressed hostile names while filtering.
-            backup[hostileNPCNameCVar] = nil
-            if not next(backup) then
-                backup = nil
-                KnownPlayersSettings.npcCVarBackup = nil
+        if type(backup) ~= "table" then backup = {} end
+        -- Restore CVars that older versions forced and retire their backups.
+        for _, key in ipairs(legacyNPCNameplateCVars) do
+            if backup[key] ~= nil and RestoreNPCNameplateCVar(key, backup[key]) then
+                backup[key] = nil
             end
         end
-        if type(backup) ~= "table" then
-            backup = {}
-            local original = ReadNativeNameCVar("nameplateShowFriendlyNpcs")
-            if original then backup.nameplateShowFriendlyNpcs = original end
-            for _, key in ipairs(npcNameCVars) do
-                original = ReadNativeNameCVar(key)
-                if original then backup[key] = original end
-            end
-            if next(backup) then KnownPlayersSettings.npcCVarBackup = backup end
+        for _, key in ipairs(npcNameCVars) do
+            if backup[key] == nil then backup[key] = ReadNativeNameCVar(key) end
         end
-        if ReadNativeNameCVar("nameplateShowFriendlyNpcs") == "0" then
-            WriteNativeNameCVar("nameplateShowFriendlyNpcs", "1")
-        end
+        KnownPlayersSettings.npcCVarBackup = next(backup) and backup or nil
         for _, key in ipairs(npcNameCVars) do
             if ReadNativeNameCVar(key) == "1" then WriteNativeNameCVar(key, "0") end
         end
@@ -814,14 +844,10 @@ frame:SetScript("OnEvent", function(_, event, unit)
                     break
                 end
             end
-            if unit:lower() == "nameplateshowfriendlynpcs" then
-                ns.SyncNPCNameplateCVars()
-            else
-                for _, name in ipairs(npcNameCVars) do
-                    if unit:lower() == name:lower() then
-                        ns.SyncNPCNameplateCVars()
-                        break
-                    end
+            for _, name in ipairs(npcNameCVars) do
+                if unit:lower() == name:lower() then
+                    ns.SyncNPCNameplateCVars()
+                    break
                 end
             end
         end

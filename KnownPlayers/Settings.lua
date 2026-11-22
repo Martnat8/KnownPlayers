@@ -406,9 +406,129 @@ local function NameplateSliderRow(parent, anchor, option)
     return row, Refresh
 end
 
+local function PlaceAt(control, parent, x, y)
+    control:ClearAllPoints()
+    control:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+end
+
+local NAMEPLATE_SETUP_OPTIONS = {
+    {key = "player", label = "Friendly Player Nameplates", detail = "See players you know nearby."},
+    {key = "npc", label = "Friendly NPC Nameplates", detail = "See vendors and remembered NPCs."},
+    {key = "always", label = "Always Show Nameplates", detail = "See nameplates outside combat."},
+}
+
+local function AddNameplateSetup(content, refresh)
+    local inset, width = 18, CONTENT_WIDTH - 36
+    local padding, detailX = 12, 201
+    local card = CreateFrame("Frame", nil, content, "InsetFrameTemplate")
+    card:SetWidth(width)
+    Label(card, "Nameplate setup", padding, -12, "GameFontNormal")
+
+    local function Text(value, x)
+        local text = Label(card, value, x, 0)
+        text:SetWidth(width - x - padding)
+        text:SetJustifyH("LEFT")
+        return text
+    end
+    local function PlaceText(text, y, x, value)
+        text:SetShown(value ~= nil)
+        if not value then return y end
+        text:SetText(value)
+        PlaceAt(text, card, x, y)
+        return y - text:GetStringHeight() - 6
+    end
+
+    local intro = Text("", padding)
+    local rows = {}
+    for _, option in ipairs(NAMEPLATE_SETUP_OPTIONS) do
+        local label = Text(option.label, padding)
+        label:SetWidth(detailX - padding - 8)
+        local detail = Text(option.detail, detailX)
+        detail:SetTextColor(0.76, 0.76, 0.76)
+        rows[option.key] = {label = label, detail = detail}
+    end
+    local status = Text("", padding)
+    status:SetTextColor(1, 0.78, 0.26)
+    local otherChecks = Label(card, "Other checks", padding, 0, "GameFontNormalSmall")
+    local notes = {Text("", padding), Text("", padding), Text("", padding)}
+    local pending, applying, failed = {}, false, false
+    local apply = Button(card, "Enable nameplate settings", 188, function()
+        if InCombatLockdown() then return end
+        applying = true
+        failed = not ns.EnableNameplateSettings(pending)
+        applying = false
+        refresh()
+    end)
+
+    return function(needed, messages, top)
+        if applying then return top - card:GetHeight() - 12 end
+        pending = {}
+        local y = -33
+        for _, option in ipairs(NAMEPLATE_SETUP_OPTIONS) do
+            local key = option.key
+            local missing = needed[key] and ns.GetNameplateSetting(key) == false
+            rows[key].label:SetShown(missing)
+            rows[key].detail:SetShown(missing)
+            if missing then pending[#pending + 1] = key end
+        end
+        local hasSettings, hasNotes = #pending > 0, #messages > 0
+        if not hasSettings then failed = false end
+        card:SetShown(hasSettings or hasNotes)
+        if not hasSettings and not hasNotes then return top end
+        PlaceAt(card, content, inset, top)
+
+        y = PlaceText(intro, y, padding, hasSettings and "Turn on these WoW settings to show the nameplates you’ve configured." or nil)
+        for _, key in ipairs(pending) do
+            local row = rows[key]
+            PlaceAt(row.label, card, padding, y)
+            PlaceAt(row.detail, card, detailX, y)
+            y = y - math.max(row.label:GetStringHeight(), row.detail:GetStringHeight()) - 6
+        end
+        apply:SetShown(hasSettings)
+        local inCombat = InCombatLockdown()
+        if hasSettings then
+            apply:SetEnabled(not inCombat)
+            PlaceAt(apply, card, padding, y - 3)
+            y = y - 34
+        end
+        local feedback
+        if hasSettings and inCombat then
+            feedback = "Leave combat to apply these WoW settings."
+        elseif hasSettings and failed then
+            feedback = "WoW kept some settings off. You can change them in WoW’s Nameplates options."
+        end
+        y = PlaceText(status, y, padding, feedback)
+
+        otherChecks:SetShown(hasSettings and hasNotes)
+        if hasSettings and hasNotes then
+            PlaceAt(otherChecks, card, padding, y - 3)
+            y = y - otherChecks:GetStringHeight() - 9
+        end
+        for index, note in ipairs(notes) do y = PlaceText(note, y, padding, messages[index]) end
+        local height = -y + 6
+        card:SetHeight(height)
+        return top - height - 12
+    end
+end
+
+local function AnyPlayerTrackingEnabled()
+    for key in pairs(TRACKING_CATEGORIES) do
+        if key ~= "associated" and ns.CategoryTrackingEnabled(key) then return true end
+    end
+    return false
+end
+
+local function NeedsFriendlyNPCPlates()
+    if KnownPlayersSettings.filterNPCNameplates
+        or KnownPlayersSettings.npcServiceCategories.manual and next(KnownPlayersDB.npcs) then return true end
+    for _, override in pairs(KnownPlayersDB.npcOverrides) do
+        if type(override) == "table" and override.mode == "show" then return true end
+    end
+    return false
+end
+
 local function BuildHomePage(parent)
     local page, content = NewScrollingPage(parent)
-    content:SetHeight(300)
     local about = Button(page, "About", 80, function() ShowAbout(page) end)
     about:SetPoint("TOPRIGHT", page, "TOPRIGHT", -SCROLL_RIGHT - CONTENT_RIGHT_PADDING, -12)
 
@@ -417,7 +537,7 @@ local function BuildHomePage(parent)
     intro:SetWidth(320)
     intro:SetJustifyH("LEFT")
     Label(content, "Nameplate filtering", 18, -68, "GameFontNormal")
-    Checkbox(content, 17, -92, "Enable player nameplate filtering",
+    local playerFilter = Checkbox(content, 17, -92, "Enable player nameplate filtering",
         KnownPlayersSettings.knownOnlyNameplates, ns.SetKnownOnlyNameplates,
         function() return KnownPlayersSettings.knownOnlyNameplates end)
     local npcFilter = Checkbox(content, 17, -121, "Enable NPC nameplate filtering",
@@ -426,33 +546,70 @@ local function BuildHomePage(parent)
             ns.SyncNPCNameplateCVars()
             ns.RefreshKnownNameplates()
         end, function() return KnownPlayersSettings.filterNPCNameplates end)
-    local npcFilterStatus = Label(content, "", 42, -151)
-    local function RefreshNPCFilterStatus()
-        local paused = KnownPlayersSettings.filterNPCNameplates and not ns.IsQuestieDBConnected()
-        npcFilterStatus:SetText(paused and "Automatic NPC filtering paused. QuestieDB is unavailable." or "")
-    end
-    npcFilter:HookScript("OnClick", RefreshNPCFilterStatus)
-    RegisterSettingsRefresher(RefreshNPCFilterStatus)
-    RefreshNPCFilterStatus()
 
-    local events = CreateFrame("Frame", nil, page)
-    events:RegisterEvent("ADDON_LOADED")
-    events:SetScript("OnEvent", function(_, _, addon)
-        if addon == "QuestieDB" then RefreshNPCFilterStatus() end
-    end)
+    local Layout
+    local function Refresh() Layout() end
+    local layoutSetup = AddNameplateSetup(content, Refresh)
 
-    Checkbox(content, 17, -172, "Show minimap button",
+    local minimap = Checkbox(content, 17, 0, "Show minimap button",
         KnownPlayersSettings.showMinimapButton, function(checked)
             KnownPlayersSettings.showMinimapButton = checked
             ns.RefreshMinimapButton()
         end, function() return KnownPlayersSettings.showMinimapButton end)
-
     local reset = Button(content, "Reset Settings to Defaults", 205, function()
         StaticPopup_Show("KNOWNPLAYERS_RESET_SETTINGS")
     end)
-    reset:SetPoint("TOPLEFT", content, "TOPLEFT", 18, -211)
-    Label(content, "Version " .. ns.AddonVersion, 18, -253)
-    Label(content, "https://github.com/Martnat8/KnownPlayers", 18, -272)
+    local version = Label(content, "Version " .. ns.AddonVersion, 0, 0)
+    local repository = Label(content, "https://github.com/Martnat8/KnownPlayers", 0, 0)
+
+    Layout = function()
+        local players = KnownPlayersSettings.knownOnlyNameplates
+        local npcs = KnownPlayersSettings.filterNPCNameplates
+        local npcPlates = NeedsFriendlyNPCPlates()
+        local questieReady = npcs and ns.IsQuestieDBConnected()
+        local messages = {}
+        if players and not AnyPlayerTrackingEnabled() then
+            messages[#messages + 1] = "Enable a tracking category in Player Nameplates so KnownPlayers can learn who you know."
+        end
+        if npcs then
+            if not questieReady then
+                messages[#messages + 1] = "Enable QuestieDB with API contract 4 for automatic NPC roles. Remembered NPCs and overrides can work without it."
+            else
+                local hasRole = false
+                for key, enabled in pairs(KnownPlayersSettings.npcServiceCategories) do
+                    if key ~= "manual" and enabled then hasRole = true; break end
+                end
+                if not hasRole then
+                    messages[#messages + 1] = "Enable the automatic roles you want to see in NPC Nameplates."
+                end
+            end
+        end
+        if (players and ns.HasUnfilteredOverheadNames("player"))
+            or (questieReady and ns.HasUnfilteredOverheadNames("npc")) then
+            messages[#messages + 1] = "WoW is still showing some overhead names outside the filter. Check WoW’s Names settings."
+        end
+        local footer = layoutSetup({player = players, npc = npcPlates, always = players or npcPlates},
+            messages, -154) - 18
+        PlaceAt(minimap, content, 17, footer)
+        PlaceAt(reset, content, 18, footer - 39)
+        PlaceAt(version, content, 18, footer - 81)
+        PlaceAt(repository, content, 18, footer - 100)
+        content:SetHeight(-footer + 128)
+    end
+    playerFilter:HookScript("OnClick", Refresh)
+    npcFilter:HookScript("OnClick", Refresh)
+    RegisterSettingsRefresher(Refresh)
+    Refresh()
+
+    local events = CreateFrame("Frame", nil, page)
+    events:RegisterEvent("ADDON_LOADED")
+    events:RegisterEvent("CVAR_UPDATE")
+    events:RegisterEvent("PLAYER_ENTERING_WORLD")
+    events:RegisterEvent("PLAYER_REGEN_DISABLED")
+    events:RegisterEvent("PLAYER_REGEN_ENABLED")
+    events:SetScript("OnEvent", function(_, event, key)
+        if page:IsVisible() and (event ~= "ADDON_LOADED" or key == "QuestieDB") then Refresh() end
+    end)
     return page
 end
 

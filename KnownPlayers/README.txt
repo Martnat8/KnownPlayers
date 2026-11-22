@@ -8,6 +8,11 @@ Keep a backup of your SavedVariables before installing a new development build.
 SETTINGS
 - KnownPlayers: enable player and NPC nameplate filtering separately, control the
   minimap button, and reset preferences without deleting stored characters.
+  The Nameplate setup panel lists WoW settings that are off, including
+  friendly player and NPC nameplates and Always Show Nameplates for
+  visibility outside combat. Enable nameplate settings turns on the listed
+  options together. WoW's Enemy Nameplates option controls hostile units
+  separately.
 - Player Nameplates: choose what to track, how long to remember each reason, and
   which reason takes priority. Use Manage beside a category to open its list, then click
   History on a player row. In Known Battle.net Alts, Linked History opens the
@@ -80,9 +85,11 @@ KnownPlayers does not set Blizzard's nameplate width, height or global scale.
 Normal full-name displays use Blizzard's own name font; custom first-name,
 guild/title, and names-only labels mirror the live native font and frame scale.
 To filter names individually, active filtering temporarily manages the native
-overhead-name CVars (and friendly NPC nameplate availability), restoring the
-previous values when disabled. Other game nameplate sizing options are left
-alone. Combat-only health bars remain experimental on protected frames.
+overhead-name CVars and restores the previous values when disabled. Automatic
+NPC role filtering requires QuestieDB and enabled categories. Remembered NPCs
+and overrides can use the nameplates WoW supplies without QuestieDB.
+Distance and opacity can affect which nameplates are visible. Combat-only
+health bars remain experimental on protected frames.
 With Known Only enabled, a player's pets, guardians, and totems follow that
 player's visibility when WoW supplies the owner's identity and a nameplate.
 Show friendly player minions under Character name controls whether friendly

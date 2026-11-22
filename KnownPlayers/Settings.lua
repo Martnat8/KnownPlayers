@@ -2,12 +2,16 @@ local addonName, ns = ...
 local panel, settingsWindow
 local settingsRefreshers = {}
 
-local TRACKING_CONTROLS = {x = 246, color = 72, arrow = 25, list = 60, gap = 8, arrowGap = 3}
+local TABLE_LEFT, ROW_HEIGHT = 18, 31
+local TRACKING_CONTROLS = {
+    durationX = 164, duration = 123, priorityX = 298, arrow = 25, arrowGap = 3,
+    manage = 70, gap = 8, color = 72,
+}
 local CONTENT_RIGHT_PADDING = 18
 local SCROLL_LEFT, SCROLL_RIGHT = 3, 28
 local PAGE_PADDING, WINDOW_PADDING = 6, 10
-local CONTENT_WIDTH = TRACKING_CONTROLS.x + TRACKING_CONTROLS.color + TRACKING_CONTROLS.list
-    + 2 * (TRACKING_CONTROLS.arrow + TRACKING_CONTROLS.gap) + TRACKING_CONTROLS.arrowGap + CONTENT_RIGHT_PADDING
+local CONTENT_WIDTH = TABLE_LEFT + TRACKING_CONTROLS.priorityX + 2 * TRACKING_CONTROLS.arrow
+    + TRACKING_CONTROLS.arrowGap + TRACKING_CONTROLS.gap + TRACKING_CONTROLS.manage + CONTENT_RIGHT_PADDING
 local INSET_WIDTH = CONTENT_WIDTH + SCROLL_LEFT + SCROLL_RIGHT + 2 * PAGE_PADDING
 local function RegisterSettingsRefresher(callback)
     settingsRefreshers[#settingsRefreshers + 1] = callback
@@ -48,20 +52,17 @@ StaticPopupDialogs["KNOWNPLAYERS_RESET_SETTINGS"] = {
     preferredIndex = 3,
 }
 
-local CATEGORIES = {
-    { key = "trade", label = "Trade", tracking = "trackTrades", description = "Remember trading partners" },
-    { key = "party", label = "Party", group = "party", description = "Remember party members" },
-    { key = "raid", label = "Raid", group = "raid", description = "Remember raid members" },
-    { key = "guild", label = "Guild", tracking = "trackGuild", description = "Remember everyone on the guild roster" },
-    { key = "whisper", label = "Whisper", tracking = "trackWhispers", description = "Remember whispered players" },
-    { key = "target", label = "Target", tracking = "trackTargets", description = "Remember targeted players" },
-    { key = "inspect", label = "Inspect", tracking = "trackInspects", description = "Remember inspected players" },
-    { key = "manual", label = "Manually Added", tracking = "trackManual", description = "Show players saved manually" },
-}
 local TRACKING_CATEGORIES = {
-    associated = { key = "associated", label = "Known Battle.net Alts", tracking = "trackBattleNetAssociations" },
+    trade = { label = "Trade", tracking = "trackTrades" },
+    party = { label = "Party", group = "party" },
+    raid = { label = "Raid", group = "raid" },
+    guild = { label = "Guild", tracking = "trackGuild" },
+    whisper = { label = "Whisper", tracking = "trackWhispers" },
+    target = { label = "Target", tracking = "trackTargets" },
+    inspect = { label = "Inspect", tracking = "trackInspects" },
+    manual = { label = "Manually Added", tracking = "trackManual" },
+    associated = { label = "Known Battle.net Alts", tracking = "trackBattleNetAssociations" },
 }
-for _, category in ipairs(CATEGORIES) do TRACKING_CATEGORIES[category.key] = category end
 
 local function Label(parent, value, x, y, font)
     local label = parent:CreateFontString(nil, "ARTWORK", font or "GameFontHighlightSmall")
@@ -75,6 +76,28 @@ local function Button(parent, value, width, click)
     button:SetSize(width or 115, 25)
     button:SetText(value)
     button:SetScript("OnClick", click)
+    return button
+end
+
+local function ColorButton(parent, click)
+    local button = Button(parent, "Color", TRACKING_CONTROLS.color, click)
+    local swatch = button:CreateTexture(nil, "OVERLAY")
+    swatch:SetSize(12, 12)
+    swatch:SetPoint("LEFT", button, "LEFT", 10, 0)
+    local text = button:GetFontString()
+    text:ClearAllPoints()
+    text:SetPoint("LEFT", swatch, "RIGHT", 8, 0)
+    return button, swatch
+end
+
+local function PriorityButton(parent, direction, click)
+    local button = Button(parent, "", TRACKING_CONTROLS.arrow, click)
+    local icon = button:CreateTexture(nil, "ARTWORK")
+    icon:SetAtlas("minimal-scrollbar-arrow-" .. direction)
+    icon:SetSize(17, 11)
+    icon:SetPoint("CENTER")
+    button:HookScript("OnEnable", function() icon:SetAlpha(1) end)
+    button:HookScript("OnDisable", function() icon:SetAlpha(0.4) end)
     return button
 end
 
@@ -101,7 +124,7 @@ local function ShowAbout(parent)
     local y = -62
     for _, section in ipairs({
         {"Remembering players",
-            "Choose which interactions to track on Player Nameplates & Lists. Use a portrait menu or /kp remember to save someone manually. Open Player History to see why you know them and add a note, tags, or a favorite."},
+            "Choose which interactions to track on Player Nameplates. Use a portrait menu or /kp remember to save someone manually. Open Player History to see why you know them and add a note, tags, or a favorite."},
         {"NPC filtering and overrides",
             "Automatic NPC categories use QuestieDB. The filter leaves attackable monsters and unclassified NPCs visible. In the NPC Manager, Overrides lists NPCs set to Always Show or Always Hide. Automatic clears the override."},
         {"Nameplate distance and opacity",
@@ -135,6 +158,28 @@ local function Checkbox(parent, x, y, title, current, onClick, getCurrent)
     return button
 end
 
+local function AddFriendlyMinionVisibility(parent, x, y)
+    local toggle
+    local function Refresh()
+        local visible, available = ns.GetFriendlyMinionVisibility()
+        toggle:SetChecked(visible)
+        toggle:SetEnabled(available and not InCombatLockdown())
+    end
+
+    toggle = Checkbox(parent, x, y, "Show friendly player minions", false, function(checked)
+        if not InCombatLockdown() and not ns.SetFriendlyMinionVisibility(checked) then
+            print("|cff33ff99KnownPlayers:|r WoW could not change some friendly minion visibility settings.")
+        end
+        Refresh()
+    end)
+    toggle:RegisterEvent("CVAR_UPDATE")
+    toggle:RegisterEvent("PLAYER_REGEN_DISABLED")
+    toggle:RegisterEvent("PLAYER_REGEN_ENABLED")
+    toggle:SetScript("OnEvent", Refresh)
+    RegisterSettingsRefresher(Refresh)
+    Refresh()
+end
+
 local function NewScrollingPage(parent)
     local page = CreateFrame("Frame", nil, parent)
     local scroller = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
@@ -150,16 +195,17 @@ local function NewScrollingPage(parent)
     return page, content
 end
 
-local function SetCategoryTracking(category, checked)
+local function SetCategoryTracking(key, checked)
+    local category = TRACKING_CATEGORIES[key]
     if category.group then
         KnownPlayersSettings.trackGroup[category.group] = checked
         if checked and ns.ScanGroupRoster then ns.ScanGroupRoster() end
     else
         KnownPlayersSettings[category.tracking] = checked
-        if checked and category.key == "guild" and ns.RequestGuildRoster then
+        if checked and key == "guild" and ns.RequestGuildRoster then
             ns.RequestGuildRoster()
             if ns.ScanGuildRoster then ns.ScanGuildRoster() end
-        elseif checked and category.key == "associated" and ns.ScanBattleNetFriends then
+        elseif checked and key == "associated" and ns.ScanBattleNetFriends then
             ns.ScanBattleNetFriends()
         end
     end
@@ -175,132 +221,111 @@ local RETENTION_PRESETS = {
     {"90 days", 90, 0, 0},
 }
 
-local function RetentionRow(parent, category, onLayoutChanged, compact)
-    local retention = ns.GetCategoryRetention(category.key)
-    if not retention then return end
+local function Dropdown(parent, x, y, width)
+    local dropdown = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
+    dropdown:SetSize(width, 24)
+    dropdown:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+    return dropdown
+end
 
-    -- Let each row own its height. Custom duration inputs expand the row,
-    -- and the parent reflows every row that follows it.
-    local row = CreateFrame("Frame", nil, parent)
-    row:SetSize(445, compact and 34 or 50)
-    local fields, captions = {}, {}
-    local list = CreateFrame("Frame", nil, row, "UIDropDownMenuTemplate")
-    list:SetPoint("TOPLEFT", row, "TOPLEFT", 140, 3)
-    UIDropDownMenu_SetWidth(list, 150)
-    local custom = CreateFrame("Frame", nil, row)
-    custom:SetSize(255, 24)
-    custom:SetPoint("TOPLEFT", row, "TOPLEFT", 172, -36)
-    local customMode = false
-
-    local function SaveDuration()
-        local caps = {days=180, hours=23, minutes=59}
-        local total = 0
-        for _, unit in ipairs({"days", "hours", "minutes"}) do
-            local number = math.floor(tonumber(fields[unit]:GetText()) or 0)
-            number = math.max(0, math.min(caps[unit], number))
-            retention[unit] = number
-            total = total + number * (unit == "days" and 1440 or unit == "hours" and 60 or 1)
-        end
-        if total == 0 then retention.minutes = 1 end
-        for _, unit in ipairs({"days", "hours", "minutes"}) do
-            fields[unit]:SetText(tostring(retention[unit]))
-        end
+local function AddRetentionDropdown(row, key, x, relayout)
+    local dropdown = Dropdown(row, x, -2, TRACKING_CONTROLS.duration)
+    if not ns.GetCategoryRetention(key) then
+        dropdown:SetText("Forever")
+        dropdown:Disable()
+        return
     end
 
-    local function MatchingPreset()
-        for _, choice in ipairs(RETENTION_PRESETS) do
-            if retention.days == choice[2] and retention.hours == choice[3]
-                and retention.minutes == choice[4] then
-                return choice
+    local fields = {}
+    local units = {"days", "hours", "minutes"}
+    local limits = {days = 180, hours = 23, minutes = 59}
+    local shortLabels = {days = "d", hours = "h", minutes = "m"}
+    local custom = CreateFrame("Frame", nil, row)
+    custom:SetSize(240, 24)
+    custom:SetPoint("TOPLEFT", row, "TOPLEFT", x, -32)
+    local customSelected = false
+    local forever, customOption = {"Forever"}, {"Custom..."}
+
+    local function GetSelection()
+        local duration = ns.GetCategoryRetention(key)
+        if not duration.enabled then return forever end
+        if not customSelected then
+            for _, preset in ipairs(RETENTION_PRESETS) do
+                if duration.days == preset[2] and duration.hours == preset[3]
+                    and duration.minutes == preset[4] then return preset end
             end
         end
+        return customOption
     end
 
     local function Refresh()
-        local enabled = retention.enabled == true
-        local preset = not customMode and MatchingPreset()
-        UIDropDownMenu_SetText(list, preset and preset[1] or "Custom...")
-        if enabled then UIDropDownMenu_EnableDropDown(list)
-        else UIDropDownMenu_DisableDropDown(list) end
-        custom:SetShown(customMode)
-        for unit, field in pairs(fields) do
-            field:SetEnabled(enabled)
-            field:SetAlpha(enabled and 1 or 0.4)
-            captions[unit]:SetAlpha(enabled and 1 or 0.4)
+        local duration = ns.GetCategoryRetention(key)
+        local showCustom = GetSelection() == customOption
+        custom:SetShown(showCustom)
+        for _, unit in ipairs(units) do
+            fields[unit]:SetText(tostring(duration[unit] or 0))
         end
-        row:SetHeight(customMode and (compact and 68 or 82) or (compact and 34 or 50))
-        if onLayoutChanged then onLayoutChanged() end
+        dropdown:Update()
+        local height = showCustom and ROW_HEIGHT + 29 or ROW_HEIGHT
+        if row:GetHeight() ~= height then
+            row:SetHeight(height)
+            relayout()
+        end
     end
 
-    local forgetToggle = Checkbox(row, 2, 0, category.label, retention.enabled, function(checked)
-        retention.enabled = checked
+    local function SaveDuration()
+        if GetSelection() ~= customOption then return end
+        local duration = ns.GetCategoryRetention(key)
+        for _, unit in ipairs(units) do
+            local value = math.floor(tonumber(fields[unit]:GetText()) or 0)
+            duration[unit] = math.max(0, math.min(limits[unit], value))
+        end
+        if duration.days + duration.hours + duration.minutes == 0 then duration.minutes = 1 end
         Refresh()
-    end)
-    for i, unit in ipairs({"days", "hours", "minutes"}) do
+    end
+
+    for i, unit in ipairs(units) do
         local field = CreateFrame("EditBox", nil, custom, "InputBoxTemplate")
         field:SetSize(38, 22)
-        field:SetPoint("TOPLEFT", custom, "TOPLEFT", (i-1)*81, 0)
+        field:SetPoint("TOPLEFT", custom, "TOPLEFT", (i - 1) * 72 + 4, 0)
         field:SetAutoFocus(false)
         field:SetNumeric(true)
         field:SetMaxLetters(3)
-        field:SetText(tostring(retention[unit] or 0))
         field:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
         field:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
         field:SetScript("OnEditFocusLost", SaveDuration)
         local caption = field:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         caption:SetPoint("LEFT", field, "RIGHT", 5, 0)
-        caption:SetText(({days="d", hours="h", minutes="m"})[unit])
-        fields[unit], captions[unit] = field, caption
+        caption:SetText(shortLabels[unit])
+        fields[unit] = field
     end
 
-    local function SelectPreset(index)
-        if index == #RETENTION_PRESETS + 1 then
-            customMode = true
-        else
-            local option = RETENTION_PRESETS[index]
-            retention.days, retention.hours, retention.minutes = option[2], option[3], option[4]
-            customMode = false
-            for _, unit in ipairs({"days", "hours", "minutes"}) do
-                fields[unit]:SetText(tostring(retention[unit]))
-            end
+    local function IsSelected(option)
+        return GetSelection() == option
+    end
+    local function Select(option)
+        local duration = ns.GetCategoryRetention(key)
+        duration.enabled = option ~= forever
+        customSelected = option == customOption
+        if option[2] then
+            duration.days, duration.hours, duration.minutes = option[2], option[3], option[4]
         end
         Refresh()
     end
 
-    UIDropDownMenu_Initialize(list, function(_, level)
-        for i, choice in ipairs(RETENTION_PRESETS) do
-            local index = i
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = choice[1]
-            info.func = function() SelectPreset(index) end
-            info.checked = not customMode and retention.days == choice[2]
-                and retention.hours == choice[3] and retention.minutes == choice[4]
-            UIDropDownMenu_AddButton(info, level)
+    dropdown:SetSelectionText(function() return GetSelection()[1] end)
+    dropdown:SetupMenu(function(_, menu)
+        menu:CreateRadio(forever[1], IsSelected, Select, forever)
+        for _, option in ipairs(RETENTION_PRESETS) do
+            menu:CreateRadio(option[1], IsSelected, Select, option)
         end
-        local info = UIDropDownMenu_CreateInfo()
-        info.text = "Custom..."
-        info.func = function() SelectPreset(#RETENTION_PRESETS + 1) end
-        info.checked = customMode
-        UIDropDownMenu_AddButton(info, level)
+        menu:CreateRadio(customOption[1], IsSelected, Select, customOption)
     end)
-
-    customMode = not MatchingPreset()
-    Refresh()
     RegisterSettingsRefresher(function()
-        -- Reset replaces KnownPlayersSettings, so cached retention references
-        -- must point to the new settings table before the user edits them.
-        local current = ns.GetCategoryRetention(category.key)
-        if not current then return end
-        local replaced = current ~= retention
-        retention = current
-        forgetToggle:SetChecked(retention.enabled == true)
-        for _, unit in ipairs({"days", "hours", "minutes"}) do
-            fields[unit]:SetText(tostring(retention[unit] or 0))
-        end
-        if replaced or not customMode then customMode = not MatchingPreset() end
+        customSelected = false
         Refresh()
     end)
-    return row
+    Refresh()
 end
 
 local function NameplateSliderRow(parent, anchor, option)
@@ -383,440 +408,360 @@ end
 
 local function BuildHomePage(parent)
     local page, content = NewScrollingPage(parent)
-    content:SetHeight(400)
+    content:SetHeight(300)
     local about = Button(page, "About", 80, function() ShowAbout(page) end)
     about:SetPoint("TOPRIGHT", page, "TOPRIGHT", -SCROLL_RIGHT - CONTENT_RIGHT_PADDING, -12)
 
-    Label(content, "Nameplate Filtering", 16, -10, "GameFontNormal")
-    Checkbox(content, 16, -37, "Enable player nameplate filtering",
-        KnownPlayersSettings.knownOnlyNameplates, function(checked)
-            if ns.SetKnownOnlyNameplates then ns.SetKnownOnlyNameplates(checked) end
-        end, function() return KnownPlayersSettings.knownOnlyNameplates end)
-    local npcFilter = Checkbox(content, 250, -37, "Enable NPC nameplate filtering",
+    local intro = Label(content,
+        "KnownPlayers reveals familiar nameplates as you meet and interact with players.", 18, -16, "GameFontHighlight")
+    intro:SetWidth(320)
+    intro:SetJustifyH("LEFT")
+    Label(content, "Nameplate filtering", 18, -68, "GameFontNormal")
+    Checkbox(content, 17, -92, "Enable player nameplate filtering",
+        KnownPlayersSettings.knownOnlyNameplates, ns.SetKnownOnlyNameplates,
+        function() return KnownPlayersSettings.knownOnlyNameplates end)
+    local npcFilter = Checkbox(content, 17, -121, "Enable NPC nameplate filtering",
         KnownPlayersSettings.filterNPCNameplates, function(checked)
             KnownPlayersSettings.filterNPCNameplates = checked
-            if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
-            if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+            ns.SyncNPCNameplateCVars()
+            ns.RefreshKnownNameplates()
         end, function() return KnownPlayersSettings.filterNPCNameplates end)
-    local npcFilterStatus = Label(content, "", 16, -66)
+    local npcFilterStatus = Label(content, "", 42, -151)
     local function RefreshNPCFilterStatus()
         local paused = KnownPlayersSettings.filterNPCNameplates and not ns.IsQuestieDBConnected()
-        npcFilterStatus:SetText(paused and "Automatic NPC filtering paused — QuestieDB unavailable" or "")
+        npcFilterStatus:SetText(paused and "Automatic NPC filtering paused. QuestieDB is unavailable." or "")
     end
     npcFilter:HookScript("OnClick", RefreshNPCFilterStatus)
     RegisterSettingsRefresher(RefreshNPCFilterStatus)
     RefreshNPCFilterStatus()
 
-    local line = content:CreateTexture(nil, "ARTWORK")
-    line:SetColorTexture(0.45, 0.45, 0.45, 0.4)
-    line:SetPoint("TOPLEFT", content, "TOPLEFT", 16, -89)
-    line:SetPoint("RIGHT", content, "RIGHT", -16, 0)
-    line:SetHeight(1)
-
-    local lastRow = Label(content, "Nameplate Distance and Opacity", 16, -106, "GameFontNormal")
-    local refreshSliders = {}
-    for _, option in ipairs({
-        {label = "NPC / non-player nameplate distance", cvar = "nameplateMaxDistance",
-            min = 20, max = 60, scale = 1, suffix = " yd"},
-        {label = "Player nameplate distance", cvar = "nameplatePlayerMaxDistance",
-            min = 20, max = 60, scale = 1, suffix = " yd"},
-        {label = "Minimum nameplate opacity", cvar = "nameplateMinAlpha",
-            min = 0, max = 100, scale = 100, suffix = "%"},
-    }) do
-        lastRow, refreshSliders[option.cvar:lower()] = NameplateSliderRow(content, lastRow, option)
-    end
-
-    local function RefreshSliders()
-        for _, refresh in pairs(refreshSliders) do refresh() end
-    end
-    RegisterSettingsRefresher(RefreshSliders)
     local events = CreateFrame("Frame", nil, page)
     events:RegisterEvent("ADDON_LOADED")
-    events:RegisterEvent("CVAR_UPDATE")
-    events:RegisterEvent("PLAYER_REGEN_ENABLED")
-    events:RegisterEvent("PLAYER_REGEN_DISABLED")
-    events:SetScript("OnEvent", function(_, event, key)
-        if not page:IsVisible() then return end
-        if event == "ADDON_LOADED" then
-            if key == "QuestieDB" then RefreshNPCFilterStatus() end
-        elseif event ~= "CVAR_UPDATE" then
-            RefreshSliders()
-        elseif type(key) == "string" and ns.IsAccessibleValue(key) then
-            local refresh = refreshSliders[key:lower()]
-            if refresh then refresh() end
-        end
+    events:SetScript("OnEvent", function(_, _, addon)
+        if addon == "QuestieDB" then RefreshNPCFilterStatus() end
     end)
 
-    local minimap = Checkbox(content, 16, 0, "Show minimap button",
+    Checkbox(content, 17, -172, "Show minimap button",
         KnownPlayersSettings.showMinimapButton, function(checked)
             KnownPlayersSettings.showMinimapButton = checked
             ns.RefreshMinimapButton()
         end, function() return KnownPlayersSettings.showMinimapButton end)
-    minimap:ClearAllPoints()
-    minimap:SetPoint("TOPLEFT", lastRow, "BOTTOMLEFT", 0, -12)
 
     local reset = Button(content, "Reset Settings to Defaults", 205, function()
         StaticPopup_Show("KNOWNPLAYERS_RESET_SETTINGS")
     end)
-    reset:SetPoint("TOPLEFT", minimap, "BOTTOMLEFT", 0, -12)
+    reset:SetPoint("TOPLEFT", content, "TOPLEFT", 18, -211)
+    Label(content, "Version " .. ns.AddonVersion, 18, -253)
+    Label(content, "https://github.com/Martnat8/KnownPlayers", 18, -272)
     return page
 end
 
-local function CreatePlayerAppearance(parent)
-    local body = CreateFrame("Frame", nil, parent)
-    body:SetSize(455, 200)
-    local line = body:CreateTexture(nil, "ARTWORK")
-    line:SetColorTexture(0.45, 0.45, 0.45, 0.4)
-    line:SetPoint("TOPLEFT", body, "TOPLEFT", 20, 0)
-    line:SetSize(432, 1)
-
-    local nameTop, healthTop = -13, -115
-    Label(body, "Character name", 21, nameTop, "GameFontNormal")
-    Label(body, "Choose how character names and guild names appear on player nameplates.", 21, nameTop - 23)
-    local full, first
-    local function SelectNameMode(mode)
-        KnownPlayersSettings.nameDisplayMode = mode
-        full:SetChecked(mode == "full")
-        first:SetChecked(mode == "first")
-        if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+local function AddPriorityTable(body, top, options)
+    local orderKey = options.orderKey
+    local priorityX = options.player and TRACKING_CONTROLS.priorityX or 225
+    Label(body, options.player and "Track category" or "Show category", TABLE_LEFT + 6, top, "GameFontNormalSmall")
+    if options.player then
+        Label(body, "Remember for", TABLE_LEFT + TRACKING_CONTROLS.durationX + 3, top, "GameFontNormalSmall")
     end
-    full = Checkbox(body, 20, nameTop - 54, "Full name",
-        KnownPlayersSettings.nameDisplayMode ~= "first", function()
-            SelectNameMode("full")
-        end)
-    first = Checkbox(body, 165, nameTop - 54, "First name",
-        KnownPlayersSettings.nameDisplayMode == "first", function()
-            SelectNameMode("first")
-        end)
-    RegisterSettingsRefresher(function()
-        full:SetChecked(KnownPlayersSettings.nameDisplayMode ~= "first")
-        first:SetChecked(KnownPlayersSettings.nameDisplayMode == "first")
-    end)
-    Checkbox(body, 305, nameTop - 54, "Guild name",
-        KnownPlayersSettings.showGuildInNamesOnly, function(checked)
-            KnownPlayersSettings.showGuildInNamesOnly = checked
-            if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
-        end, function() return KnownPlayersSettings.showGuildInNamesOnly end)
-    local nameLine = body:CreateTexture(nil, "ARTWORK")
-    nameLine:SetColorTexture(0.45, 0.45, 0.45, 0.24)
-    nameLine:SetPoint("TOPLEFT", body, "TOPLEFT", 20, healthTop + 13)
-    nameLine:SetSize(432, 1)
+    Label(body, "Priority", TABLE_LEFT + priorityX + 4, top, "GameFontNormalSmall")
 
-    Label(body, "Health bar", 21, healthTop, "GameFontNormal")
-    Label(body, "Choose when player nameplates show a health bar.", 21, healthTop - 23)
-    local modeButtons = {}
-    local function SelectHealthBarMode(mode)
-        if ns.SetPlayerHealthBarMode then ns.SetPlayerHealthBarMode(mode) end
-        for key, button in pairs(modeButtons) do
-            button:SetChecked(KnownPlayersSettings.playerHealthBarMode == key)
+    local rows = {}
+    local function Layout()
+        local order = KnownPlayersSettings[orderKey]
+        local y = top - 22
+        for index, key in ipairs(order) do
+            local row = rows[key]
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", body, "TOPLEFT", TABLE_LEFT, y)
+            row.tracking:SetChecked(options.enabled(key))
+            row.up:SetEnabled(index > 1)
+            row.down:SetEnabled(index < #order)
+            y = y - row:GetHeight()
+        end
+        if options.afterRows then options.afterRows(y)
+        else body:SetHeight(-y + 16) end
+    end
+
+    local function Move(key, delta)
+        local order = KnownPlayersSettings[orderKey]
+        for index, current in ipairs(order) do
+            if current == key and order[index + delta] then
+                order[index], order[index + delta] = order[index + delta], current
+                Layout()
+                ns.RefreshKnownNameplates()
+                return
+            end
         end
     end
-    for _, item in ipairs({
-        { "always", "Always", 20 },
-        { "combat", "In combat", 165 },
-        { "never", "Never", 305 },
-    }) do
-        local mode, label, x = item[1], item[2], item[3]
-        modeButtons[mode] = Checkbox(body, x, healthTop - 54, label,
-            KnownPlayersSettings.playerHealthBarMode == mode,
-            function() SelectHealthBarMode(mode) end)
-    end
-    RegisterSettingsRefresher(function()
-        for mode, button in pairs(modeButtons) do
-            button:SetChecked(KnownPlayersSettings.playerHealthBarMode == mode)
+
+    local ready = false
+    for _, key in ipairs(KnownPlayersSettings[orderKey]) do
+        local row = CreateFrame("Frame", nil, body)
+        row:SetSize(CONTENT_WIDTH - TABLE_LEFT - CONTENT_RIGHT_PADDING, ROW_HEIGHT)
+        rows[key] = row
+        row.tracking = Checkbox(row, 0, -1, options.labels[key], options.enabled(key), function(checked)
+            options.setEnabled(key, checked)
+        end)
+        row.up = PriorityButton(row, "top", function() Move(key, -1) end)
+        row.up:SetPoint("TOPLEFT", row, "TOPLEFT", priorityX, -1)
+        row.down = PriorityButton(row, "bottom", function() Move(key, 1) end)
+        row.down:SetPoint("LEFT", row.up, "RIGHT", TRACKING_CONTROLS.arrowGap, 0)
+        if options.player then
+            AddRetentionDropdown(row, key, TRACKING_CONTROLS.durationX, function()
+                if ready then Layout() end
+            end)
+            local manage = Button(row, "Manage", TRACKING_CONTROLS.manage, function()
+                ns.OpenPlayerList(key, options.page)
+            end)
+            manage:SetPoint("LEFT", row.down, "RIGHT", TRACKING_CONTROLS.gap, 0)
         end
-    end)
-    return body
+    end
+    ready = true
+    Layout()
+    RegisterSettingsRefresher(Layout)
+end
+
+local PLAYER_LABELS = {}
+for key, category in pairs(TRACKING_CATEGORIES) do PLAYER_LABELS[key] = category.label end
+
+local function NPCLabels()
+    local labels = {}
+    for _, category in ipairs(ns.GetNPCServiceCategories()) do labels[category.key] = category.label end
+    return labels
 end
 
 local function BuildPlayerPage(parent)
     local page, body = NewScrollingPage(parent)
-    local trackingTop = -10
-    Label(body, "Tracking, colors, and priority", 21, trackingTop, "GameFontNormal")
-    Label(body, "Top enabled category wins when a player belongs to several lists.", 21, trackingTop - 23)
-    local colorRows = {}
-    local function RefreshOrder()
-        for i, row in ipairs(colorRows) do
-            local key = KnownPlayersSettings.nameplateColorOrder[i]
-            row.key = key
-            row.checkbox.Text:SetText(i .. ". " .. TRACKING_CATEGORIES[key].label)
-            row.checkbox:SetChecked(ns.CategoryTrackingEnabled(key))
-            local rgb = ns.GetNameplateCategoryColor(key)
-            row.swatch:SetColorTexture(rgb[1], rgb[2], rgb[3], 1)
-            row.up:SetEnabled(i > 1)
-            row.down:SetEnabled(i < #colorRows)
-        end
-        if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
-    end
-    local function PickColor(key)
-        local picker = ColorPickerFrame
-        if not picker then return end
-        local color = ns.GetNameplateCategoryColor(key)
-        local function SetColor()
-            local r,g,b = picker:GetColorRGB()
-            KnownPlayersSettings.nameplateCategoryColors[key] = {r,g,b}
-            RefreshOrder()
-        end
-        if type(picker.SetupColorPickerAndShow) == "function" then
-            picker:SetupColorPickerAndShow({r=color[1],g=color[2],b=color[3],hasOpacity=false,swatchFunc=SetColor})
-        else
-            picker.func = SetColor
-            picker.hasOpacity = false
-            picker:SetColorRGB(color[1],color[2],color[3])
-            picker:Show()
-        end
-    end
-    local colorRowSpacing = 29
-    for i in ipairs(KnownPlayersSettings.nameplateColorOrder) do
-        local row = {}
-        local y = trackingTop - 54 - (i - 1) * colorRowSpacing
-        row.checkbox = Checkbox(body, 20, y - 3, "", false, function(checked)
-            SetCategoryTracking(TRACKING_CATEGORIES[row.key], checked)
-        end)
-        local button = Button(body, "Color", TRACKING_CONTROLS.color, function() PickColor(row.key) end)
-        button:SetPoint("TOPLEFT", body, "TOPLEFT", TRACKING_CONTROLS.x, y)
-        row.swatch = button:CreateTexture(nil,"OVERLAY")
-        row.swatch:SetSize(14,14)
-        row.swatch:SetPoint("LEFT",button,"LEFT",5,0)
-        row.up = Button(body,"^",TRACKING_CONTROLS.arrow,function()
-            if i <= 1 then return end
-            local order=KnownPlayersSettings.nameplateColorOrder
-            order[i],order[i-1]=order[i-1],order[i]
-            RefreshOrder()
-        end)
-        row.up:SetPoint("LEFT", button, "RIGHT", TRACKING_CONTROLS.gap, 0)
-        row.down = Button(body,"v",TRACKING_CONTROLS.arrow,function()
-            if i >= #colorRows then return end
-            local order=KnownPlayersSettings.nameplateColorOrder
-            order[i],order[i+1]=order[i+1],order[i]
-            RefreshOrder()
-        end)
-        row.down:SetPoint("LEFT", row.up, "RIGHT", TRACKING_CONTROLS.arrowGap, 0)
-        local list = Button(body, "List", TRACKING_CONTROLS.list, function() ns.OpenPlayerList(row.key) end)
-        list:SetPoint("LEFT", row.down, "RIGHT", TRACKING_CONTROLS.gap, 0)
-        colorRows[#colorRows+1] = row
-    end
-    RefreshOrder()
-    RegisterSettingsRefresher(RefreshOrder)
-
-    local retentionTop = trackingTop - 69 - #colorRows * colorRowSpacing
-    local line2 = body:CreateTexture(nil, "ARTWORK")
-    line2:SetColorTexture(0.45, 0.45, 0.45, 0.4)
-    line2:SetPoint("TOPLEFT", body, "TOPLEFT", 20, retentionTop)
-    line2:SetWidth(432)
-    line2:SetHeight(1)
-
-    Label(body, "When should players be forgotten?", 21, retentionTop - 13, "GameFontNormal")
-    Label(body, "Forget", 22, retentionTop - 47, "GameFontNormalSmall")
-    Label(body, "Duration", 188, retentionTop - 47, "GameFontNormalSmall")
-
-    local guildNote = Label(body, "Guild membership is roster-based and does not expire.", 21, -800)
-    local appearance = CreatePlayerAppearance(body)
-
-    local retentionRows = {}
-    local function LayoutRetentionRows()
-        local y = retentionTop - 67
-        for _, row in ipairs(retentionRows) do
-            row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", body, "TOPLEFT", 18, y)
-            y = y - row:GetHeight()
-        end
-        guildNote:ClearAllPoints()
-        guildNote:SetPoint("TOPLEFT", body, "TOPLEFT", 21, y - 8)
-        appearance:ClearAllPoints()
-        appearance:SetPoint("TOPLEFT", body, "TOPLEFT", 0, y - 33)
-        body:SetHeight(-y + 33 + appearance:GetHeight() + 25)
-    end
-    for _, category in ipairs(CATEGORIES) do
-        if category.key ~= "guild" then
-            retentionRows[#retentionRows+1] = RetentionRow(body, category, LayoutRetentionRows, true)
-        end
-    end
-    LayoutRetentionRows()
+    Label(body, "Higher categories take priority when a player belongs to several lists.", 21, -14)
+    AddPriorityTable(body, -44, {
+        player = true,
+        page = page,
+        orderKey = "nameplateColorOrder",
+        labels = PLAYER_LABELS,
+        enabled = ns.CategoryTrackingEnabled,
+        setEnabled = SetCategoryTracking,
+    })
     return page
 end
 
 local function BuildNPCPage(parent)
     local page, body = NewScrollingPage(parent)
 
-    Label(body, "NPC database", 21, -8, "GameFontNormal")
-    Label(body, "Automatic NPC roles come from the separately installed QuestieDB addon.", 21, -32)
-    Label(body, "KnownPlayers uses its API bridge; no NPC database is bundled.", 21, -49)
-    local sourceStatus = Label(body, "QuestieDB status: checking...", 21, -66)
+    Label(body, "NPC database", 21, -12, "GameFontNormal")
+    Label(body, "Automatic NPC roles come from the separately installed QuestieDB addon.", 21, -36)
+    local sourceStatus = Label(body, "", 21, -56)
     local function RefreshSourceStatus()
-        local message = ns.GetNPCDataSourceStatus and ns.GetNPCDataSourceStatus()
-            or "QuestieDB bridge unavailable"
-        sourceStatus:SetText(message)
-        local connected = ns.IsQuestieDBConnected and ns.IsQuestieDBConnected()
-        if connected then
-            sourceStatus:SetTextColor(0.35, 1.0, 0.45, 1) -- connected: green
+        sourceStatus:SetText(ns.GetNPCDataSourceStatus())
+        if ns.IsQuestieDBConnected() then
+            sourceStatus:SetTextColor(0.35, 1.0, 0.45)
         else
-            sourceStatus:SetTextColor(1.0, 0.33, 0.33, 1) -- missing/incompatible: red
+            sourceStatus:SetTextColor(1.0, 0.33, 0.33)
         end
     end
     RegisterSettingsRefresher(RefreshSourceStatus)
     local sourceEvents = CreateFrame("Frame", nil, page)
     sourceEvents:RegisterEvent("ADDON_LOADED")
-    sourceEvents:SetScript("OnEvent", function() if page:IsShown() then RefreshSourceStatus() end end)
+    sourceEvents:SetScript("OnEvent", function(_, _, addon)
+        if addon == "QuestieDB" then RefreshSourceStatus() end
+    end)
     RefreshSourceStatus()
 
-    local sourceLine = body:CreateTexture(nil, "ARTWORK")
-    sourceLine:SetColorTexture(0.45, 0.45, 0.45, 0.4)
-    sourceLine:SetPoint("TOPLEFT", body, "TOPLEFT", 20, -92)
-    sourceLine:SetSize(432, 1)
-
-    Label(body, "Nameplate appearance", 21, -107, "GameFontNormal")
-    local full, first
-    local function SelectNPCNameMode(mode)
-        KnownPlayersSettings.npcNameDisplayMode = mode
-        full:SetChecked(mode == "full")
-        first:SetChecked(mode == "first")
-        if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+    Label(body, "Higher categories take priority for NPCs with several roles.", 21, -90)
+    local management = CreateFrame("Frame", nil, body)
+    management:SetSize(425, 100)
+    Label(management, "Forget manually remembered NPCs over time", 0, -4, "GameFontNormal")
+    local retention = CreateFrame("Frame", nil, management)
+    retention:SetSize(425, ROW_HEIGHT)
+    retention:SetPoint("TOPLEFT", management, "TOPLEFT", 0, -28)
+    Label(retention, "Remember for", 0, -8)
+    local manager = Button(management, "Open NPC Manager", 180, function() ns.OpenPlayerList("npc", page) end)
+    manager:SetPoint("TOPLEFT", retention, "BOTTOMLEFT", 0, -10)
+    local managementY
+    local function LayoutManagement()
+        management:SetHeight(28 + retention:GetHeight() + 49)
+        if managementY then body:SetHeight(-managementY + management:GetHeight()) end
     end
-    full = Checkbox(body, 20, -131, "Full name",
-        KnownPlayersSettings.npcNameDisplayMode ~= "first", function()
-            SelectNPCNameMode("full")
-        end)
-    first = Checkbox(body, 125, -131, "First name",
-        KnownPlayersSettings.npcNameDisplayMode == "first", function()
-            SelectNPCNameMode("first")
-        end)
-    RegisterSettingsRefresher(function()
-        full:SetChecked(KnownPlayersSettings.npcNameDisplayMode ~= "first")
-        first:SetChecked(KnownPlayersSettings.npcNameDisplayMode == "first")
-    end)
-    Checkbox(body, 229, -131, "NPC title",
-        KnownPlayersSettings.showNPCTitle, function(checked)
-            KnownPlayersSettings.showNPCTitle = checked
-            if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
-        end, function() return KnownPlayersSettings.showNPCTitle end)
-    Checkbox(body, 344, -131, "Health bar",
-        not KnownPlayersSettings.npcNamesOnlyNameplates, function(checked)
-            KnownPlayersSettings.npcNamesOnlyNameplates = not checked
-            if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
-        end, function() return not KnownPlayersSettings.npcNamesOnlyNameplates end)
+    AddRetentionDropdown(retention, "npc", TRACKING_CONTROLS.durationX, LayoutManagement)
+    LayoutManagement()
 
-    local line = body:CreateTexture(nil, "ARTWORK")
-    line:SetColorTexture(0.45, 0.45, 0.45, 0.4)
-    line:SetPoint("TOPLEFT", body, "TOPLEFT", 20, -178)
-    line:SetSize(432, 1)
+    AddPriorityTable(body, -120, {
+        orderKey = "npcNameplateColorOrder",
+        labels = NPCLabels(),
+        enabled = function(key) return KnownPlayersSettings.npcServiceCategories[key] == true end,
+        setEnabled = function(key, checked)
+            KnownPlayersSettings.npcServiceCategories[key] = checked
+            ns.RefreshKnownNameplates()
+        end,
+        afterRows = function(y)
+            managementY = y - 17
+            management:ClearAllPoints()
+            management:SetPoint("TOPLEFT", body, "TOPLEFT", 21, managementY)
+            LayoutManagement()
+        end,
+    })
+    return page
+end
 
-    Label(body, "Category colors and priority", 21, -193, "GameFontNormal")
-    Label(body, "Top enabled role determines the color for multi-role NPCs.", 21, -216)
-    local categoryInfo = ns.GetNPCServiceCategories and ns.GetNPCServiceCategories() or {}
-    local labels = {}
-    for _, category in ipairs(categoryInfo) do labels[category.key] = category.label end
-    local colorRows = {}
-    local function RefreshOrder()
-        local order = KnownPlayersSettings.npcNameplateColorOrder
-        for i, row in ipairs(colorRows) do
-            local key = order[i]
-            row.key = key
-            row.checkbox.Text:SetText(i .. ". " .. (labels[key] or key))
-            row.checkbox:SetChecked(KnownPlayersSettings.npcServiceCategories[key] == true)
-            local rgb = ns.GetNPCNameplateCategoryColor(key)
-            row.swatch:SetColorTexture(rgb[1], rgb[2], rgb[3], 1)
-            row.up:SetEnabled(i > 1)
-            row.down:SetEnabled(i < #colorRows)
+local function AddChoiceDropdown(body, x, y, title, choices, get, set)
+    Label(body, title, x + 3, y + 19, "GameFontNormalSmall")
+    local dropdown = Dropdown(body, x, y, 132)
+    local function IsSelected(value) return get() == value end
+    dropdown:SetSelectionText(function()
+        for _, choice in ipairs(choices) do
+            if IsSelected(choice[1]) then return choice[2] end
         end
-        if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+    end)
+    dropdown:SetupMenu(function(_, menu)
+        for _, choice in ipairs(choices) do menu:CreateRadio(choice[2], IsSelected, set, choice[1]) end
+    end)
+    RegisterSettingsRefresher(function() dropdown:Update() end)
+end
+
+local NAME_CHOICES = {{"full", "Full name"}, {"first", "First name"}}
+local HEALTH_CHOICES = {{"always", "Always"}, {"combat", "In combat"}, {"never", "Never"}}
+
+local function AddAppearanceControls(body, top, isNPC)
+    Label(body, isNPC and "NPC nameplates" or "Player nameplates", 21, top, "GameFontNormal")
+    local nameKey = isNPC and "npcNameDisplayMode" or "nameDisplayMode"
+    local healthKey = isNPC and "npcHealthBarMode" or "playerHealthBarMode"
+    local setHealth = isNPC and ns.SetNPCHealthBarMode or ns.SetPlayerHealthBarMode
+    AddChoiceDropdown(body, 21, top - 48, isNPC and "Name" or "Character name",
+        NAME_CHOICES, function() return KnownPlayersSettings[nameKey] end, function(mode)
+            KnownPlayersSettings[nameKey] = mode
+            ns.RefreshKnownNameplates()
+        end)
+    AddChoiceDropdown(body, 221, top - 48, "Health bar", HEALTH_CHOICES,
+        function() return KnownPlayersSettings[healthKey] end, setHealth)
+    local label = isNPC and "NPC title" or "Guild name"
+    local extraKey = isNPC and "showNPCTitle" or "showGuildInNamesOnly"
+    Checkbox(body, 20, top - 73, label, KnownPlayersSettings[extraKey], function(checked)
+        KnownPlayersSettings[extraKey] = checked
+        ns.RefreshKnownNameplates()
+    end, function() return KnownPlayersSettings[extraKey] end)
+    if not isNPC then AddFriendlyMinionVisibility(body, 20, top - 101) end
+end
+
+local function AddNameplateSliders(page, body, anchor)
+    local row = anchor
+    local height = 0
+    local refreshByCVar = {}
+    for _, option in ipairs({
+        {label = "Player nameplate distance", cvar = "nameplatePlayerMaxDistance",
+            min = 20, max = 60, scale = 1, suffix = " yd"},
+        {label = "NPC / non-player nameplate distance", cvar = "nameplateMaxDistance",
+            min = 20, max = 60, scale = 1, suffix = " yd"},
+        {label = "Minimum nameplate opacity", cvar = "nameplateMinAlpha",
+            min = 0, max = 100, scale = 100, suffix = "%"},
+    }) do
+        row, refreshByCVar[option.cvar:lower()] = NameplateSliderRow(body, row, option)
+        height = height + row:GetHeight() + 6
     end
+    local function Refresh()
+        for _, callback in pairs(refreshByCVar) do callback() end
+    end
+    RegisterSettingsRefresher(Refresh)
+    local events = CreateFrame("Frame", nil, page)
+    events:RegisterEvent("CVAR_UPDATE")
+    events:RegisterEvent("PLAYER_REGEN_ENABLED")
+    events:RegisterEvent("PLAYER_REGEN_DISABLED")
+    events:SetScript("OnEvent", function(_, event, key)
+        if not page:IsVisible() then return end
+        if event ~= "CVAR_UPDATE" then
+            Refresh()
+        elseif type(key) == "string" and ns.IsAccessibleValue(key) then
+            local callback = refreshByCVar[key:lower()]
+            if callback then callback() end
+        end
+    end)
+    return row, height
+end
+
+local function AddColorTable(box, title, orderKey, labels, getColor, colorKey)
+    Label(box, title, 10, -11, "GameFontNormal")
+    local rows = {}
+
+    local function Refresh()
+        for index, key in ipairs(KnownPlayersSettings[orderKey]) do
+            local row = rows[key]
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", box, "TOPLEFT", 8, -32 - (index - 1) * ROW_HEIGHT)
+            local rgb = getColor(key)
+            row.swatch:SetColorTexture(rgb[1], rgb[2], rgb[3], 1)
+        end
+    end
+
     local function PickColor(key)
         local picker = ColorPickerFrame
         if not picker then return end
-        local color = ns.GetNPCNameplateCategoryColor(key)
-        local function SetColor()
-            local r, g, b = picker:GetColorRGB()
-            KnownPlayersSettings.npcNameplateCategoryColors[key] = {r, g, b}
-            RefreshOrder()
+        local color = getColor(key)
+        local function Save(r, g, b)
+            KnownPlayersSettings[colorKey][key] = {r, g, b}
+            Refresh()
+            ns.RefreshKnownNameplates()
+        end
+        local function Apply()
+            Save(picker:GetColorRGB())
         end
         if type(picker.SetupColorPickerAndShow) == "function" then
             picker:SetupColorPickerAndShow({
-                r=color[1], g=color[2], b=color[3], hasOpacity=false, swatchFunc=SetColor,
+                r = color[1], g = color[2], b = color[3], hasOpacity = false,
+                swatchFunc = Apply,
+                cancelFunc = function() Save(color[1], color[2], color[3]) end,
             })
         else
-            picker.func = SetColor
+            picker.func = Apply
             picker.hasOpacity = false
             picker:SetColorRGB(color[1], color[2], color[3])
             picker:Show()
         end
     end
-    -- Match the numbered category rows on the player page.
-    for i = 1, #categoryInfo do
-        local row = {}
-        local y = -239 - (i - 1) * 29
-        row.checkbox = Checkbox(body, 20, y, "",
-            false, function(checked)
-                KnownPlayersSettings.npcServiceCategories[row.key] = checked
-                if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
-            end, function()
-                return KnownPlayersSettings.npcServiceCategories[row.key]
-            end)
-        local button = Button(body, "Color", 72, function() PickColor(row.key) end)
-        button:SetPoint("TOPLEFT", body, "TOPLEFT", 270, y + 3)
-        row.swatch = button:CreateTexture(nil, "OVERLAY")
-        row.swatch:SetSize(14, 14)
-        row.swatch:SetPoint("LEFT", button, "LEFT", 5, 0)
-        row.up = Button(body, "^", 25, function()
-            if i <= 1 then return end
-            local order = KnownPlayersSettings.npcNameplateColorOrder
-            order[i], order[i - 1] = order[i - 1], order[i]
-            RefreshOrder()
-        end)
-        row.up:SetPoint("TOPLEFT", body, "TOPLEFT", 350, y + 3)
-        row.down = Button(body, "v", 25, function()
-            if i >= #colorRows then return end
-            local order = KnownPlayersSettings.npcNameplateColorOrder
-            order[i], order[i + 1] = order[i + 1], order[i]
-            RefreshOrder()
-        end)
-        row.down:SetPoint("LEFT", row.up, "RIGHT", 3, 0)
-        colorRows[#colorRows + 1] = row
+
+    for _, key in ipairs(KnownPlayersSettings[orderKey]) do
+        local row = CreateFrame("Frame", nil, box)
+        row:SetSize(box:GetWidth() - 16, ROW_HEIGHT)
+        rows[key] = row
+        local label = Label(row, labels[key], 0, -7, "GameFontHighlightSmall")
+        label:SetWidth(row:GetWidth() - TRACKING_CONTROLS.color - 6)
+        label:SetMaxLines(1)
+        label:SetJustifyH("LEFT")
+        local button
+        button, row.swatch = ColorButton(row, function() PickColor(key) end)
+        button:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, -1)
     end
-    RefreshOrder()
-    RegisterSettingsRefresher(RefreshOrder)
+    Refresh()
+    RegisterSettingsRefresher(Refresh)
+end
 
-    local bottom = -239 - #categoryInfo * 29 - 12
-    local rule = body:CreateTexture(nil, "ARTWORK")
-    rule:SetColorTexture(0.45, 0.45, 0.45, 0.4)
-    rule:SetPoint("TOPLEFT", body, "TOPLEFT", 20, bottom)
-    rule:SetSize(432, 1)
-
-    Label(body, "Forget manually remembered NPCs over time", 21, bottom - 20, "GameFontNormal")
-    Label(body, "Forget", 22, bottom - 54, "GameFontNormalSmall")
-    Label(body, "Duration", 187, bottom - 54, "GameFontNormalSmall")
-
-    local management = CreateFrame("Frame", nil, body)
-    management:SetSize(455, 96)
-    local managementRule = management:CreateTexture(nil, "ARTWORK")
-    managementRule:SetColorTexture(0.45, 0.45, 0.45, 0.4)
-    managementRule:SetPoint("TOPLEFT", management, "TOPLEFT", 20, 0)
-    managementRule:SetSize(432, 1)
-    Label(management, "NPC management", 21, -15, "GameFontNormal")
-    Label(management, "Search manually saved NPCs, change overrides, and manage remembered NPCs.", 21, -37)
-    local npcList = Button(management, "Open NPC Manager", 180, function() ns.OpenPlayerList("npc") end)
-    npcList:SetPoint("TOPLEFT", management, "TOPLEFT", 20, -56)
-
-    local retentionTop = bottom - 72
-    local retentionRow
-    local function LayoutNPCManagement()
-        local y = retentionTop - (retentionRow and retentionRow:GetHeight() or 0) - 16
-        management:ClearAllPoints()
-        management:SetPoint("TOPLEFT", body, "TOPLEFT", 0, y)
-        body:SetHeight(math.max(700, -y + management:GetHeight()))
-    end
-    retentionRow = RetentionRow(body, {key = "npc", label = "NPCs"}, LayoutNPCManagement)
-    if retentionRow then
-        retentionRow:SetPoint("TOPLEFT", body, "TOPLEFT", 20, retentionTop)
-    end
-    LayoutNPCManagement()
+local function BuildAppearancePage(parent)
+    local page, body = NewScrollingPage(parent)
+    AddAppearanceControls(body, -14, false)
+    AddAppearanceControls(body, -154, true)
+    local sliderTop = -274
+    local heading = Label(body, "Distance and opacity", 21, sliderTop, "GameFontNormal")
+    local last, sliderHeight = AddNameplateSliders(page, body, heading)
+    local colorGap = 12
+    local colorWidth = math.floor((CONTENT_WIDTH - 2 * TABLE_LEFT - colorGap) / 2)
+    local colorHeight = 40 + math.max(#KnownPlayersSettings.nameplateColorOrder,
+        #KnownPlayersSettings.npcNameplateColorOrder) * ROW_HEIGHT
+    local playerColors = CreateFrame("Frame", nil, body, "InsetFrameTemplate")
+    playerColors:SetSize(colorWidth, colorHeight)
+    playerColors:SetPoint("TOPLEFT", last, "BOTTOMLEFT", TABLE_LEFT - 21, -19)
+    local npcColors = CreateFrame("Frame", nil, body, "InsetFrameTemplate")
+    npcColors:SetSize(colorWidth, colorHeight)
+    npcColors:SetPoint("TOPLEFT", playerColors, "TOPRIGHT", colorGap, 0)
+    AddColorTable(playerColors, "Player category colors", "nameplateColorOrder",
+        PLAYER_LABELS, ns.GetNameplateCategoryColor, "nameplateCategoryColors")
+    AddColorTable(npcColors, "NPC category colors", "npcNameplateColorOrder",
+        NPCLabels(), ns.GetNPCNameplateCategoryColor, "npcNameplateCategoryColors")
+    body:SetHeight(-sliderTop + heading:GetStringHeight() + sliderHeight + 19 + colorHeight + 20)
     return page
 end
 
 local SETTINGS_PAGES = {
     {title = "KnownPlayers", build = BuildHomePage},
-    {title = "Player Nameplates & Lists", build = BuildPlayerPage},
-    {title = "NPC Nameplates & Lists", build = BuildNPCPage},
+    {title = "Player Nameplates", build = BuildPlayerPage},
+    {title = "NPC Nameplates", build = BuildNPCPage},
+    {title = "Appearance", build = BuildAppearancePage},
 }
 
 local function CreateSettingsPage(definition, parent)
@@ -832,6 +777,7 @@ end
 
 local function CreateSettingsTabs(frame, tabTop, bottomInset)
     local pages = {}
+    local selectedTab
     local inset = CreateFrame("Frame", nil, frame, "InsetFrameTemplate")
     inset:SetPoint("BOTTOM", frame, "BOTTOM", 0, bottomInset)
     frame.Tabs = {}
@@ -851,6 +797,10 @@ local function CreateSettingsTabs(frame, tabTop, bottomInset)
         first:SetPoint("TOPLEFT", frame, "TOP", -tabWidth / 2, tabTop)
     end
     local function SelectTab(selected)
+        if selectedTab and selectedTab ~= selected then
+            ns.CloseWindowsFromSettingsPage(pages[selectedTab])
+        end
+        selectedTab = selected
         PanelTemplates_SetTab(frame, selected)
         FitTabs(frame:GetWidth())
         for index, page in ipairs(pages) do page:SetShown(index == selected) end

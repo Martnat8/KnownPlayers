@@ -31,3 +31,9 @@ function ns.SafeUnitGUID(unit)
     if not ok then return nil end
     return ns.SafeString(guid)
 end
+
+function ns.IsPlayerMinion(unit)
+    if type(UnitIsMinion) ~= "function" then return false end
+    local ok, result = pcall(UnitIsMinion, unit)
+    return ok and ns.IsAccessibleValue(result) and result == true
+end

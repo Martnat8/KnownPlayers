@@ -36,6 +36,13 @@ local function RemoveOpenWindow(frame)
     end
 end
 
+local function HideForNavigation(frame)
+    local previous = hidingForNavigation
+    hidingForNavigation = frame
+    frame:Hide()
+    hidingForNavigation = previous
+end
+
 local function UpdateOpenWindows()
     local singleWindow = false
     for _, frame in ipairs(openWindows) do
@@ -48,9 +55,7 @@ local function UpdateOpenWindows()
     for _, frame in ipairs(openWindows) do
         if frame ~= latest and singleWindow and frame:IsShown() then
             -- Keep this frame in the navigation stack so closing the child returns to it.
-            hidingForNavigation = frame
-            frame:Hide()
-            hidingForNavigation = nil
+            HideForNavigation(frame)
         end
     end
     for _, frame in ipairs(openWindows) do
@@ -59,9 +64,25 @@ local function UpdateOpenWindows()
     if latest then latest:Raise() end
 end
 
-local function ShowWindow(frame)
+local function ShowWindow(frame, settingsPage)
+    frame.settingsPage = settingsPage
     RemoveOpenWindow(frame)
     openWindows[#openWindows + 1] = frame
+    UpdateOpenWindows()
+end
+
+function ns.CloseWindowsFromSettingsPage(page)
+    if not page then return end
+    local closing = {}
+    for i = #openWindows, 1, -1 do
+        local frame = openWindows[i]
+        if frame.settingsPage == page then
+            table.remove(openWindows, i)
+            closing[#closing + 1] = frame
+        end
+    end
+    if #closing == 0 then return end
+    for _, frame in ipairs(closing) do HideForNavigation(frame) end
     UpdateOpenWindows()
 end
 
@@ -507,7 +528,7 @@ local function CreateCategoryWindow(category, index)
             ShowAppearanceIcons(item, entry)
             item.knownSinceText:SetText(FormatKnownDuration(entry.firstSeen))
             UpdateFavoriteButton(item.favoriteButton, entry)
-            item.historyButton:SetScript("OnClick", function() ns.OpenPlayerHistory(entry.key) end)
+            item.historyButton:SetScript("OnClick", function() ns.OpenPlayerHistory(entry.key, nil, frame.settingsPage) end)
             item.removeButton:SetScript("OnClick", function()
                 if ns.GetPlayer(entry.key) ~= entry.appearance
                     or not ns.RemovePlayerCategory(entry.key, category.key, true) then return end
@@ -627,7 +648,7 @@ local function CreatePlayerHistoryWindow()
         tags:ClearFocus()
     end)
 
-    function frame.Open(playerKey, player)
+    function frame.Open(playerKey, player, settingsPage)
         key, record = playerKey, player
         name:SetText(ns.GetDisplayName(key, record))
         realm:SetText(ns.SafeString(record.realm) or "")
@@ -648,18 +669,18 @@ local function CreatePlayerHistoryWindow()
         tags:SetText(ns.SafeString(record.tags) or "")
         tags:SetCursorPosition(0)
         frame.RefreshFavorite()
-        ShowWindow(frame)
+        ShowWindow(frame, settingsPage)
     end
     return frame
 end
 
 local historyWindow
-function ns.OpenPlayerHistory(key, unit)
+function ns.OpenPlayerHistory(key, unit, settingsPage)
     local record = ns.GetPlayer(key)
     if not ns.HasPlayerCategory(record) then return end
     ns.RefreshPlayerAppearance(record, unit)
     if not historyWindow then historyWindow = CreatePlayerHistoryWindow() end
-    historyWindow.Open(key, record)
+    historyWindow.Open(key, record, settingsPage)
 end
 
 -- All player interactions are already stored in one hash table:
@@ -864,7 +885,7 @@ local function CreatePlayersWindow()
             item.known:SetText(FormatKnownDuration(entry.firstSeen))
             item.recent:SetText(InteractionAge(entry.lastSeen))
             UpdateFavoriteButton(item.favoriteButton, entry)
-            item.details:SetScript("OnClick", function() ns.OpenPlayerHistory(entry.key) end)
+            item.details:SetScript("OnClick", function() ns.OpenPlayerHistory(entry.key, nil, frame.settingsPage) end)
             item.removeButton:SetScript("OnClick", function()
                 if ns.GetPlayer(entry.key) ~= entry.appearance then return end
                 if ns.ForgetPlayer(entry.key, true) then
@@ -978,7 +999,7 @@ local function CreateAssociatedWindow()
             row.source:SetText(entry.linkedTo or "Known player")
             row.known:SetText(FormatKnownDuration(entry.firstSeen))
             row.historyButton:SetScript("OnClick", function()
-                ns.OpenPlayerHistory(entry.linkedPlayerKey)
+                ns.OpenPlayerHistory(entry.linkedPlayerKey, nil, frame.settingsPage)
             end)
             row:Show()
         end
@@ -1226,42 +1247,42 @@ function ns.RefreshPlayerListWindows(keepScroll)
     RefreshAllWindows(keepScroll)
 end
 
-local function OpenCategoryWindow(category, index)
+local function OpenCategoryWindow(category, index, settingsPage)
     local window = windows[category.key]
     if not window then
         window = CreateCategoryWindow(category, index)
         windows[category.key] = window
     end
-    ShowWindow(window)
+    ShowWindow(window, settingsPage)
     window.Refresh()
 end
 
 -- Settings controls open these dialogs; the dialogs contain list tools only.
-function ns.OpenPlayerList(categoryKey)
+function ns.OpenPlayerList(categoryKey, settingsPage)
     if categoryKey == "guild" and ns.RefreshGuildList then
         ns.RefreshGuildList()
     end
     if categoryKey == "players" then
         if not windows.players then windows.players = CreatePlayersWindow() end
-        ShowWindow(windows.players)
+        ShowWindow(windows.players, settingsPage)
         windows.players.Refresh()
         return
     end
     if categoryKey == "associated" then
         if not windows.associated then windows.associated = CreateAssociatedWindow() end
-        ShowWindow(windows.associated)
+        ShowWindow(windows.associated, settingsPage)
         windows.associated.Refresh()
         return
     end
     if categoryKey == "npc" then
         if not windows.npc then windows.npc = CreateNPCManagementWindow() end
-        ShowWindow(windows.npc)
+        ShowWindow(windows.npc, settingsPage)
         windows.npc.Refresh()
         return
     end
     for index, category in ipairs(CATEGORIES) do
         if category.key == categoryKey then
-            OpenCategoryWindow(category, index)
+            OpenCategoryWindow(category, index, settingsPage)
             return
         end
     end

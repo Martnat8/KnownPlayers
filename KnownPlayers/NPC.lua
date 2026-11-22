@@ -4,7 +4,7 @@ local addonName, ns = ...
 -- stable NPC template ID; its full spawn GUID is not stable across encounters.
 -- These are explicitly remembered NPC TYPES, not individual spawned entities.
 local function NPCFromUnit(unit)
-    if not unit or not UnitExists(unit) or UnitIsPlayer(unit) then return nil end
+    if not unit or not UnitExists(unit) or UnitIsPlayer(unit) or ns.IsPlayerMinion(unit) then return nil end
     local guid = ns.SafeUnitGUID(unit)
     if not guid then return nil end
     local npcID = guid:match("^Creature%-[^%-]+%-[^%-]+%-[^%-]+%-[^%-]+%-(%d+)%-")

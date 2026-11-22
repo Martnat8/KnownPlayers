@@ -15,38 +15,66 @@ local function PlayerHealthBarMode()
     return KnownPlayersSettings and KnownPlayersSettings.playerHealthBarMode or "always"
 end
 
-local function PlayerHealthBarVisible()
-    local mode = PlayerHealthBarMode()
+local function NPCHealthBarMode()
+    return KnownPlayersSettings and KnownPlayersSettings.npcHealthBarMode or "always"
+end
+
+local function HealthBarVisible(mode)
     if mode == "never" then return false end
     if mode == "always" then return true end
     -- "In Combat" refers to this character entering/leaving combat.
     return type(InCombatLockdown) == "function" and InCombatLockdown() or false
 end
 
+local function PlayerHealthBarVisible()
+    return HealthBarVisible(PlayerHealthBarMode())
+end
+
 local CategoryColorForUnit
 
--- The 3D overhead names are not nameplates and cannot be filtered per player.
--- While Known Only is active, temporarily disable these TWO global player-name
--- CVars so distant native names cannot bypass KnownPlayers' visibility filter.
--- Do not touch NPCs, minions, the player's own name, or nameplate CVars.
+-- Native overhead names cannot be filtered per owner. Suppress those labels
+-- while Known Only is active so player and minion names use the nameplate filter.
 local nativePlayerNameCVars = {
     "UnitNameFriendlyPlayerName",
     "UnitNameEnemyPlayerName",
+    "UnitNameEnemyMinionName",
+    "UnitNameEnemyPetName",
+    "UnitNameEnemyGuardianName",
+    "UnitNameEnemyTotemName",
 }
+local friendlyMinionCVars = {
+    "UnitNameFriendlyMinionName",
+    "UnitNameFriendlyPetName",
+    "UnitNameFriendlyGuardianName",
+    "UnitNameFriendlyTotemName",
+}
+for _, name in ipairs(friendlyMinionCVars) do
+    nativePlayerNameCVars[#nativePlayerNameCVars + 1] = name
+end
+local firstFriendlyMinionPlateIndex = #friendlyMinionCVars + 1
+for _, name in ipairs({
+    "nameplateShowFriendlyPlayerMinions",
+    "nameplateShowFriendlyPlayerPets",
+    "nameplateShowFriendlyPlayerGuardians",
+    "nameplateShowFriendlyPlayerTotems",
+}) do
+    friendlyMinionCVars[#friendlyMinionCVars + 1] = name
+end
 local nativeNamesShuttingDown = false
 local nativeNameCheckElapsed = 0
 local syncingNativeNames = false
 
 local function ReadNativeNameCVar(name)
-    if type(GetCVar) ~= "function" then return nil end
-    local ok, value = pcall(GetCVar, name)
-    if ok and type(value) == "string" and value ~= "" then return value end
-    return nil
+    local getter = C_CVar and C_CVar.GetCVar or GetCVar
+    if type(getter) ~= "function" then return nil end
+    local ok, value = pcall(getter, name)
+    if ok then return ns.SafeString(value) end
 end
 
 local function WriteNativeNameCVar(name, value)
-    if type(SetCVar) ~= "function" then return false end
-    local ok = pcall(SetCVar, name, value)
+    local setter = C_CVar and C_CVar.SetCVar or SetCVar
+    if type(setter) ~= "function" then return false end
+    local ok = pcall(setter, name, value)
     return ok and ReadNativeNameCVar(name) == value
 end
 
@@ -78,13 +106,11 @@ function ns.SyncNativeOverheadNames()
     syncingNativeNames = true
     if KnownPlayersSettings.knownOnlyNameplates then
         local old = KnownPlayersSettings.overheadNameCVarsBackup
-        if type(old) ~= "table" then
-            old = {}
-            for _, name in ipairs(nativePlayerNameCVars) do
-                old[name] = ReadNativeNameCVar(name)
-            end
-            if next(old) then KnownPlayersSettings.overheadNameCVarsBackup = old end
+        if type(old) ~= "table" then old = {} end
+        for _, name in ipairs(nativePlayerNameCVars) do
+            if old[name] == nil then old[name] = ReadNativeNameCVar(name) end
         end
+        if next(old) then KnownPlayersSettings.overheadNameCVarsBackup = old end
         for _, name in ipairs(nativePlayerNameCVars) do
             local current = ReadNativeNameCVar(name)
             if current ~= nil and current ~= "0" then
@@ -95,6 +121,37 @@ function ns.SyncNativeOverheadNames()
         ns.RestoreNativeOverheadNames()
     end
     syncingNativeNames = false
+end
+
+function ns.GetFriendlyMinionVisibility()
+    -- During filtering, only the plate CVars determine what can be shown.
+    local first = KnownPlayersSettings.knownOnlyNameplates and firstFriendlyMinionPlateIndex or 1
+    local available, visible = false, false
+    for i = first, #friendlyMinionCVars do
+        local value = ReadNativeNameCVar(friendlyMinionCVars[i])
+        available = available or value ~= nil
+        visible = visible or value == "1"
+    end
+    local setter = C_CVar and C_CVar.SetCVar or SetCVar
+    return visible, available and type(setter) == "function"
+end
+
+function ns.SetFriendlyMinionVisibility(visible)
+    if InCombatLockdown() then return false end
+    ns.SyncNativeOverheadNames()
+    local old = KnownPlayersSettings.knownOnlyNameplates and KnownPlayersSettings.overheadNameCVarsBackup
+    local desired, applied = visible and "1" or "0", true
+    for _, name in ipairs(friendlyMinionCVars) do
+        local current = ReadNativeNameCVar(name)
+        if type(old) == "table" and old[name] then
+            -- The native labels stay suppressed while filtering. Remember
+            -- the user's new choice for when the nameplate filter turns off.
+            old[name] = desired
+        elseif current and current ~= desired and not WriteNativeNameCVar(name, desired) then
+            applied = false
+        end
+    end
+    return applied
 end
 
 -- The NPC filter is independent from the player Known Only filter.
@@ -383,7 +440,8 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, npcColor)
         label:SetPoint("CENTER", frame.name, "CENTER", 0, 0)
     end
     if keepHealthBar then
-        RestoreFrame(frame, PlayerHealthBarMode() == "combat")
+        local mode = isNPC and NPCHealthBarMode() or PlayerHealthBarMode()
+        RestoreFrame(frame, mode == "combat")
         SuppressNativeName(frame)
     else
         RestoreNativeNameAlpha(frame)
@@ -506,17 +564,35 @@ local function FindTargetPlate()
     return nil, "Target has no visible nameplate. Enable player nameplates and move closer."
 end
 
-local function IsRecognized(unit)
-    -- Fail open if the identity is unavailable: don't hide unidentified units.
-    local name, realm = UnitFullName(unit)
+local function PlayerKey(name, realm)
     name, realm = ns.SafeString(name), ns.SafeString(realm)
-    if not name or name == UNKNOWNOBJECT then return true end
-    if type(realm) ~= "string" or realm == "" then
-        realm = type(GetNormalizedRealmName) == "function" and GetNormalizedRealmName() or nil
+    if not name or name == UNKNOWNOBJECT then return nil end
+    if not realm and type(GetNormalizedRealmName) == "function" then
+        realm = ns.SafeString(GetNormalizedRealmName())
     end
-    if type(realm) ~= "string" or realm == "" then return true end
+    return realm and name .. "-" .. realm
+end
+
+local function IsRecognized(unit)
+    -- Leave the plate visible when the game can't identify the player.
+    local key = PlayerKey(UnitFullName(unit))
+    if not key then return true end
     local guid = ns.SafePlayerGUID(ns.SafeUnitGUID(unit))
-    return ns.IsKnownOrAssociated and ns.IsKnownOrAssociated(name .. "-" .. realm, guid) or false
+    return ns.IsKnownOrAssociated(key, guid)
+end
+
+local function IsRecognizedMinion(unit)
+    if type(UnitOwnerGUID) ~= "function" then return true end
+    local ok, guid = pcall(UnitOwnerGUID, unit)
+    local owner = ok and ns.SafePlayerGUID(guid)
+    if not owner or owner == ns.SafeUnitGUID("player") then return true end
+    if ns.IsKnownOrAssociated(nil, owner) then return true end
+
+    -- Older player records may only have a name and realm.
+    if type(UnitNameFromGUID) ~= "function" then return false end
+    local found, name, realm = pcall(UnitNameFromGUID, owner)
+    local key = found and PlayerKey(name, realm)
+    return key and ns.IsKnownOrAssociated(key, owner) or false
 end
 
 local function IsNonAttackableNPC(unit)
@@ -527,17 +603,24 @@ end
 function ns.RefreshKnownNameplates()
     if not KnownPlayersSettings then return end
     local knownOnly = KnownPlayersSettings.knownOnlyNameplates
-    local namesOnly = not PlayerHealthBarVisible()
+    local playerMode, npcMode = PlayerHealthBarMode(), NPCHealthBarMode()
+    local namesOnly, npcShowBar = not HealthBarVisible(playerMode), HealthBarVisible(npcMode)
     -- Even with full nameplates and no visibility filter, refresh the
     -- original Blizzard name text colors for recognized characters.
 
     local inCombat = InCombatLockdown and InCombatLockdown()
-    if inCombat and PlayerHealthBarMode() ~= "combat" then return end
+    if inCombat and playerMode ~= "combat" and npcMode ~= "combat" then return end
     for _, plate in ipairs(GetPlateList()) do
         local unit = plate.unitToken
         local frame = plate.UnitFrame
-        if unit and frame and not IsProtected(frame)
-            and not (inCombat and frame.IsProtected and frame:IsProtected()) then
+        local accessible = unit and frame and not IsProtected(frame)
+            and not (inCombat and frame.IsProtected and frame:IsProtected())
+        local exists = accessible and UnitExists(unit)
+        local player = exists and UnitIsPlayer(unit)
+        local minion = exists and not player and ns.IsPlayerMinion(unit)
+        local allowCombat = exists and (player and playerMode == "combat"
+            or not player and not minion and npcMode == "combat")
+        if accessible and (not inCombat or allowCombat) then
             -- If a frame was recycled from an unknown to a known player,
             -- restore its original alpha before evaluating the new occupant.
             local lastFrame = plateUnits[unit]
@@ -548,7 +631,7 @@ function ns.RefreshKnownNameplates()
             end
             plateUnits[unit] = frame
             HookPlateHover(plate, frame)
-            if UnitExists(unit) and UnitIsPlayer(unit) and not UnitIsUnit(unit, "player") then
+            if player and not UnitIsUnit(unit, "player") then
                 local visible = not knownOnly or IsRecognized(unit)
                 if not visible then
                     HideNameOnlyLabel(frame)
@@ -564,7 +647,7 @@ function ns.RefreshKnownNameplates()
                 else
                     -- Keep the normal health bar, but render the same custom
                     -- character/guild labels used by Names Only mode.
-                    RestoreFrame(frame)
+                    RestoreFrame(frame, allowCombat)
                     local color = CategoryColorForUnit(unit)
                     if color then SetNameColor(frame, color)
                     else RestoreNameColor(frame) end
@@ -577,7 +660,12 @@ function ns.RefreshKnownNameplates()
                         HideNameOnlyLabel(frame)
                     end
                 end
-            elseif UnitExists(unit) and not UnitIsPlayer(unit) then
+            elseif minion then
+                HideNameOnlyLabel(frame)
+                RestoreNameColor(frame)
+                if knownOnly and not IsRecognizedMinion(unit) then MakeTransparent(frame)
+                else RestoreFrame(frame) end
+            elseif exists and not player then
                 -- Creature identity is read only once per plate per refresh.
                 -- Protected or unrecognized GUIDs are left visible (fail open).
                 local npcID = ns.GetNPCFromUnit and ns.GetNPCFromUnit(unit)
@@ -594,16 +682,15 @@ function ns.RefreshKnownNameplates()
                     HideNameOnlyLabel(frame)
                     MakeTransparent(frame)
                 elseif npcID and (category or override == "show") then
-                    local showBar = not KnownPlayersSettings.npcNamesOnlyNameplates
                     local color = category and ns.GetNPCNameplateCategoryColor(category)
-                    if showBar and KnownPlayersSettings.npcNameDisplayMode ~= "first"
+                    if npcShowBar and KnownPlayersSettings.npcNameDisplayMode ~= "first"
                         and not KnownPlayersSettings.showNPCTitle then
                         -- Standard text uses Blizzard's own label. Only name
                         -- color changes; original font and layout remain native.
                         HideNameOnlyLabel(frame)
-                        RestoreFrame(frame)
+                        RestoreFrame(frame, allowCombat)
                         if color then SetNameColor(frame, color) end
-                    elseif not ShowNameOnly(plate, frame, unit, showBar, true, color) then
+                    elseif not ShowNameOnly(plate, frame, unit, npcShowBar, true, color) then
                         HideNameOnlyLabel(frame)
                         RestoreFrame(frame)
                     end
@@ -633,6 +720,15 @@ function ns.SetPlayerHealthBarMode(mode)
     end
     KnownPlayersSettings.playerHealthBarMode = mode
     KnownPlayersSettings.namesOnlyNameplates = mode == "never"
+    ns.RefreshKnownNameplates()
+end
+
+function ns.SetNPCHealthBarMode(mode)
+    if not KnownPlayersSettings or (mode ~= "always" and mode ~= "combat" and mode ~= "never") then
+        return
+    end
+    KnownPlayersSettings.npcHealthBarMode = mode
+    KnownPlayersSettings.npcNamesOnlyNameplates = mode == "never"
     ns.RefreshKnownNameplates()
 end
 

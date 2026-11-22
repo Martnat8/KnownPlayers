@@ -6,12 +6,10 @@ Restart WoW or run /reload. Type /kp options to open settings.
 Keep a backup of your SavedVariables before installing a new development build.
 
 SETTINGS
-- KnownPlayers: enable player and NPC nameplate filtering separately, adjust
-  nameplate distance and opacity, and reset preferences without deleting
-  stored characters.
-- Player Nameplates & Lists: player name/guild/health-bar settings, tracking
-  toggles alongside category colors and priority, and per-reason player
-  expiration. Use List beside a tracking category to open its list, then click
+- KnownPlayers: enable player and NPC nameplate filtering separately, control the
+  minimap button, and reset preferences without deleting stored characters.
+- Player Nameplates: choose what to track, how long to remember each reason, and
+  which reason takes priority. Use Manage beside a category to open its list, then click
   History on a player row. In Known Battle.net Alts, Linked History opens the
   history of the saved character shown under Recognized through.
   Add players manually through the portrait right-click menu or /kp remember
@@ -25,17 +23,21 @@ SETTINGS
   portrait menu to see the last interaction for each reason and edit
   personal notes and comma-separated tags. Search matches notes and tags,
   and Most recent first sorts by the latest tracked interaction.
-- NPC Nameplates & Lists: NPC name/title/health-bar settings, remembered NPC
-  list, and manual NPC retention. NPCs are remembered using the portrait's
+- NPC Nameplates: check the QuestieDB connection, choose service categories and
+  their priority, and manage remembered NPCs and their retention. NPCs are remembered using the portrait's
   right-click menu or /kp npctoggle while targeting a creature. Pin an NPC in
   the manager or portrait menu to keep it from expiring.
+- Appearance: choose player and NPC names and health bars, friendly minion
+  visibility, category colors, nameplate distances, and minimum opacity.
 
 Use Undo in the lists or /kp undo within 30 seconds of the last individual
 removal. Bulk clears require confirmation and cannot be undone.
 
 RETENTION
-On a fresh install or Reset Settings, forgetting is enabled with 30 days for
-all applicable player reasons. Guild membership does not expire based on time.
+On a fresh install or Reset Settings, Manually Added, Raid, Party, Trade,
+and Whisper are set to Forever. Inspect defaults to 30 days and Target to
+six hours. Guild membership and linked alts follow their underlying guild
+or Battle.net relationship. Manually Added starts at the top of the priority list.
 Manually remembered NPCs separately default to 30-day expiration enabled.
 Existing saved retention settings are preserved when upgrading. Expiration
 checks run on load and every five seconds. A player reason expires based on
@@ -54,10 +56,11 @@ addon (API contract 4). KnownPlayers contains no built-in NPC identity or
 classification database. Manually remembered NPCs remain available without
 QuestieDB, since they are user-saved records rather than a bundled fallback.
 Enable NPC nameplate filtering and the desired service categories, then use
-NPC Nameplates & Lists to choose their name colors. NPCs with multiple enabled roles use your saved priority order: the
-highest enabled category wins. The defaults match version 0.4.2 (manual,
-flight, banker, auctioneer, repair, trainer, innkeeper, vendor, quest).
-Use the up/down buttons in NPC Nameplates & Lists to change the order.
+Appearance to choose their name colors. NPCs with multiple enabled roles use your saved priority order: the
+highest enabled category wins. The default order is Manually Added,
+Flight Masters, Trainers, Bankers, Vendors, Repair NPCs, Innkeepers,
+Auctioneers, and Quest NPCs.
+Use the up/down buttons in NPC Nameplates to change the order.
 Use /kp npcsource to view the live connection status. If QuestieDB is missing
 or incompatible, automatic service classifications will not be available.
 The addon does not copy QuestieDB data into SavedVariables. The settings
@@ -80,6 +83,10 @@ To filter names individually, active filtering temporarily manages the native
 overhead-name CVars (and friendly NPC nameplate availability), restoring the
 previous values when disabled. Other game nameplate sizing options are left
 alone. Combat-only health bars remain experimental on protected frames.
+With Known Only enabled, a player's pets, guardians, and totems follow that
+player's visibility when WoW supplies the owner's identity and a nameplate.
+Show friendly player minions under Character name controls whether friendly
+minions are shown at all.
 
 PRIVACY
 Saved character data and linked BattleTags remain local in WoW SavedVariables.

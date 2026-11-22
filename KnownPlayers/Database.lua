@@ -94,12 +94,23 @@ function ns.GetCategoryRetention(category)
     return KnownPlayersSettings.categoryRetention[category]
 end
 
+local RETENTION_DEFAULTS = {
+    trade = { days = 30, enabled = false },
+    party = { days = 30, enabled = false },
+    raid = { days = 30, enabled = false },
+    whisper = { days = 30, enabled = false },
+    target = { hours = 6 },
+    inspect = { days = 30 },
+    manual = { days = 30, enabled = false },
+    npc = { days = 30 },
+}
+
 local DEFAULT_SETTINGS = {
     expirationEnabled = false,
     expirationDays = 30,
     categoryRetention = {},
     trackBattleNetAssociations = true,
-    showMinimapButton = false,
+    showMinimapButton = true,
     knownOnlyNameplates = false,
     namesOnlyNameplates = false, -- Legacy preference, retained for upgrades.
     nameDisplayMode = "full",
@@ -116,7 +127,7 @@ local DEFAULT_SETTINGS = {
     filterNPCNameplates = false,
     npcServiceCategories = {
         vendor = true, trainer = true, banker = true, auctioneer = true,
-        flight = true, innkeeper = true, repair = true, quest = false,
+        flight = true, innkeeper = true, repair = true, quest = true,
         manual = true,
     },
     npcNameplateCategoryColors = {},
@@ -169,27 +180,28 @@ function ns.InitializeDatabase()
     -- Keep the legacy boolean coherent for older consumers of SavedVariables.
     KnownPlayersSettings.namesOnlyNameplates =
         KnownPlayersSettings.playerHealthBarMode == "never"
+    if KnownPlayersSettings.npcHealthBarMode ~= "always"
+        and KnownPlayersSettings.npcHealthBarMode ~= "combat"
+        and KnownPlayersSettings.npcHealthBarMode ~= "never" then
+        KnownPlayersSettings.npcHealthBarMode =
+            KnownPlayersSettings.npcNamesOnlyNameplates and "never" or "always"
+    end
+    KnownPlayersSettings.npcNamesOnlyNameplates = KnownPlayersSettings.npcHealthBarMode == "never"
     if type(KnownPlayersDB.bnetCharacters) ~= "table" then KnownPlayersDB.bnetCharacters = {} end
-    -- Upgrade previous global retention preference once. All categories
-    -- initially inherit the same behavior, then become independent.
-    for _, category in ipairs(CATEGORIES) do
-        if category ~= "guild" and type(KnownPlayersSettings.categoryRetention[category]) ~= "table" then
+    -- Apply category defaults only where no preference has been saved.
+    for category, defaults in pairs(RETENTION_DEFAULTS) do
+        if type(KnownPlayersSettings.categoryRetention[category]) ~= "table" then
             KnownPlayersSettings.categoryRetention[category] = {
-                enabled = true,
-                days = 30,
-                hours = 0,
+                enabled = defaults.enabled ~= false,
+                days = defaults.days or 0,
+                hours = defaults.hours or 0,
                 minutes = 0,
             }
         end
     end
-    -- NPC retention is separate from player interactions and off by default.
-    if type(KnownPlayersSettings.categoryRetention.npc) ~= "table" then
-        KnownPlayersSettings.categoryRetention.npc = {
-            enabled = true, days = 30, hours = 0, minutes = 0,
-        }
-    end
-    -- Guild membership is roster-based, not an inactivity-based relationship.
+    -- Guild and linked alts follow their underlying relationship.
     KnownPlayersSettings.categoryRetention.guild = nil
+    KnownPlayersSettings.categoryRetention.associated = nil
 end
 
 -- Preserve existing SavedVariables keys. Identify players by GUID when available,

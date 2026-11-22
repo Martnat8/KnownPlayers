@@ -244,7 +244,8 @@ function ns.IsAssociatedCharacter(name, guid)
 end
 
 function ns.IsKnownOrAssociated(name, guid)
-    if not KnownPlayersDB or not KnownPlayersSettings or type(name) ~= "string" then return false end
+    name, guid = ns.SafeString(name), ns.SafePlayerGUID(guid)
+    if not KnownPlayersDB or not KnownPlayersSettings or not (name or guid) then return false end
     if HasEnabledCategory(ns.FindDirectRecord(name, guid)) then return true end
     return ns.IsAssociatedCharacter(name, guid)
 end

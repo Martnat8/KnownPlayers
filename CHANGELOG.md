@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- Made pets, guardians, and totems follow their owner's nameplate visibility when Known Only is on, and added a friendly minion visibility toggle under Character name.
+- Enabled the minimap button by default for new settings.
+- Added padding around the color swatches and replaced the priority button text with arrow icons for players and NPCs.
+- Reorganized settings into four tabs, combined player tracking and retention in one table, and moved colors, names, health bars, distance, and opacity to Appearance.
+- Added a Forever retention option, category-specific defaults for new settings, and a combat-only NPC health bar option.
+- Placed player and NPC colors in bordered side-by-side tables, updated default priorities and durations, and closed lists when leaving the settings tab that opened them.
+
 ## [0.5.0] - 2026-11-21
 
 - Redesigned Settings around three tabs and added an optional minimap button that opens the same layout in a vertically resizable window. The button works with MinimapButtonButton.

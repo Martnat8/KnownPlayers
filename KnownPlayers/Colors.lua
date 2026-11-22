@@ -1,6 +1,6 @@
 local addonName, ns = ...
 
-local DEFAULT_ORDER = { "guild", "associated", "raid", "party", "trade", "whisper", "inspect", "target", "manual" }
+local DEFAULT_ORDER = { "manual", "guild", "associated", "raid", "party", "trade", "whisper", "inspect", "target" }
 local DEFAULT_COLORS = {
     trade = {1.0, 0.82, 0.40}, guild = {0.40, 0.85, 0.55},
     associated = {0.40, 0.67, 1.0}, whisper = {0.72, 0.55, 1.0},
@@ -23,11 +23,10 @@ local NPC_DEFAULT_COLORS = {
     manual = {1.00, 0.39, 0.70},
 }
 
--- Match the pre-0.4.3 fixed priority so upgrades retain their display
--- behavior until the user explicitly reorders the categories.
+-- Existing saved orders take precedence over these defaults.
 local NPC_DEFAULT_ORDER = {
-    "manual", "flight", "banker", "auctioneer", "repair",
-    "trainer", "innkeeper", "vendor", "quest",
+    "manual", "flight", "trainer", "banker", "vendor",
+    "repair", "innkeeper", "auctioneer", "quest",
 }
 
 local TRACK_KEY = {

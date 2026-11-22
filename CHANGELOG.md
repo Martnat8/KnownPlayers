@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Keep custom nameplate text attached to the active unit when WoW recycles a frame, hide it behind the camera, and match the live nameplate scale and fade.
+
 ## [0.5.1b2] - 2026-11-22
 
 - Moved the NPC priority explanation above QuestieDB status while preserving the category table's position.

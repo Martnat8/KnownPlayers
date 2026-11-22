@@ -1,11 +1,10 @@
 local addonName, ns = ...
 
--- Experimental player-only nameplate visibility. Never hide the UnitFrame;
--- alpha-zero preserves the frame for click-targeting where the client allows it.
+-- Alpha-zero leaves the UnitFrame available for click-targeting where allowed.
 local changedFrames = setmetatable({}, { __mode = "k" })
-local plateUnits = {} -- unit token -> frame, needed when the plate is recycled.
-local namesOnlyLabels = setmetatable({}, { __mode = "k" })
-local namesOnlyGuildLabels = setmetatable({}, { __mode = "k" })
+local plateUnits = {} -- unit token -> outer plate and its current pooled UnitFrame
+local nameLabels = setmetatable({}, { __mode = "k" }) -- owned by the outer plate
+local activeNameLabels = {}
 local originalNameColors = setmetatable({}, { __mode = "k" })
 local originalVertexColors = setmetatable({}, { __mode = "k" })
 local originalNativeNameAlpha = setmetatable({}, { __mode = "k" })
@@ -258,6 +257,16 @@ local function IsProtected(frame)
     return not frame or (frame.IsForbidden and frame:IsForbidden())
 end
 
+local function IsCombatRestricted(frame)
+    return InCombatLockdown and InCombatLockdown() and frame.IsProtected and frame:IsProtected()
+end
+
+local function ReadAppearanceValue(getter, object, ...)
+    if type(getter) ~= "function" then return nil end
+    local ok, value = pcall(getter, object, ...)
+    if ok and ns.IsAccessibleValue(value) then return value end
+end
+
 local function RestoreFrame(frame, allowCombat)
     local alpha = changedFrames[frame]
     if alpha == nil or IsProtected(frame) then return false end
@@ -265,6 +274,11 @@ local function RestoreFrame(frame, allowCombat)
     -- Combat-only mode we try the alpha restoration safely, keeping the
     -- original alpha for a later retry if the client rejects the call.
     if InCombatLockdown and InCombatLockdown() and not allowCombat then return false end
+    local current = ReadAppearanceValue(frame.GetAlpha, frame)
+    if type(current) == "number" and current ~= 0 then
+        changedFrames[frame] = nil
+        return false -- Blizzard already set the alpha for this plate.
+    end
     local ok = pcall(frame.SetAlpha, frame, alpha)
     if ok then changedFrames[frame] = nil end
     return ok
@@ -277,23 +291,21 @@ end
 local function MakeTransparent(frame)
     if IsProtected(frame) then return end
     if InCombatLockdown and InCombatLockdown() then return end
-    if changedFrames[frame] == nil then
-        local ok, alpha = pcall(frame.GetAlpha, frame)
-        if not ok or type(alpha) ~= "number" then return end
-        changedFrames[frame] = alpha
-    end
-    pcall(frame.SetAlpha, frame, 0)
+    local alpha = ReadAppearanceValue(frame.GetAlpha, frame)
+    if type(alpha) ~= "number" or alpha == 0 then return end
+    if pcall(frame.SetAlpha, frame, 0) then changedFrames[frame] = alpha end
 end
 
 -- With health bars visible, use the same custom text layer to support
 -- Full/First Name and Guild Name. Only the native name FONT STRING is faded;
 -- the health bar and clickable frame remain untouched.
 local function RestoreNativeNameAlpha(frame)
-    local name = frame and frame.name
+    local name = not IsProtected(frame) and not IsCombatRestricted(frame) and frame.name
     if not name then return end
     local alpha = originalNativeNameAlpha[name]
-    if alpha ~= nil then
-        pcall(name.SetAlpha, name, alpha)
+    if alpha == nil then return end
+    local current = ReadAppearanceValue(name.GetAlpha, name)
+    if (type(current) == "number" and current ~= 0) or pcall(name.SetAlpha, name, alpha) then
         originalNativeNameAlpha[name] = nil
     end
 end
@@ -301,12 +313,9 @@ end
 local function SuppressNativeName(frame)
     local name = frame and frame.name
     if not name or type(name.SetAlpha) ~= "function" then return end
-    if originalNativeNameAlpha[name] == nil then
-        local ok, alpha = pcall(name.GetAlpha, name)
-        if not ok or type(alpha) ~= "number" then return end
-        originalNativeNameAlpha[name] = alpha
-    end
-    pcall(name.SetAlpha, name, 0)
+    local alpha = ReadAppearanceValue(name.GetAlpha, name)
+    if type(alpha) ~= "number" or alpha == 0 then return end
+    if pcall(name.SetAlpha, name, 0) then originalNativeNameAlpha[name] = alpha end
 end
 
 -- NPCs have optional role/title text rather than player guild memberships.
@@ -327,55 +336,95 @@ local function GetNPCTitle(unit)
     return value
 end
 
--- Render names outside the faded UnitFrame so the original plate remains
--- present for targeting. This deliberately avoids hiding protected children.
-local function HideNameOnlyLabel(frame)
+local function HideNameLabels(plate, frame)
     RestoreNativeNameAlpha(frame)
-    local label = namesOnlyLabels[frame]
-    if label then label:Hide() end
-    local guild = namesOnlyGuildLabels[frame]
-    if guild then guild:Hide() end
-end
-
-local function HideAllNameOnlyLabels()
-    for frame in pairs(namesOnlyLabels) do HideNameOnlyLabel(frame) end
-end
-
-local function MirrorNativeNameFont(label, native, plate, relativeSize)
-    local font, size, flags
-    if native and type(native.GetFont) == "function" then
-        local ok, currentFont, currentSize, currentFlags = pcall(native.GetFont, native)
-        if ok then font, size, flags = currentFont, currentSize, currentFlags end
+    local labels = activeNameLabels[plate]
+    if not labels or labels.frame ~= frame then return end
+    labels.name:Hide()
+    labels.name:ClearAllPoints()
+    if labels.subtitle then
+        labels.subtitle:Hide()
+        labels.subtitle:ClearAllPoints()
     end
+    labels.unit, labels.frame = nil, nil
+    activeNameLabels[plate] = nil
+end
+
+local function CreateNameLabel(plate, fontObject)
+    local label = plate:CreateFontString(nil, "OVERLAY", fontObject)
+    label:SetJustifyH("CENTER")
+    if label.SetSmoothScaling then label:SetSmoothScaling(true) end
+    label:Hide()
+    return label
+end
+
+local function MirrorNativeNameFont(label, native, relativeSize)
+    if type(native.GetFont) ~= "function" then return end
+    local ok, font, size, flags = pcall(native.GetFont, native)
+    if not ok or not ns.IsAccessibleValue(font) or not ns.IsAccessibleValue(size)
+        or not ns.IsAccessibleValue(flags) then return end
+    -- Forever can set the actual text height independently of the font asset.
+    local height = ReadAppearanceValue(native.GetFontHeight, native, false)
+    if type(height) == "number" and height > 0 then size = height end
     if font and type(size) == "number" and size > 0 then
         local desiredSize = size * (relativeSize or 1)
-        local ok, currentFont, currentSize, currentFlags = pcall(label.GetFont, label)
-        if not ok or currentFont ~= font or currentSize ~= desiredSize or currentFlags ~= flags then
+        local currentFont, currentSize, currentFlags = label:GetFont()
+        if currentFont ~= font or currentSize ~= desiredSize or currentFlags ~= flags then
             pcall(label.SetFont, label, font, desiredSize, flags)
         end
     end
-    -- The native font may be under a separately scaled UnitFrame. The custom
-    -- text lives on the outer nameplate, so match effective scale explicitly.
-    if native and type(native.GetEffectiveScale) == "function"
-        and type(plate.GetEffectiveScale) == "function" then
-        local ok1, nativeScale = pcall(native.GetEffectiveScale, native)
-        local ok2, plateScale = pcall(plate.GetEffectiveScale, plate)
-        if ok1 and ok2 and type(nativeScale) == "number"
-            and type(plateScale) == "number" and plateScale > 0 then
-            local targetScale = nativeScale / plateScale
-            if targetScale > 0 and type(label.GetScale) == "function" then
-                local ok3, oldScale = pcall(label.GetScale, label)
-                if ok3 and type(oldScale) == "number"
-                    and math.abs(oldScale - targetScale) > 0.001 then
-                    pcall(label.SetScale, label, targetScale)
-                end
-            end
-        end
+end
+
+local function ApplyLabelAppearance(label, scale, textScale, alpha)
+    if label.GetScale and label.SetScale and math.abs(label:GetScale() - scale) > 0.001 then
+        label:SetScale(scale)
+    end
+    if label.GetTextScale and label.SetTextScale and math.abs(label:GetTextScale() - textScale) > 0.001 then
+        label:SetTextScale(textScale)
+    end
+    if math.abs(label:GetAlpha() - alpha) > 0.001 then label:SetAlpha(alpha) end
+end
+
+local function UpdateNameLabelAppearance(plate, labels)
+    local frame = labels.frame
+    local current = not IsProtected(plate) and plate.UnitFrame == frame
+        and ns.SafeString(plate.unitToken) == labels.unit and not IsProtected(frame)
+    local native = current and frame.name
+    local visible = native and not labels.behindCamera
+        and ReadAppearanceValue(frame.IsVisible, frame) ~= false
+    labels.name:SetShown(visible == true)
+    if labels.subtitle then labels.subtitle:SetShown(visible == true and labels.hasSubtitle) end
+    if not visible then return end
+
+    -- The outer plate supplies the distance fade and scale. Match any extra
+    -- scale or opacity that Blizzard applies to the UnitFrame or its name.
+    local nativeScale = ReadAppearanceValue(native.GetEffectiveScale, native)
+    local plateScale = ReadAppearanceValue(plate.GetEffectiveScale, plate)
+    local scale = nativeScale and nativeScale > 0 and plateScale and plateScale > 0
+        and nativeScale / plateScale or 1
+    local textScale = ReadAppearanceValue(native.GetTextScale, native) or 1
+    local frameAlpha = changedFrames[frame] or ReadAppearanceValue(frame.GetAlpha, frame) or 1
+    local nameAlpha = originalNativeNameAlpha[native] or ReadAppearanceValue(native.GetAlpha, native) or 1
+    local alpha = frameAlpha * nameAlpha
+    ApplyLabelAppearance(labels.name, scale, textScale, alpha)
+    if labels.hasSubtitle then ApplyLabelAppearance(labels.subtitle, scale, textScale, alpha) end
+end
+
+local function GetNameSubtitle(unit, isNPC)
+    if isNPC then
+        if KnownPlayersSettings.showNPCTitle then return GetNPCTitle(unit) end
+    elseif KnownPlayersSettings.showGuildInNamesOnly then
+        return ns.SafeString(ReadAppearanceValue(GetGuildInfo, unit))
     end
 end
 
 local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, npcColor)
     if not frame.name then return false end
+    local firstName = isNPC and KnownPlayersSettings.npcNameDisplayMode == "first"
+        or not isNPC and KnownPlayersSettings.nameDisplayMode == "first"
+    local subtitle = GetNameSubtitle(unit, isNPC)
+    if keepHealthBar and not firstName and not subtitle then return false end
+
     -- Blizzard's original label can contain more of the character's
     -- display name than UnitName() on Forever. Read it before fading the frame.
     local name
@@ -388,20 +437,23 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, npcColor)
         if ok then name = ns.SafeString(unitName) end
     end
     if not name then return false end
-    if KnownPlayersSettings and (isNPC and KnownPlayersSettings.npcNameDisplayMode == "first"
-        or not isNPC and KnownPlayersSettings.nameDisplayMode == "first") then
-        name = name:match("^(%S+)") or name
+    if firstName then name = name:match("^(%S+)") or name end
+    -- The UnitFrame can move between outer plates. Keep the text outside the
+    -- faded UnitFrame and allocate it once per outer plate.
+    local labels = nameLabels[plate]
+    if not labels then
+        labels = {name = CreateNameLabel(plate, "GameFontNormal")}
+        nameLabels[plate] = labels
     end
-    local label = namesOnlyLabels[frame]
-    if not label then
-        label = plate:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        label:SetJustifyH("CENTER")
-        -- Anchor to Blizzard's existing name position, but keep the label
-        -- outside the transparent UnitFrame so it remains visible.
-        label:SetPoint("CENTER", frame.name, "CENTER", 0, 0)
-        namesOnlyLabels[frame] = label
+    local plateManager = C_NamePlateManager
+    local behindCamera = ReadAppearanceValue(plateManager and plateManager.IsNamePlateUnitBehindCamera, unit)
+    if behindCamera ~= nil or labels.unit ~= unit or labels.frame ~= frame then
+        labels.behindCamera = behindCamera == true
     end
-    MirrorNativeNameFont(label, frame.name, plate)
+    labels.unit, labels.frame = unit, frame
+    activeNameLabels[plate] = labels
+    local label = labels.name
+    MirrorNativeNameFont(label, frame.name)
     label:SetText(name)
     local displayColor
     if isNPC then
@@ -415,58 +467,38 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, npcColor)
     end
     displayColor = displayColor or {1, 1, 1}
     label:SetTextColor(displayColor[1], displayColor[2], displayColor[3], 1)
-    label:Show()
-
-    local guildLabel = namesOnlyGuildLabels[frame]
-    local guildName
-    if isNPC then
-        if KnownPlayersSettings and KnownPlayersSettings.showNPCTitle then
-            guildName = GetNPCTitle(unit)
-        end
-    elseif KnownPlayersSettings and KnownPlayersSettings.showGuildInNamesOnly
-        and type(GetGuildInfo) == "function" then
-        local ok, result = pcall(GetGuildInfo, unit)
-        if ok and ns.SafeString(result) then
-            guildName = result
-        end
-    end
-    if guildName then
-        if not guildLabel then
-            guildLabel = plate:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            guildLabel:SetJustifyH("CENTER")
-            namesOnlyGuildLabels[frame] = guildLabel
+    local subtitleLabel = labels.subtitle
+    labels.hasSubtitle = subtitle ~= nil
+    label:ClearAllPoints()
+    if subtitle then
+        if not subtitleLabel then
+            subtitleLabel = CreateNameLabel(plate, "GameFontNormalSmall")
+            labels.subtitle = subtitleLabel
         end
         -- Titles and guild lines inherit the current native name font
         -- at a slightly smaller relative size; no independent fixed font size.
-        MirrorNativeNameFont(guildLabel, frame.name, plate, 0.85)
-        -- Keep the character and guild labels together, above the health bar.
+        MirrorNativeNameFont(subtitleLabel, frame.name, 0.85)
+        -- Keep the name and subtitle together, above the health bar.
         -- Anchoring the text (rather than moving the protected health bar) also
         -- preserves Blizzard's normal nameplate hit area.
-        guildLabel:ClearAllPoints()
-        label:ClearAllPoints()
+        subtitleLabel:ClearAllPoints()
         if keepHealthBar then
             local healthBar = frame.healthBar or frame.HealthBar
             if healthBar and not IsProtected(healthBar)
                 and type(healthBar.IsShown) == "function" and healthBar:IsShown() then
-                guildLabel:SetPoint("BOTTOM", healthBar, "TOP", 0, 2)
+                subtitleLabel:SetPoint("BOTTOM", healthBar, "TOP", 0, 2)
             else
                 -- Fallback if this client's bar isn't exposed on UnitFrame.
-                guildLabel:SetPoint("BOTTOM", frame.name, "BOTTOM", 0, 2)
+                subtitleLabel:SetPoint("BOTTOM", frame.name, "BOTTOM", 0, 2)
             end
-            label:SetPoint("BOTTOM", guildLabel, "TOP", 0, 2)
+            label:SetPoint("BOTTOM", subtitleLabel, "TOP", 0, 2)
         else
             label:SetPoint("CENTER", frame.name, "CENTER", 0, 0)
-            guildLabel:SetPoint("TOP", label, "BOTTOM", 0, -2)
+            subtitleLabel:SetPoint("TOP", label, "BOTTOM", 0, -2)
         end
-        guildLabel:SetText("<" .. guildName .. ">")
-        guildLabel:SetTextColor(displayColor[1], displayColor[2], displayColor[3], 1)
-        guildLabel:SetAlpha(1)
-        guildLabel:Show()
+        subtitleLabel:SetText("<" .. subtitle .. ">")
+        subtitleLabel:SetTextColor(displayColor[1], displayColor[2], displayColor[3], 1)
     else
-        if guildLabel then guildLabel:Hide() end
-        -- A recycled plate may have been positioned above a guild line.
-        -- Restore the normal name position when the guild line is absent.
-        label:ClearAllPoints()
         label:SetPoint("CENTER", frame.name, "CENTER", 0, 0)
     end
     if keepHealthBar then
@@ -477,21 +509,21 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, npcColor)
         RestoreNativeNameAlpha(frame)
         MakeTransparent(frame)
     end
+    labels.replacesNativeName = keepHealthBar
+    UpdateNameLabelAppearance(plate, labels)
     return true
 end
 
 -- Recolor Blizzard's visible character name as well as our names-only label.
 -- Preserve the original font color so disabling KnownPlayers restores it.
 local function RestoreNameColor(frame)
-    if not frame or not frame.name then return end
+    if IsProtected(frame) or IsCombatRestricted(frame) or not frame.name then return end
     local saved = originalNameColors[frame.name]
-    if saved then
-        pcall(frame.name.SetTextColor, frame.name, saved[1], saved[2], saved[3], saved[4])
+    if saved and pcall(frame.name.SetTextColor, frame.name, saved[1], saved[2], saved[3], saved[4]) then
         originalNameColors[frame.name] = nil
     end
     local vertex = originalVertexColors[frame.name]
-    if vertex and type(frame.name.SetVertexColor) == "function" then
-        pcall(frame.name.SetVertexColor, frame.name, vertex[1], vertex[2], vertex[3], vertex[4])
+    if vertex and pcall(frame.name.SetVertexColor, frame.name, vertex[1], vertex[2], vertex[3], vertex[4]) then
         originalVertexColors[frame.name] = nil
     end
 end
@@ -546,31 +578,34 @@ local function RestoreAllNameColors()
     end
 end
 
--- Reapply just the name color after Blizzard's mouseover/name-update processing.
--- Do not change visibility or interact with protected nameplate frames here.
+-- Blizzard can redraw the native label during mouseover and name updates.
 local function ReapplyNormalNameColor(frame, unit)
-    if not KnownPlayersSettings or not PlayerHealthBarVisible() then return end
-    if not unit or not UnitExists(unit) or not UnitIsPlayer(unit)
-        or UnitIsUnit(unit, "player") or IsProtected(frame) then return end
-    local color = CategoryColorForUnit(unit)
-    if color then SetNameColor(frame, color) end
-    if namesOnlyLabels[frame] and namesOnlyLabels[frame]:IsShown() then
+    if not KnownPlayersSettings or not unit or IsProtected(frame) or IsCombatRestricted(frame) then return end
+    local binding = plateUnits[unit]
+    local plate = binding and binding.plate
+    local labels = plate and activeNameLabels[plate]
+    if labels and labels.frame == frame and not IsProtected(plate)
+        and plate.UnitFrame == frame and ns.SafeString(plate.unitToken) == unit
+        and labels.replacesNativeName then
         SuppressNativeName(frame)
+    end
+    if PlayerHealthBarVisible() and UnitExists(unit) and UnitIsPlayer(unit) and not UnitIsUnit(unit, "player") then
+        local color = CategoryColorForUnit(unit)
+        if color then SetNameColor(frame, color) end
     end
 end
 
 local function HookPlateHover(plate, frame)
     if not hoverHooked[frame] and type(frame.HookScript) == "function" then
         local ok = pcall(frame.HookScript, frame, "OnEnter", function(self)
-            local unit = plate.unitToken or self.unit
-            ReapplyNormalNameColor(self, unit)
+            ReapplyNormalNameColor(self, ns.SafeString(self.unit))
         end)
         if ok then hoverHooked[frame] = true end
     end
     if not hoverHooked[plate] and type(plate.HookScript) == "function" then
         local ok = pcall(plate.HookScript, plate, "OnEnter", function(self)
             local current = self.UnitFrame
-            if current then ReapplyNormalNameColor(current, self.unitToken) end
+            if current then ReapplyNormalNameColor(current, ns.SafeString(self.unitToken)) end
         end)
         if ok then hoverHooked[plate] = true end
     end
@@ -630,6 +665,14 @@ local function IsNonAttackableNPC(unit)
     return ok and ns.IsAccessibleValue(attackable) and attackable == false
 end
 
+local function ReleasePlate(unit, binding)
+    local plate, frame = binding.plate, binding.frame
+    HideNameLabels(plate, frame)
+    RestoreFrame(frame)
+    RestoreNameColor(frame)
+    plateUnits[unit] = nil
+end
+
 function ns.RefreshKnownNameplates()
     if not KnownPlayersSettings then return end
     local knownOnly = KnownPlayersSettings.knownOnlyNameplates
@@ -638,40 +681,45 @@ function ns.RefreshKnownNameplates()
     -- Even with full nameplates and no visibility filter, refresh the
     -- original Blizzard name text colors for recognized characters.
 
+    local platesByUnit = {}
+    for _, plate in ipairs(GetPlateList()) do
+        local unit = not IsProtected(plate) and ns.SafeString(plate.unitToken)
+        if unit then platesByUnit[unit] = plate end
+    end
+    -- Clear stale bindings before rendering any newly assigned pooled frame.
+    -- This also catches plates that disappear between the add/remove events.
+    for unit, binding in pairs(plateUnits) do
+        if platesByUnit[unit] ~= binding.plate or binding.plate.UnitFrame ~= binding.frame
+            or not UnitExists(unit) then
+            ReleasePlate(unit, binding)
+        end
+    end
+
     local inCombat = InCombatLockdown and InCombatLockdown()
     if inCombat and playerMode ~= "combat" and npcMode ~= "combat" then return end
-    for _, plate in ipairs(GetPlateList()) do
-        local unit = plate.unitToken
+    for unit, plate in pairs(platesByUnit) do
         local frame = plate.UnitFrame
-        local accessible = unit and frame and not IsProtected(frame)
+        local accessible = not IsProtected(frame)
             and not (inCombat and frame.IsProtected and frame:IsProtected())
         local exists = accessible and UnitExists(unit)
         local player = exists and UnitIsPlayer(unit)
         local minion = exists and not player and ns.IsPlayerMinion(unit)
         local allowCombat = exists and (player and playerMode == "combat"
             or not player and not minion and npcMode == "combat")
-        if accessible and (not inCombat or allowCombat) then
-            -- If a frame was recycled from an unknown to a known player,
-            -- restore its original alpha before evaluating the new occupant.
-            local lastFrame = plateUnits[unit]
-            if lastFrame and lastFrame ~= frame then
-                HideNameOnlyLabel(lastFrame)
-                RestoreFrame(lastFrame)
-                RestoreNameColor(lastFrame)
-            end
-            plateUnits[unit] = frame
+        if exists and (not inCombat or allowCombat) then
+            if not plateUnits[unit] then plateUnits[unit] = {plate = plate, frame = frame} end
             HookPlateHover(plate, frame)
             if player and not UnitIsUnit(unit, "player") then
                 local visible = not knownOnly or IsRecognized(unit)
                 if not visible then
-                    HideNameOnlyLabel(frame)
+                    HideNameLabels(plate, frame)
                     RestoreNameColor(frame)
                     MakeTransparent(frame)
                 elseif namesOnly then
                     RestoreNameColor(frame)
                     if not ShowNameOnly(plate, frame, unit) then
                         -- Fail open if the name cannot be displayed.
-                        HideNameOnlyLabel(frame)
+                        HideNameLabels(plate, frame)
                         RestoreFrame(frame)
                     end
                 else
@@ -683,15 +731,12 @@ function ns.RefreshKnownNameplates()
                     else RestoreNameColor(frame) end
                     -- Preserve Blizzard's actual font/scale/placement when
                     -- neither first-name mode nor a guild line is requested.
-                    if KnownPlayersSettings.nameDisplayMode ~= "first"
-                        and not KnownPlayersSettings.showGuildInNamesOnly then
-                        HideNameOnlyLabel(frame)
-                    elseif not ShowNameOnly(plate, frame, unit, true) then
-                        HideNameOnlyLabel(frame)
+                    if not ShowNameOnly(plate, frame, unit, true) then
+                        HideNameLabels(plate, frame)
                     end
                 end
             elseif minion then
-                HideNameOnlyLabel(frame)
+                HideNameLabels(plate, frame)
                 RestoreNameColor(frame)
                 if knownOnly and not IsRecognizedMinion(unit) then MakeTransparent(frame)
                 else RestoreFrame(frame) end
@@ -709,27 +754,23 @@ function ns.RefreshKnownNameplates()
                 if npcID and (override == "hide"
                     or (override ~= "show" and classified and not category
                         and IsNonAttackableNPC(unit))) then
-                    HideNameOnlyLabel(frame)
+                    HideNameLabels(plate, frame)
                     MakeTransparent(frame)
                 elseif npcID and (category or override == "show") then
                     local color = category and ns.GetNPCNameplateCategoryColor(category)
-                    if npcShowBar and KnownPlayersSettings.npcNameDisplayMode ~= "first"
-                        and not KnownPlayersSettings.showNPCTitle then
+                    if not ShowNameOnly(plate, frame, unit, npcShowBar, true, color) then
                         -- Standard text uses Blizzard's own label. Only name
                         -- color changes; original font and layout remain native.
-                        HideNameOnlyLabel(frame)
+                        HideNameLabels(plate, frame)
                         RestoreFrame(frame, allowCombat)
                         if color then SetNameColor(frame, color) end
-                    elseif not ShowNameOnly(plate, frame, unit, npcShowBar, true, color) then
-                        HideNameOnlyLabel(frame)
-                        RestoreFrame(frame)
                     end
                 else
-                    HideNameOnlyLabel(frame)
+                    HideNameLabels(plate, frame)
                     RestoreFrame(frame)
                 end
             else
-                HideNameOnlyLabel(frame)
+                HideNameLabels(plate, frame)
                 RestoreFrame(frame)
                 RestoreNameColor(frame) -- Unfiltered NPCs, pets, and other units.
             end
@@ -810,13 +851,14 @@ local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+frame:RegisterEvent("NAME_PLATE_UNIT_BEHIND_CAMERA_CHANGED")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 frame:RegisterEvent("PLAYER_REGEN_DISABLED")
 frame:RegisterEvent("PLAYER_LOGOUT")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("CVAR_UPDATE")
-frame:SetScript("OnEvent", function(_, event, unit)
+frame:SetScript("OnEvent", function(_, event, unit, isBehindCamera)
     if event == "ADDON_LOADED" then
         if unit == "QuestieDB" then
             ns.SyncNPCNameplateCVars()
@@ -829,7 +871,7 @@ frame:SetScript("OnEvent", function(_, event, unit)
         ns.RestoreNativeOverheadNames()
         npcCVarsShuttingDown = true
         ns.RestoreNPCNameplateCVars()
-        HideAllNameOnlyLabels()
+        for token, binding in pairs(plateUnits) do ReleasePlate(token, binding) end
         RestoreAll()
         RestoreAllNameColors()
         return
@@ -853,6 +895,16 @@ frame:SetScript("OnEvent", function(_, event, unit)
         end
         return
     end
+    if event == "NAME_PLATE_UNIT_BEHIND_CAMERA_CHANGED" then
+        local binding = plateUnits[ns.SafeString(unit)]
+        local plate = binding and binding.plate
+        local labels = plate and activeNameLabels[plate]
+        if labels and ns.IsAccessibleValue(isBehindCamera) and type(isBehindCamera) == "boolean" then
+            labels.behindCamera = isBehindCamera
+            UpdateNameLabelAppearance(plate, labels)
+        end
+        return
+    end
     if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
         -- Re-evaluate health-bar mode on combat transitions. Protected
         -- nameplates may require deferred updates until combat ends.
@@ -865,18 +917,16 @@ frame:SetScript("OnEvent", function(_, event, unit)
     end
     if event == "NAME_PLATE_UNIT_REMOVED" then
         -- Forever may clear the unit-to-nameplate mapping before this event.
-        local previous = plateUnits[unit]
-        if previous then
-            HideNameOnlyLabel(previous)
-            RestoreFrame(previous)
-            RestoreNameColor(previous)
-        end
-        plateUnits[unit] = nil
+        unit = ns.SafeString(unit)
+        local binding = plateUnits[unit]
+        if binding then ReleasePlate(unit, binding) end
+        return
     end
     ns.RefreshKnownNameplates()
 end)
 frame:SetScript("OnUpdate", function(_, delta)
     if not KnownPlayersSettings then return end
+    for plate, labels in pairs(activeNameLabels) do UpdateNameLabelAppearance(plate, labels) end
     nativeNameCheckElapsed = nativeNameCheckElapsed + delta
     if nativeNameCheckElapsed >= 5 then
         nativeNameCheckElapsed = 0

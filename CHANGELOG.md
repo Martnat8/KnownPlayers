@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.1b0] - 2026-11-22
+
 - Made pets, guardians, and totems follow their owner's nameplate visibility when Known Only is on, and added a friendly minion visibility toggle under Character name.
 - Enabled the minimap button by default for new settings.
 - Added padding around the color swatches and replaced the priority button text with arrow icons for players and NPCs.

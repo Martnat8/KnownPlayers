@@ -43,6 +43,9 @@ On a fresh install or Reset Settings, Manually Added, Raid, Party, Trade,
 and Whisper are set to Forever. Inspect defaults to 30 days and Target to
 six hours. Guild membership and linked alts follow their underlying guild
 or Battle.net relationship. Manually Added starts at the top of the priority list.
+Each character sees their current guild's roster. Switching characters preserves
+the other guilds' saved records. A guild departure preserves personal notes and
+tags for the next time you recognize that player through another interaction.
 Manually remembered NPCs separately default to 30-day expiration enabled.
 Existing saved retention settings are preserved when upgrading. Expiration
 checks run on load and every five seconds. A player reason expires based on

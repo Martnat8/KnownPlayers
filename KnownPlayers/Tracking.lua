@@ -3,18 +3,19 @@ local addonName, ns = ...
 -- Identity keys include the realm so identically named characters on
 -- different realms cannot overwrite one another.
 local function GetPlayerKey(unit)
-    if not UnitExists(unit) or not UnitIsPlayer(unit) or UnitIsUnit(unit, "player") then
+    if not UnitExists(unit) or not UnitIsPlayer(unit) or ns.CompareUnits(unit, "player") ~= false then
         return nil
     end
 
-    local name, realm = UnitFullName(unit)
+    local ok, name, realm = pcall(UnitFullName, unit)
+    if not ok or not ns.IsAccessibleValue(realm) then return nil end
     name, realm = ns.SafeString(name), ns.SafeString(realm)
     if not name or name == UNKNOWNOBJECT then
         return nil
     end
 
     if not realm or realm == "" then
-        realm = GetNormalizedRealmName()
+        realm = ns.SafeString(GetNormalizedRealmName())
     end
     if not realm or realm == "" then
         return nil
@@ -66,7 +67,7 @@ end)
 -- Normalize names to the same Name-Realm keys used by roster tracking.
 local function NormalizeWhisperName(sender)
     sender = ns.SafeString(sender)
-    if not sender then
+    if not sender or sender == UNKNOWNOBJECT then
         return nil
     end
 
@@ -105,7 +106,8 @@ whisperFrame:SetScript("OnEvent", function(_, _, ...)
     end
 
     -- Do not retain your own character if the client reports a self-whisper.
-    local selfName, selfRealm = UnitFullName("player")
+    local _, selfName, selfRealm = pcall(UnitFullName, "player")
+    selfName, selfRealm = ns.SafeString(selfName), ns.SafeString(selfRealm)
     if selfName and (not selfRealm or selfRealm == "") then
         selfRealm = GetNormalizedRealmName()
     end
@@ -139,7 +141,7 @@ end)
 -- members. A future option may restrict this to directly met guildmates.
 local function NormalizeGuildName(name)
     name = ns.SafeString(name)
-    if not name then
+    if not name or name == UNKNOWNOBJECT then
         return nil
     end
 
@@ -179,30 +181,7 @@ local function TrackGuildRoster()
         and IsInGuild()
 end
 
-function ns.ScanGuildRoster()
-    if not TrackGuildRoster() then return 0 end
-    local clubID = GuildClubID()
-    if not clubID or KnownPlayersDB.guildRosterClubID ~= clubID then return 0 end
-    local selfKey = GuildSelfKey()
-    local total = GetNumGuildMembers()
-    if not selfKey or not ns.IsAccessibleValue(total) or type(total) ~= "number" then return 0 end
-    local now = time()
-    local updated = 0
-
-    for i = 1, total do
-        local name, _, _, _, class = GetGuildRosterInfo(i)
-        local key = NormalizeGuildName(name)
-        if key and key ~= selfKey then
-            local record = ns.RememberPlayer(key, "guild", now)
-            ns.SetPlayerClass(record, class)
-            updated = updated + 1
-        end
-    end
-    return updated
-end
-
-local reconcileGuildOnNextUpdate = true
-local guildReconcileGeneration = 0
+local currentClub, confirmedRoster, pendingRoster
 
 local function ReadGuildSnapshot()
     if not TrackGuildRoster() then return nil end
@@ -210,19 +189,19 @@ local function ReadGuildSnapshot()
     local selfKey = GuildSelfKey()
     if not selfKey or not ns.IsAccessibleValue(total) or type(total) ~= "number"
         or total < 1 then return nil end
-    local current = {}
+    local members = {}
     for i = 1, total do
-        local key = NormalizeGuildName(GetGuildRosterInfo(i))
-        if not key or current[key] then return nil end
-        current[key] = true
+        local name, _, _, _, class = GetGuildRosterInfo(i)
+        local key = NormalizeGuildName(name)
+        if not key or members[key] then return nil end
+        members[key] = {class = ns.SafeString(class)}
     end
-    if current[selfKey] then return current, total end
+    if members[selfKey] then return {members = members, count = total, selfKey = selfKey} end
 end
 
 local function SameSnapshot(a, b)
-    if not a or not b then return false end
-    for key in pairs(a) do if not b[key] then return false end end
-    for key in pairs(b) do if not a[key] then return false end end
+    if not a or not b or a.count ~= b.count or a.selfKey ~= b.selfKey then return false end
+    for key in pairs(a.members) do if not b.members[key] then return false end end
     return true
 end
 
@@ -248,47 +227,67 @@ local function ClubRosterMatches(clubID, members, count)
     return true
 end
 
-local function ReconcileGuildMembership(clubID, members, count)
-    local missing, savedGuildCount = 0, 0
+local function ReconcileGuildMembership(clubID, snapshot)
+    local missing, savedGuildCount, keep = 0, 0, {}
     for key, record in pairs(KnownPlayersDB.players) do
-        if type(record) == "table" and type(record.categories) == "table" and record.categories.guild then
+        if ns.PlayerHasCategory(record, "guild") then
             savedGuildCount = savedGuildCount + 1
-            if not members[key] then missing = missing + 1 end
+            local name = ns.SafeString(record.displayName)
+            local realm = ns.SafeString(record.realm)
+            local canonical = name and realm and ns.NormalizePlayerKey(name .. "-" .. realm, realm)
+            if snapshot.members[key] or (canonical and snapshot.members[canonical]) then
+                keep[key] = true
+            else
+                missing = missing + 1
+            end
         end
     end
     -- A truncated roster must not erase a guild's history. For a large
     -- removal, require the current club's member list to corroborate the roster.
     if missing > math.max(2, math.floor(savedGuildCount * 0.1))
-        and not ClubRosterMatches(clubID, members, count) then return false end
-    ns.ClearPlayerCategory("guild", members, true)
+        and not ClubRosterMatches(clubID, snapshot.members, snapshot.count) then return false end
+    if missing > 0 then ns.ClearPlayerCategory("guild", keep, true) end
     return true
 end
 
-local function ClearOldGuild()
-    guildReconcileGeneration = guildReconcileGeneration + 1
-    reconcileGuildOnNextUpdate = true
-    -- Wait for a fresh roster for the new guild before reading cached entries.
-    KnownPlayersDB.guildRosterClubID = nil
-    if ns.ClearPlayerCategory("guild", nil, true) > 0 then RefreshGuildViews() end
+local function SelectCurrentGuild()
+    local clubID = IsInGuild() and GuildClubID() or nil
+    if currentClub ~= clubID then
+        currentClub, confirmedRoster, pendingRoster = clubID, nil, nil
+        if ns.SetActiveGuild(clubID) then RefreshGuildViews() end
+    end
+    return clubID
 end
 
-local function CheckGuildSwitch(clubID)
-    local previous = KnownPlayersDB.guildRosterClubID
-    if previous and clubID and previous ~= clubID then ClearOldGuild() end
+local function ImportGuildRoster(snapshot)
+    local updated, now = 0, time()
+    for key, member in pairs(snapshot.members) do
+        if key ~= snapshot.selfKey then
+            local record = ns.RememberPlayer(key, "guild", now)
+            if record then
+                ns.SetPlayerClass(record, member.class)
+                updated = updated + 1
+            end
+        end
+    end
+    return updated
 end
 
-function ns.RefreshGuildList()
-    if not TrackGuildRoster() then return false end
-    guildReconcileGeneration = guildReconcileGeneration + 1
-    reconcileGuildOnNextUpdate = true
-    ns.RequestGuildRoster()
-    ns.ScanGuildRoster()
-    return true
+function ns.ScanGuildRoster()
+    if not TrackGuildRoster() or not confirmedRoster or GuildClubID() ~= currentClub then return 0 end
+    return ImportGuildRoster(confirmedRoster)
 end
 
 function ns.RequestGuildRoster()
     if not KnownPlayersSettings or not KnownPlayersSettings.trackGuild or not IsInGuild() then return end
     if C_GuildInfo and C_GuildInfo.GuildRoster then C_GuildInfo.GuildRoster() end
+end
+
+function ns.RefreshGuildList()
+    if not TrackGuildRoster() then return false end
+    ns.RequestGuildRoster()
+    ns.ScanGuildRoster()
+    return true
 end
 
 local guildFrame = CreateFrame("Frame")
@@ -299,48 +298,28 @@ guildFrame:RegisterEvent("INITIAL_CLUBS_LOADED")
 guildFrame:SetScript("OnEvent", function(_, event, unit)
     if not KnownPlayersDB or not KnownPlayersSettings then return end
     if event == "PLAYER_GUILD_UPDATE" and ns.SafeString(unit) ~= "player" then return end
-    if event == "INITIAL_CLUBS_LOADED" and not IsInGuild() then return end
-    local canConfirm = C_Timer and type(C_Timer.After) == "function"
+    local clubID = SelectCurrentGuild()
+    if not clubID or not TrackGuildRoster() then return end
     if event ~= "GUILD_ROSTER_UPDATE" then
-        guildReconcileGeneration = guildReconcileGeneration + 1
-        reconcileGuildOnNextUpdate = true
-        if IsInGuild() then
-            CheckGuildSwitch(GuildClubID())
-            ns.RequestGuildRoster()
-            ns.ScanGuildRoster()
-        elseif canConfirm then
-            -- Guild APIs can briefly be uninitialized on login or during a switch.
-            local generation = guildReconcileGeneration
-            C_Timer.After(2, function()
-                if generation == guildReconcileGeneration and IsInGuild() == false and not GuildClubID() then
-                    ClearOldGuild()
-                end
-            end)
-        end
+        ns.RequestGuildRoster()
         return
     end
-    if not IsInGuild() then return end
-    local clubID = GuildClubID()
-    if not clubID then return end
-    CheckGuildSwitch(clubID)
-    if not TrackGuildRoster() then return end
-    if KnownPlayersDB.guildRosterClubID == clubID then
-        ns.ScanGuildRoster()
-        if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
-    end
-    -- Only reconcile after a roster update and a second matching snapshot.
-    if not reconcileGuildOnNextUpdate or not canConfirm then return end
     local snapshot = ReadGuildSnapshot()
-    if not snapshot then return end
-    local generation = guildReconcileGeneration
+    if not snapshot or SameSnapshot(snapshot, pendingRoster) then return end
+    if SameSnapshot(snapshot, confirmedRoster) then
+        pendingRoster = nil
+        return
+    end
+    pendingRoster = snapshot
     C_Timer.After(2, function()
-        if generation ~= guildReconcileGeneration or not reconcileGuildOnNextUpdate
-            or GuildClubID() ~= clubID then return end
-        local confirmed, count = ReadGuildSnapshot()
+        if pendingRoster ~= snapshot then return end
+        pendingRoster = nil
+        if GuildClubID() ~= clubID then return end
+        local confirmed = ReadGuildSnapshot()
         if not SameSnapshot(snapshot, confirmed) then return end
-        reconcileGuildOnNextUpdate = not ReconcileGuildMembership(clubID, confirmed, count)
-        KnownPlayersDB.guildRosterClubID = clubID
-        ns.ScanGuildRoster()
+        local reconciled = ReconcileGuildMembership(clubID, confirmed)
+        ImportGuildRoster(confirmed)
+        if reconciled then confirmedRoster = confirmed end
         RefreshGuildViews()
     end)
 end)

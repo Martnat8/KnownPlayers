@@ -29,10 +29,15 @@ StaticPopupDialogs["KNOWNPLAYERS_RESET_SETTINGS"] = {
         -- Restore WoW's own overhead-name settings before discarding the backup.
         if KnownPlayersSettings then
             KnownPlayersSettings.knownOnlyNameplates = false
+            KnownPlayersSettings.filterNPCNameplates = false
             if ns.RestoreNativeOverheadNames then ns.RestoreNativeOverheadNames() end
             if ns.RestoreNPCNameplateCVars then ns.RestoreNPCNameplateCVars() end
         end
-        KnownPlayersSettings = {}
+        local previous = KnownPlayersSettings or {}
+        KnownPlayersSettings = {
+            overheadNameCVarsBackup = previous.overheadNameCVarsBackup,
+            npcCVarBackup = previous.npcCVarBackup,
+        }
         ns.InitializeDatabase()
         if ns.InitializeNameplateColors then ns.InitializeNameplateColors() end
         -- Rebind retention rows to their new SavedVariables tables, then repaint
@@ -50,18 +55,6 @@ StaticPopupDialogs["KNOWNPLAYERS_RESET_SETTINGS"] = {
     whileDead = true,
     hideOnEscape = true,
     preferredIndex = 3,
-}
-
-local TRACKING_CATEGORIES = {
-    trade = { label = "Trade", tracking = "trackTrades" },
-    party = { label = "Party", group = "party" },
-    raid = { label = "Raid", group = "raid" },
-    guild = { label = "Guild", tracking = "trackGuild" },
-    whisper = { label = "Whisper", tracking = "trackWhispers" },
-    target = { label = "Target", tracking = "trackTargets" },
-    inspect = { label = "Inspect", tracking = "trackInspects" },
-    manual = { label = "Manually Added", tracking = "trackManual" },
-    associated = { label = "Known Battle.net Alts", tracking = "trackBattleNetAssociations" },
 }
 
 local function Label(parent, value, x, y, font)
@@ -196,7 +189,7 @@ local function NewScrollingPage(parent)
 end
 
 local function SetCategoryTracking(key, checked)
-    local category = TRACKING_CATEGORIES[key]
+    local category = key == "associated" and ns.AssociatedCategory or ns.PlayerCategoryByKey[key]
     if category.group then
         KnownPlayersSettings.trackGroup[category.group] = checked
         if checked and ns.ScanGroupRoster then ns.ScanGroupRoster() end
@@ -514,8 +507,8 @@ local function AddNameplateSetup(content, refresh)
 end
 
 local function AnyPlayerTrackingEnabled()
-    for key in pairs(TRACKING_CATEGORIES) do
-        if key ~= "associated" and ns.CategoryTrackingEnabled(key) then return true end
+    for _, category in ipairs(ns.PlayerCategories) do
+        if ns.CategoryTrackingEnabled(category.key) then return true end
     end
     return false
 end
@@ -680,8 +673,8 @@ local function AddPriorityTable(body, top, options)
     RegisterSettingsRefresher(Layout)
 end
 
-local PLAYER_LABELS = {}
-for key, category in pairs(TRACKING_CATEGORIES) do PLAYER_LABELS[key] = category.label end
+local PLAYER_LABELS = {associated = ns.AssociatedCategory.label}
+for _, category in ipairs(ns.PlayerCategories) do PLAYER_LABELS[category.key] = category.label end
 
 local function NPCLabels()
     local labels = {}

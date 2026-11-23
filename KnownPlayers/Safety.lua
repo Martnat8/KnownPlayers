@@ -37,3 +37,9 @@ function ns.IsPlayerMinion(unit)
     local ok, result = pcall(UnitIsMinion, unit)
     return ok and ns.IsAccessibleValue(result) and result == true
 end
+
+-- A restricted comparison is unknown, so callers must test for true or false.
+function ns.CompareUnits(first, second)
+    local ok, result = pcall(UnitIsUnit, first, second)
+    if ok and ns.IsAccessibleValue(result) and type(result) == "boolean" then return result end
+end

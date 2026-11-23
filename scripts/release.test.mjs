@@ -22,7 +22,9 @@ function fixture(t, version = '0.1.7') {
   const root = join(directory, 'work');
   mkdirSync(root);
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  for (const path of ['scripts', '.githooks', '.github']) cpSync(join(source, path), join(root, path), { recursive: true });
+  for (const path of ['scripts', '.githooks', '.github', '.gitattributes']) {
+    cpSync(join(source, path), join(root, path), { recursive: true });
+  }
   mkdirSync(join(root, 'KnownPlayers'));
   writeFileSync(join(root, 'VERSION'), `${version}\n`);
   writeFileSync(join(root, 'KnownPlayers/KnownPlayers.toc'), `## Version: ${version}\n`);
@@ -94,6 +96,17 @@ test('pre-releases ignore bump type; beta numbers increase numerically', () => {
   }
   assert.equal(nextVersion('0.1.14b9', 'dev'), '0.1.14b10');
   assert.equal(nextVersion('0.1.14b9007199254740992', 'dev'), '0.1.14b9007199254740993');
+});
+
+test('release inputs keep LF on a checkout with autocrlf enabled', (t) => {
+  const root = fixture(t);
+  const releaseInputs = ['VERSION', 'CHANGELOG.md', ...METADATA.map(([path]) => path)];
+  git(root, 'config', 'core.autocrlf', 'true');
+  git(root, 'checkout-index', '--force', '--', ...releaseInputs);
+  for (const path of releaseInputs) {
+    assert.ok(!readFileSync(join(root, path), 'utf8').includes('\r'), `${path} must use LF`);
+  }
+  assert.equal(releaseFiles(root, 'dev').version, '0.1.8b0');
 });
 
 test('reject invalid versions and arguments', () => {

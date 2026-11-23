@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- Isolate the database self-test from saved history and prevent player menu actions from falling back to an unrelated target.
+- Scope guild records to their guild, preserve personal details, and reconcile later roster changes during the same session.
+- Remove stale Battle.net links after a complete friend-list scan, reject ambiguous name-only matches, and update the identity index incrementally.
+- Skip restricted unit comparisons safely and retry restoring WoW name settings after a reset.
+- Centralize player category definitions, run Lua behavior tests in CI, and enforce LF for release metadata and scripts.
+
 ## [0.5.1b3] - 2026-11-22
 
 - Keep custom nameplate text attached to the active unit when WoW recycles a frame, hide it behind the camera, and match the live nameplate scale and fade.

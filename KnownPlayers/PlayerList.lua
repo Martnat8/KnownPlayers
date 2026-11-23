@@ -1,15 +1,6 @@
 local addonName, ns = ...
 
-local CATEGORIES = {
-    { key = "trade", label = "Trade" },
-    { key = "party", label = "Party" },
-    { key = "raid", label = "Raid" },
-    { key = "guild", label = "Guild" },
-    { key = "whisper", label = "Whisper" },
-    { key = "target", label = "Target" },
-    { key = "inspect", label = "Inspect" },
-    { key = "manual", label = "Manually Added" },
-}
+local CATEGORIES = ns.PlayerCategories
 
 local function FormatKnownDuration(firstSeen)
     if type(firstSeen) ~= "number" then return "Unknown" end
@@ -551,8 +542,8 @@ end
 local function LatestInteraction(record)
     local latest
     for _, category in ipairs(CATEGORIES) do
-        local stamp = record.categories[category.key] and record.categoryLastSeen
-            and record.categoryLastSeen[category.key]
+        local stamp = ns.PlayerHasCategory(record, category.key)
+            and ns.PlayerCategoryTime(record, category.key, "lastSeen")
         if type(stamp) == "number" and (not latest or stamp > latest) then latest = stamp end
     end
     return latest or record.lastSeen
@@ -657,8 +648,8 @@ local function CreatePlayerHistoryWindow()
             .. "    Class: " .. AppearanceText(ns.SafeString(record.class) or classLabel or "Unknown", classAtlas))
         local history = {}
         for _, category in ipairs(CATEGORIES) do
-            if record.categories[category.key] then
-                local stamp = record.categoryLastSeen and record.categoryLastSeen[category.key]
+            if ns.PlayerHasCategory(record, category.key) then
+                local stamp = ns.PlayerCategoryTime(record, category.key, "lastSeen")
                 history[#history + 1] = category.label .. " (" .. InteractionAge(stamp) .. ")"
             end
         end
@@ -783,7 +774,7 @@ local function CreatePlayersWindow()
     local function ReasonsFor(record)
         local result = {}
         for _, category in ipairs(CATEGORIES) do
-            if type(record.categories) == "table" and record.categories[category.key] then
+            if ns.PlayerHasCategory(record, category.key) then
                 result[#result + 1] = category.label
             end
         end
@@ -791,11 +782,10 @@ local function CreatePlayersWindow()
     end
     local function FirstSeen(record)
         local first
-        if type(record.categoryFirstSeen) == "table" then
-            for category, stamp in pairs(record.categoryFirstSeen) do
-                if ns.IsPlayerCategory(category) and record.categories[category]
-                    and type(stamp) == "number" and (not first or stamp < first) then first = stamp end
-            end
+        for _, category in ipairs(CATEGORIES) do
+            local stamp = ns.PlayerHasCategory(record, category.key)
+                and ns.PlayerCategoryTime(record, category.key, "firstSeen")
+            if type(stamp) == "number" and (not first or stamp < first) then first = stamp end
         end
         return first or record.lastSeen
     end
@@ -857,7 +847,7 @@ local function CreatePlayersWindow()
             local record = KnownPlayersDB.players[entry.key]
             local eligible = false
             for _, category in ipairs(CATEGORIES) do
-                if filterEnabled[category.key] and record.categories[category.key] then
+                if filterEnabled[category.key] and ns.PlayerHasCategory(record, category.key) then
                     eligible = true
                     break
                 end

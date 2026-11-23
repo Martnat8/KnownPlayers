@@ -1,22 +1,56 @@
 local addonName, ns = ...
 
 local SECONDS_PER_DAY = 86400
-local CATEGORIES = { "trade", "party", "raid", "guild", "whisper", "target", "inspect", "manual" }
-local supportedCategories = {}
-for _, category in ipairs(CATEGORIES) do supportedCategories[category] = true end
+local activeGuild
 
-function ns.IsPlayerCategory(category)
-    return supportedCategories[category] == true
+local function GuildKey(clubID)
+    if type(clubID) == "number" then return string.format("%.0f", clubID) end
+    return ns.SafeString(clubID)
+end
+
+function ns.SetActiveGuild(clubID)
+    local key = GuildKey(clubID)
+    if activeGuild == key then return false end
+    activeGuild = key
+    if ns.InvalidateBattleNetIndex then ns.InvalidateBattleNetIndex() end
+    return true
+end
+
+local function GuildMembership(record)
+    local memberships = record.guildMemberships
+    local membership = activeGuild and type(memberships) == "table" and memberships[activeGuild]
+    return type(membership) == "table" and membership or nil
+end
+
+function ns.PlayerHasCategory(record, category)
+    if type(record) ~= "table" then return false end
+    if category == "guild" then return GuildMembership(record) ~= nil end
+    return type(record.categories) == "table" and not not record.categories[category]
+end
+
+function ns.PlayerCategoryTime(record, category, stamp)
+    if category == "guild" then
+        local membership = GuildMembership(record)
+        return membership and membership[stamp]
+    end
+    local times = record[stamp == "firstSeen" and "categoryFirstSeen" or "categoryLastSeen"]
+    return type(times) == "table" and times[category] or nil
 end
 
 -- Keep older interaction history available in SavedVariables. Only currently
 -- supported categories count as known players or supply Battle.net anchors.
 function ns.HasPlayerCategory(record)
     if type(record) ~= "table" or type(record.categories) ~= "table" then return false end
+    if GuildMembership(record) then return true end
     for category, present in pairs(record.categories) do
-        if present and supportedCategories[category] then return true end
+        if present and category ~= "guild" and ns.IsPlayerCategory(category) then return true end
     end
     return false
+end
+
+function ns.HasStoredPlayerCategory(record)
+    return ns.HasPlayerCategory(record) or (type(record) == "table"
+        and type(record.guildMemberships) == "table" and next(record.guildMemberships) ~= nil)
 end
 
 local function TrimmedText(value)
@@ -265,6 +299,7 @@ local MergeInto
 
 function ns.MigratePlayerRecords()
     local changed = 0
+    local legacyGuildKey = GuildKey(KnownPlayersDB.guildRosterClubID) or "legacy"
     for key, record in pairs(KnownPlayersDB.players) do
         if type(record) == "table" then
             local name, realm = SplitKnownRealm(key)
@@ -287,8 +322,18 @@ function ns.MigratePlayerRecords()
                     record.categoryFirstSeen[category] = record.categoryLastSeen[category] or record.lastSeen
                 end
             end
+            if record.categories.guild then
+                local memberships = type(record.guildMemberships) == "table" and record.guildMemberships or {}
+                memberships[legacyGuildKey] = memberships[legacyGuildKey] or {
+                    firstSeen = record.categoryFirstSeen.guild, lastSeen = record.categoryLastSeen.guild,
+                }
+                record.guildMemberships = memberships
+                record.categories.guild, record.categoryFirstSeen.guild, record.categoryLastSeen.guild = nil, nil, nil
+                changed = changed + 1
+            end
         end
     end
+    KnownPlayersDB.guildRosterClubID = nil
     -- Merge legacy space/hyphen variants on the SAME realm. A GUID conflict
     -- blocks the merge, even when the displayed names look identical.
     -- Choose an already-canonical key first, so roster refreshes and direct
@@ -387,6 +432,23 @@ MergeInto = function(destination, source, keepDestinationDetails)
     destination.guid = destination.guid or source.guid
     destination.realm = destination.realm or source.realm
     destination.displayName = destination.displayName or source.displayName
+    if type(source.guildMemberships) == "table" then
+        destination.guildMemberships = destination.guildMemberships or {}
+        for clubID, incoming in pairs(source.guildMemberships) do
+            local existing = destination.guildMemberships[clubID]
+            if not existing then
+                destination.guildMemberships[clubID] = incoming
+            else
+                if incoming.firstSeen and (not existing.firstSeen or incoming.firstSeen < existing.firstSeen) then
+                    existing.firstSeen = incoming.firstSeen
+                end
+                if incoming.lastSeen and (not existing.lastSeen or incoming.lastSeen > existing.lastSeen) then
+                    existing.lastSeen = incoming.lastSeen
+                end
+            end
+        end
+    end
+    destination.preservedGuildDetails = destination.preservedGuildDetails or source.preservedGuildDetails
     ns.MergePlayerAppearance(destination, source)
     if keepDestinationDetails then return end
     destination.favorite = (destination.favorite or source.favorite) and true or nil
@@ -459,19 +521,24 @@ function ns.RememberPlayer(name, category, seenAt, guid, realmHint, unit)
     if not ValidGUID(guid) then guid = nil end
     local players = KnownPlayersDB.players
 
+    if category == "guild" and not activeGuild then return nil end
     local matchedKey = guid and ns.FindDirectKeyByGUID and ns.FindDirectKeyByGUID(guid) or nil
     if not matchedKey and ns.FindDirectKeyByName then
-        matchedKey = ns.FindDirectKeyByName(name, guid)
+        local ambiguous
+        matchedKey, ambiguous = ns.FindDirectKeyByName(name, guid)
+        if ambiguous and not guid then return nil end
     end
 
     local record = matchedKey and players[matchedKey] or nil
     local exact = players[name]
+    local merged
     if record and type(exact) == "table" and exact ~= record then
         -- Merge only if no GUID conflicts, and the exact entry has either
         -- the same GUID or no existing GUID of its own.
         if not exact.guid or exact.guid == guid then
             MergeInto(record, exact)
             players[name] = nil
+            merged = true
         end
     elseif not record and type(exact) == "table" then
         if not (guid and exact.guid and exact.guid ~= guid) then
@@ -480,7 +547,8 @@ function ns.RememberPlayer(name, category, seenAt, guid, realmHint, unit)
         end
     end
 
-    if not record then
+    local created = not record
+    if created then
         -- Different GUID for an already-occupied key: never overwrite it.
         local key = name
         if players[key] ~= nil and guid then key = "guid:" .. guid end
@@ -490,9 +558,17 @@ function ns.RememberPlayer(name, category, seenAt, guid, realmHint, unit)
     end
     if type(record.categories) ~= "table" then record.categories = {} end
     local timestamp = seenAt or time()
+    local addedCategory = not ns.PlayerHasCategory(record, category)
     if type(record.categoryLastSeen) ~= "table" then record.categoryLastSeen = {} end
     if type(record.categoryFirstSeen) ~= "table" then record.categoryFirstSeen = {} end
-    if type(category) == "string" and category ~= "" then
+    if category == "guild" then
+        record.guildMemberships = record.guildMemberships or {}
+        local memberships = record.guildMemberships
+        local membership = GuildMembership(record) or memberships.legacy or {}
+        if type(membership.firstSeen) ~= "number" then membership.firstSeen = timestamp end
+        membership.lastSeen = timestamp
+        memberships[activeGuild], memberships.legacy = membership, nil
+    elseif type(category) == "string" and category ~= "" then
         if not record.categories[category] then
             -- A newly joined category starts its own known-since timer.
             record.categoryFirstSeen[category] = timestamp
@@ -503,14 +579,20 @@ function ns.RememberPlayer(name, category, seenAt, guid, realmHint, unit)
         record.categoryLastSeen[category] = timestamp
     end
     record.lastSeen = timestamp
-    record.guid = guid or record.guid
     -- Prefer the name supplied by the current API; don't replace a useful
     -- previous realm with a missing one.
-    if displayName and displayName ~= "" then record.displayName = displayName end
-    if realm then record.realm = realm end
+    local newGUID = guid or record.guid
+    local newName = displayName and displayName ~= "" and displayName or record.displayName
+    local newRealm = realm or record.realm
+    local changedIdentity = created or newGUID ~= record.guid or newName ~= record.displayName or newRealm ~= record.realm
+    record.guid, record.displayName, record.realm = newGUID, newName, newRealm
     ns.RefreshPlayerAppearance(record, unit)
-    if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
-    if ns.PromotePendingBattleNetObservations then ns.PromotePendingBattleNetObservations() end
+    if merged then ns.InvalidateIdentityIndex()
+    elseif changedIdentity then ns.UpdateIdentityIndex(matchedKey, record)
+    elseif addedCategory and ns.InvalidateBattleNetIndex then ns.InvalidateBattleNetIndex() end
+    if (merged or changedIdentity or addedCategory) and ns.PromotePendingBattleNetObservations then
+        ns.PromotePendingBattleNetObservations()
+    end
     return record
 end
 
@@ -518,13 +600,7 @@ function ns.GetPlayer(name)
     return KnownPlayersDB.players[name]
 end
 
-local function RestorePlayer(key, saved, guildClubID, originalRecord)
-    if saved.categories.guild and guildClubID ~= KnownPlayersDB.guildRosterClubID then
-        saved.categories.guild = nil
-        if saved.categoryFirstSeen then saved.categoryFirstSeen.guild = nil end
-        if saved.categoryLastSeen then saved.categoryLastSeen.guild = nil end
-        if not next(saved.categories) then return false end
-    end
+local function RestorePlayer(key, saved, originalRecord)
     local players = KnownPlayersDB.players
     local guid = ns.SafePlayerGUID(saved.guid)
     local match = guid and ns.FindDirectKeyByGUID and ns.FindDirectKeyByGUID(guid)
@@ -552,26 +628,26 @@ function ns.ForgetPlayer(name, undoable)
     if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
     if ns.PruneUnlinkedBattleNetData then ns.PruneUnlinkedBattleNetData() end
     if undoable and type(record) == "table" and type(record.categories) == "table" then
-        local guildClubID = KnownPlayersDB.guildRosterClubID
-        ns.OfferRemovalUndo(function() return RestorePlayer(name, record, guildClubID) end)
+        ns.OfferRemovalUndo(function() return RestorePlayer(name, record) end)
     end
     return true
 end
 
-function ns.PruneExpiredPlayers(now)
-    local currentTime = now or time()
+local function PrunePlayerRecords(players, retentionByCategory, now)
     local cutoffs = {}
-    for category in pairs(supportedCategories) do
-        local retention = KnownPlayersSettings.categoryRetention[category]
+    for _, definition in ipairs(ns.PlayerCategories) do
+        local category = definition.key
+        local retention = retentionByCategory[category]
         if category ~= "guild" and type(retention) == "table" and retention.enabled then
-            cutoffs[category] = currentTime - SecondsForDuration(retention)
+            cutoffs[category] = now - SecondsForDuration(retention)
         end
     end
     if not next(cutoffs) then return 0 end
 
     local removed = 0
-    for key, record in pairs(KnownPlayersDB.players) do
+    for key, record in pairs(players) do
         if type(record) == "table" and type(record.categories) == "table" and not record.favorite then
+            local previouslyRemoved = removed
             local categoryLastSeen = type(record.categoryLastSeen) == "table" and record.categoryLastSeen
             local categoryFirstSeen = type(record.categoryFirstSeen) == "table" and record.categoryFirstSeen
             for category, present in pairs(record.categories) do
@@ -586,9 +662,30 @@ function ns.PruneExpiredPlayers(now)
                     end
                 end
             end
-            if not next(record.categories) then KnownPlayersDB.players[key] = nil end
+            if removed > previouslyRemoved and not next(record.categories)
+                and not ns.HasStoredPlayerCategory(record) and not record.preservedGuildDetails then
+                players[key] = nil
+            end
         end
     end
+    return removed
+end
+
+function ns.TestPlayerExpiration()
+    local now = time()
+    local fixture = {sample = {
+        categories = {party = true, trade = true},
+        categoryLastSeen = {party = now - 2 * SECONDS_PER_DAY, trade = now},
+    }}
+    local retention = {party = {enabled = true, days = 1}, trade = {enabled = true, days = 1}}
+    local first = PrunePlayerRecords(fixture, retention, now)
+    local kept = first == 1 and fixture.sample and fixture.sample.categories.trade
+    return kept and PrunePlayerRecords(fixture, retention, now + 2 * SECONDS_PER_DAY) == 1
+        and fixture.sample == nil
+end
+
+function ns.PruneExpiredPlayers(now)
+    local removed = PrunePlayerRecords(KnownPlayersDB.players, KnownPlayersSettings.categoryRetention, now or time())
     if removed > 0 then
         if ns.InvalidateIdentityIndex then ns.InvalidateIdentityIndex() end
         if ns.PruneUnlinkedBattleNetData then ns.PruneUnlinkedBattleNetData() end
@@ -625,13 +722,17 @@ end
 -- never removes the others; an empty record is deleted altogether.
 local function RemovePlayerCategory(key, category, preserveFavorites)
     local record = KnownPlayersDB.players[key]
-    if type(record) ~= "table" or type(record.categories) ~= "table"
-        or not record.categories[category] then
-        return false
+    if not ns.PlayerHasCategory(record, category) then return false end
+    if category == "guild" then
+        record.guildMemberships[activeGuild] = nil
+        if preserveFavorites and (ns.SafeString(record.note) or ns.SafeString(record.tags)) then
+            record.preservedGuildDetails = true
+        end
+    else
+        record.categories[category] = nil
+        if type(record.categoryLastSeen) == "table" then record.categoryLastSeen[category] = nil end
+        if type(record.categoryFirstSeen) == "table" then record.categoryFirstSeen[category] = nil end
     end
-    record.categories[category] = nil
-    if type(record.categoryLastSeen) == "table" then record.categoryLastSeen[category] = nil end
-    if type(record.categoryFirstSeen) == "table" then record.categoryFirstSeen[category] = nil end
     if preserveFavorites and record.favorite and not ns.HasPlayerCategory(record) then
         record.categories.manual = true
         record.categoryFirstSeen = record.categoryFirstSeen or {}
@@ -639,7 +740,8 @@ local function RemovePlayerCategory(key, category, preserveFavorites)
         local stamp = record.lastSeen or time()
         record.categoryFirstSeen.manual, record.categoryLastSeen.manual = stamp, stamp
     end
-    if not next(record.categories) then
+    if not next(record.categories) and not ns.HasStoredPlayerCategory(record)
+        and not (preserveFavorites and record.preservedGuildDetails) then
         KnownPlayersDB.players[key] = nil
     end
     return true
@@ -653,23 +755,27 @@ end
 function ns.RemovePlayerCategory(key, category, undoable)
     local record = KnownPlayersDB.players[key]
     local saved
-    if undoable and type(record) == "table" and type(record.categories) == "table"
-        and record.categories[category] then
+    if undoable and ns.PlayerHasCategory(record, category) then
         saved = {
             displayName = record.displayName, realm = record.realm, guid = record.guid,
             race = record.race, raceAtlas = record.raceAtlas,
             class = record.class, classToken = record.classToken,
             note = record.note, tags = record.tags, favorite = record.favorite, lastSeen = record.lastSeen,
-            categories = {[category] = true},
-            categoryFirstSeen = {[category] = type(record.categoryFirstSeen) == "table" and record.categoryFirstSeen[category] or nil},
-            categoryLastSeen = {[category] = type(record.categoryLastSeen) == "table" and record.categoryLastSeen[category] or nil},
+            preservedGuildDetails = record.preservedGuildDetails,
+            categories = {},
         }
+        if category == "guild" then
+            saved.guildMemberships = {[activeGuild] = GuildMembership(record)}
+        else
+            saved.categories[category] = true
+            saved.categoryFirstSeen = {[category] = ns.PlayerCategoryTime(record, category, "firstSeen")}
+            saved.categoryLastSeen = {[category] = ns.PlayerCategoryTime(record, category, "lastSeen")}
+        end
     end
     if not RemovePlayerCategory(key, category) then return false end
     RefreshAfterCategoryRemoval()
     if saved then
-        local guildClubID = KnownPlayersDB.guildRosterClubID
-        ns.OfferRemovalUndo(function() return RestorePlayer(key, saved, guildClubID, record) end)
+        ns.OfferRemovalUndo(function() return RestorePlayer(key, saved, record) end)
     end
     return true
 end
@@ -688,15 +794,13 @@ end
 function ns.GetCategoryPlayers(category)
     local results = {}
     for key, record in pairs(KnownPlayersDB.players) do
-        if type(record) == "table" and type(record.categories) == "table"
-            and record.categories[category] then
+        if ns.PlayerHasCategory(record, category) then
             results[#results + 1] = {
                 key = key,
                 name = ns.GetDisplayName(key, record),
                 realm = record.realm or "",
                 appearance = record,
-                firstSeen = type(record.categoryFirstSeen) == "table"
-                    and record.categoryFirstSeen[category] or nil,
+                firstSeen = ns.PlayerCategoryTime(record, category, "firstSeen"),
             }
         end
     end

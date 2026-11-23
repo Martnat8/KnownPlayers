@@ -552,7 +552,8 @@ end
 
 CategoryColorForUnit = function(unit)
     if not ns.GetNameplateCategory then return nil end
-    local n, r = UnitFullName(unit)
+    local ok, n, r = pcall(UnitFullName, unit)
+    if not ok or not ns.IsAccessibleValue(r) then return nil end
     n, r = ns.SafeString(n), ns.SafeString(r)
     if not n then return nil end
     if type(r) ~= "string" or r == "" then
@@ -589,7 +590,7 @@ local function ReapplyNormalNameColor(frame, unit)
         and labels.replacesNativeName then
         SuppressNativeName(frame)
     end
-    if PlayerHealthBarVisible() and UnitExists(unit) and UnitIsPlayer(unit) and not UnitIsUnit(unit, "player") then
+    if PlayerHealthBarVisible() and UnitExists(unit) and UnitIsPlayer(unit) and ns.CompareUnits(unit, "player") == false then
         local color = CategoryColorForUnit(unit)
         if color then SetNameColor(frame, color) end
     end
@@ -623,8 +624,8 @@ local function FindTargetPlate()
         return nil, "Target another player first."
     end
     for _, plate in ipairs(GetPlateList()) do
-        local unit = plate.unitToken
-        if unit and UnitExists(unit) and UnitIsUnit(unit, "target") then return plate end
+        local unit = not IsProtected(plate) and ns.SafeString(plate.unitToken)
+        if unit and UnitExists(unit) and ns.CompareUnits(unit, "target") == true then return plate end
     end
     return nil, "Target has no visible nameplate. Enable player nameplates and move closer."
 end
@@ -640,7 +641,8 @@ end
 
 local function IsRecognized(unit)
     -- Leave the plate visible when the game can't identify the player.
-    local key = PlayerKey(UnitFullName(unit))
+    local ok, name, realm = pcall(UnitFullName, unit)
+    local key = ok and ns.IsAccessibleValue(realm) and PlayerKey(name, realm)
     if not key then return true end
     local guid = ns.SafePlayerGUID(ns.SafeUnitGUID(unit))
     return ns.IsKnownOrAssociated(key, guid)
@@ -709,7 +711,7 @@ function ns.RefreshKnownNameplates()
         if exists and (not inCombat or allowCombat) then
             if not plateUnits[unit] then plateUnits[unit] = {plate = plate, frame = frame} end
             HookPlateHover(plate, frame)
-            if player and not UnitIsUnit(unit, "player") then
+            if player and ns.CompareUnits(unit, "player") == false then
                 local visible = not knownOnly or IsRecognized(unit)
                 if not visible then
                     HideNameLabels(plate, frame)
@@ -908,6 +910,10 @@ frame:SetScript("OnEvent", function(_, event, unit, isBehindCamera)
     if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
         -- Re-evaluate health-bar mode on combat transitions. Protected
         -- nameplates may require deferred updates until combat ends.
+        if event == "PLAYER_REGEN_ENABLED" then
+            ns.SyncNativeOverheadNames()
+            ns.SyncNPCNameplateCVars()
+        end
         ns.RefreshKnownNameplates()
         return
     end

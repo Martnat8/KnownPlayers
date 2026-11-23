@@ -22,49 +22,7 @@ local function PruneExpiredRecords()
 end
 
 local function TestDatabase()
-    local testName = "__KnownPlayers_DatabaseTest__"
-    local existing = KnownPlayersDB.players[testName]
-    if existing ~= nil then
-        Print("Database test skipped: reserved test record already exists.")
-        return
-    end
-
-    local partyRetention = KnownPlayersSettings.categoryRetention.party
-    local tradeRetention = KnownPlayersSettings.categoryRetention.trade
-    local oldParty = { enabled = partyRetention.enabled, days = partyRetention.days,
-        hours = partyRetention.hours, minutes = partyRetention.minutes }
-    local oldTrade = { enabled = tradeRetention.enabled, days = tradeRetention.days,
-        hours = tradeRetention.hours, minutes = tradeRetention.minutes }
-    local now = time()
-
-    -- Exercise insertion, category storage, timestamp refresh, and expiry.
-    ns.RememberPlayer(testName, "party", now - 3 * 86400)
-    local record = ns.GetPlayer(testName)
-    local insertOK = record and record.categories.party == true
-    ns.RememberPlayer(testName, "trade", now)
-    record = ns.GetPlayer(testName)
-    local refreshOK = record and record.lastSeen == now
-        and record.categories.party and record.categories.trade
-
-    partyRetention.enabled = true
-    partyRetention.days, partyRetention.hours, partyRetention.minutes = 1, 0, 0
-    tradeRetention.enabled = false
-    local kept = ns.PruneExpiredPlayers(now) >= 0 and ns.GetPlayer(testName) ~= nil
-    tradeRetention.enabled = true
-    tradeRetention.days, tradeRetention.hours, tradeRetention.minutes = 1, 0, 0
-    ns.RememberPlayer(testName, "party", now - 3 * 86400)
-    ns.RememberPlayer(testName, "trade", now - 3 * 86400)
-    ns.PruneExpiredPlayers(now)
-    local expired = ns.GetPlayer(testName) == nil
-
-    -- Restore settings and remove only the temporary record.
-    for key, value in pairs(oldParty) do partyRetention[key] = value end
-    for key, value in pairs(oldTrade) do tradeRetention[key] = value end
-    ns.ForgetPlayer(testName)
-
-    Print("Database self-test: "
-        .. ((insertOK and refreshOK and kept and expired) and "PASS" or "FAIL"))
-    Print("No test player records retained; settings restored.")
+    Print("Expiration self-test (sample data): " .. (ns.TestPlayerExpiration() and "PASS" or "FAIL"))
 end
 
 local function HandleSlashCommand(message)
@@ -83,7 +41,7 @@ local function HandleSlashCommand(message)
         Print("Available commands:")
         Print("/kp status - Show addon and database status.")
         Print("/kp options - Open addon settings.")
-        Print("/kp dbtest - Test database and expiration logic.")
+        Print("/kp dbtest - Test expiration on sample data.")
         Print("/kp list - Show up to 10 saved player records.")
         Print("/kp players - Open the searchable All Players window.")
         Print("/kp scan - Scan the current party or raid.")
@@ -186,10 +144,8 @@ local function HandleSlashCommand(message)
         for name, record in pairs(KnownPlayersDB.players) do
             if shown >= 10 then break end
             local categories = {}
-            if type(record) == "table" and type(record.categories) == "table" then
-                for category, enabled in pairs(record.categories) do
-                    if enabled and ns.IsPlayerCategory(category) then table.insert(categories, category) end
-                end
+            for _, category in ipairs(ns.PlayerCategories) do
+                if ns.PlayerHasCategory(record, category.key) then categories[#categories + 1] = category.key end
             end
             if #categories > 0 then
                 table.sort(categories)

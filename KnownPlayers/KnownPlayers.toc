@@ -6,6 +6,7 @@
 ## SavedVariables: KnownPlayersDB, KnownPlayersSettings
 
 Safety.lua
+Categories.lua
 Database.lua
 QuestieDBBridge.lua
 NPC.lua

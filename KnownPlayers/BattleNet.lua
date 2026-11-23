@@ -4,6 +4,7 @@ local addonName, ns = ...
 -- to a directly known character. Unlinked friend observations remain in RAM
 -- until the client closes, and are not written to SavedVariables.
 local pending = {}
+local friendListReady = false
 local associationDirty = true
 local indexedMembersByKey, indexedMembersByGUID = {}, {}
 local linkedGroups = {}
@@ -27,11 +28,6 @@ end
 
 local function DirectRecord(key, observed)
     return ns.FindDirectRecord and ns.FindDirectRecord(key, observed and observed.guid) or nil
-end
-
-local function HasStoredCategory(record)
-    return type(record) == "table" and type(record.categories) == "table"
-        and next(record.categories) ~= nil
 end
 
 local function HasDirectAnchor(members, hasCategory)
@@ -74,7 +70,7 @@ function ns.PruneUnlinkedBattleNetData()
     if type(KnownPlayersDB) ~= "table" then return end
     local groups = KnownPlayersDB.bnetCharacters or {}
     for tag, members in pairs(groups) do
-        if type(members) ~= "table" or not HasDirectAnchor(members, HasStoredCategory) then
+        if type(members) ~= "table" or not HasDirectAnchor(members, ns.HasStoredPlayerCategory) then
             if type(members) == "table" then
                 pending[tag] = pending[tag] or {}
                 MergeObservations(pending[tag], members)
@@ -92,7 +88,7 @@ function ns.PromotePendingBattleNetObservations()
     local changed = false
     for tag, members in pairs(pending) do
         local group = stored[tag]
-        if HasDirectAnchor(members, ns.HasPlayerCategory) or HasDirectAnchor(group, ns.HasPlayerCategory) then
+        if HasDirectAnchor(members, ns.HasStoredPlayerCategory) or HasDirectAnchor(group, ns.HasStoredPlayerCategory) then
             group = type(group) == "table" and group or {}
             MergeObservations(group, members)
             stored[tag] = group
@@ -132,24 +128,35 @@ local function ObserveCharacter(tag, game)
     ns.InvalidateBattleNetIndex()
 end
 
-function ns.ScanBattleNetFriends()
+local function ReadFriendCount()
+    local connected, online = pcall(BNConnected)
+    if not connected or not ns.IsAccessibleValue(online) or online ~= true then return nil end
+    local ok, count = pcall(BNGetNumFriends)
+    if ok and ns.IsAccessibleValue(count) and type(count) == "number" and count >= 0 then return count end
+end
+
+function ns.ScanBattleNetFriends(rosterUpdated)
     if not KnownPlayersDB or not KnownPlayersSettings
         or not KnownPlayersSettings.trackBattleNetAssociations
         or type(BNGetNumFriends) ~= "function"
         or type(C_BattleNet) ~= "table"
         or type(C_BattleNet.GetFriendAccountInfo) ~= "function" then return 0 end
+    local total = ReadFriendCount()
+    if total == nil then return 0 end
 
     KnownPlayersDB.bnetCharacters = KnownPlayersDB.bnetCharacters or {}
-    local processed = 0
-    for i = 1, (BNGetNumFriends() or 0) do
+    local processed, friends = 0, {}
+    for i = 1, total do
         local ok, account = pcall(C_BattleNet.GetFriendAccountInfo, i)
-        if ok and type(account) == "table" and ValidBattleTag(account.battleTag) then
+        if ok and ns.IsAccessibleValue(account) and type(account) == "table"
+            and ValidBattleTag(account.battleTag) and not friends[account.battleTag] then
             local tag = account.battleTag
+            friends[tag] = true
             ObserveCharacter(tag, account.gameAccountInfo)
             if type(C_BattleNet.GetFriendNumGameAccounts) == "function"
                 and type(C_BattleNet.GetFriendGameAccountInfo) == "function" then
                 local success, count = pcall(C_BattleNet.GetFriendNumGameAccounts, i)
-                if success and type(count) == "number" then
+                if success and ns.IsAccessibleValue(count) and type(count) == "number" then
                     for j = 1, math.min(count, 20) do
                         local gotGame, game = pcall(C_BattleNet.GetFriendGameAccountInfo, i, j)
                         if gotGame then ObserveCharacter(tag, game) end
@@ -159,29 +166,29 @@ function ns.ScanBattleNetFriends()
             processed = processed + 1
         end
     end
-    ns.PromotePendingBattleNetObservations()
-    return processed
-end
-
-local function IsTrackingEnabled(category)
-    if not KnownPlayersSettings then return false end
-    if category == "party" or category == "raid" then
-        return type(KnownPlayersSettings.trackGroup) == "table"
-            and KnownPlayersSettings.trackGroup[category] == true
+    local removed = false
+    -- An empty response before the list is initialized can also mean loading.
+    if processed == total and ReadFriendCount() == total and (rosterUpdated or friendListReady or total > 0) then
+        friendListReady = true
+        for tag in pairs(KnownPlayersDB.bnetCharacters) do
+            if not friends[tag] then
+                KnownPlayersDB.bnetCharacters[tag] = nil
+                removed = true
+            end
+        end
+        for tag in pairs(pending) do
+            if not friends[tag] then pending[tag] = nil end
+        end
     end
-    local setting = {
-        trade = "trackTrades", guild = "trackGuild", whisper = "trackWhispers",
-        target = "trackTargets", inspect = "trackInspects",
-        manual = "trackManual",
-    }
-    local key = setting[category]
-    return key ~= nil and KnownPlayersSettings[key] == true
+    if removed then ns.InvalidateBattleNetIndex() end
+    ns.PromotePendingBattleNetObservations()
+    return processed, removed
 end
 
 local function HasEnabledCategory(record)
-    if not HasStoredCategory(record) then return false end
-    for category, present in pairs(record.categories) do
-        if present and IsTrackingEnabled(category) then return true end
+    if not record then return false end
+    for _, category in ipairs(ns.PlayerCategories) do
+        if ns.PlayerHasCategory(record, category.key) and ns.CategoryTrackingEnabled(category.key) then return true end
     end
     return false
 end
@@ -240,6 +247,10 @@ end
 
 function ns.IsAssociatedCharacter(name, guid)
     if not KnownPlayersSettings or not KnownPlayersSettings.trackBattleNetAssociations then return false end
+    if not ns.SafePlayerGUID(guid) then
+        local _, ambiguous = ns.FindDirectKeyByName(name)
+        if ambiguous then return false end
+    end
     return EnabledAnchor(AssociatedGroup(name, guid))
 end
 
@@ -261,7 +272,7 @@ function ns.GetAssociatedCharacters()
             local directKey = type(observed) == "table" and (ns.FindDirectKeyByGUID(observed.guid)
                 or ns.FindDirectKeyByName(key, observed.guid))
             local direct = directKey and ns.GetPlayer(directKey)
-            if ns.HasPlayerCategory(direct) then
+            if HasEnabledCategory(direct) then
                 anchor = direct.displayName or observed.name or directKey
                 anchorKey = directKey
                 break
@@ -290,10 +301,16 @@ end
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("BN_CONNECTED")
+frame:RegisterEvent("BN_DISCONNECTED")
 frame:RegisterEvent("BN_FRIEND_INFO_CHANGED")
 frame:RegisterEvent("BN_FRIEND_ACCOUNT_ONLINE")
 frame:RegisterEvent("BN_FRIEND_LIST_SIZE_CHANGED")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-frame:SetScript("OnEvent", function()
-    if KnownPlayersDB and KnownPlayersSettings then ns.ScanBattleNetFriends() end
+frame:SetScript("OnEvent", function(_, event)
+    if event == "BN_DISCONNECTED" then friendListReady = false; return end
+    local _, removed = ns.ScanBattleNetFriends(event == "BN_FRIEND_LIST_SIZE_CHANGED")
+    if removed then
+        ns.RefreshKnownNameplates()
+        ns.RefreshPlayerListWindows()
+    end
 end)

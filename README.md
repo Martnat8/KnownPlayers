@@ -74,6 +74,7 @@ Before opening a pull request, run these checks from the development shell:
 node --test scripts/*.test.mjs
 node scripts/check-version.mjs
 find KnownPlayers -type f -name '*.lua' -exec luac -p {} +
+for test in tests/*.lua; do lua "$test" || exit "$?"; done
 ```
 
 We use `MAJOR.MINOR.PATCH` versioning: fixes bump patch, backward-compatible features bump minor, and breaking changes bump major. Pre-releases append `b0`, `b1`, and so on (for example, `0.1.14b3`), starting at zero for each target version. Production releases are immutable. Keep version numbers unchanged in pull requests; [Martnat8](https://github.com/Martnat8) handles releases.

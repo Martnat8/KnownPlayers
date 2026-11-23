@@ -29,12 +29,6 @@ local NPC_DEFAULT_ORDER = {
     "repair", "innkeeper", "auctioneer", "quest",
 }
 
-local TRACK_KEY = {
-    trade = "trackTrades", guild = "trackGuild", whisper = "trackWhispers",
-    target = "trackTargets", inspect = "trackInspects", associated = "trackBattleNetAssociations",
-    manual = "trackManual",
-}
-
 function ns.InitializeNameplateColors()
     local settings = KnownPlayersSettings
     settings.nameplateCategoryColors = type(settings.nameplateCategoryColors) == "table" and settings.nameplateCategoryColors or {}
@@ -91,14 +85,6 @@ function ns.GetNPCNameplateCategoryColor(category)
         or NPC_DEFAULT_COLORS[category] or {1, 1, 1}
 end
 
-function ns.CategoryTrackingEnabled(category)
-    local settings = KnownPlayersSettings
-    if category == "party" or category == "raid" then
-        return type(settings.trackGroup) == "table" and settings.trackGroup[category] == true
-    end
-    return settings[TRACK_KEY[category]] == true
-end
-
 -- Share the indexed identity/association lookups with the visibility filter.
 local function DirectRecord(name, guid)
     return ns.FindDirectRecord and ns.FindDirectRecord(name, guid) or nil
@@ -118,7 +104,7 @@ function ns.GetNameplateCategory(name, guid)
     for _, category in ipairs(KnownPlayersSettings.nameplateColorOrder or DEFAULT_ORDER) do
         if category == "associated" then
             if associated then return category end
-        elseif record and record.categories[category] and ns.CategoryTrackingEnabled(category) then
+        elseif ns.PlayerHasCategory(record, category) and ns.CategoryTrackingEnabled(category) then
             return category
         end
     end

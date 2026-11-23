@@ -10,8 +10,8 @@ function ns.GetPlayerFromUnit(unit)
         return nil, "Target another player first."
     end
     local unidentified = "Could not identify the targeted player."
-    local compared, isSelf = pcall(UnitIsUnit, unit, "player")
-    if not compared or not ns.IsAccessibleValue(isSelf) then
+    local isSelf = ns.CompareUnits(unit, "player")
+    if isSelf == nil then
         return nil, unidentified
     end
     if isSelf then return nil, "Target another player first." end
@@ -34,18 +34,9 @@ function ns.GetPlayerFromUnit(unit)
 end
 
 local function FindSavedKey(name, guid)
-    local records = KnownPlayersDB and KnownPlayersDB.players
-    if type(records) ~= "table" then return nil end
-    if guid and ns.FindDirectKeyByGUID then
-        local matched = ns.FindDirectKeyByGUID(guid)
-        if matched then return ns.HasPlayerCategory(records[matched]) and matched or nil end
-    end
-    local record = records[name]
-    if ns.HasPlayerCategory(record)
-        and (not guid or not record.guid or record.guid == guid) then
-        return name
-    end
-    return nil
+    local key = ns.FindDirectKeyByGUID(guid) or ns.FindDirectKeyByName(name, guid)
+    local record = key and ns.GetPlayer(key)
+    if ns.HasPlayerCategory(record) then return key, record end
 end
 
 local function Refresh()
@@ -58,14 +49,10 @@ local function AddPlayerMenu(menuTag, rootDescription, contextData)
     -- Blizzard uses MENU_UNIT_PLAYER for player portraits on some builds,
     -- rather than MENU_UNIT_TARGET (which works for NPCs). Menu context can
     -- also omit the unit token on the target portrait.
-    local unit = contextData and contextData.unit
-    if not ns.SafeString(unit) or not UnitExists(unit) then
-        -- For the target portrait, accept either target-menu tag. Never
-        -- substitute our target for a party/raid/friend context menu.
-        if menuTag ~= "MENU_UNIT_TARGET" and menuTag ~= "MENU_UNIT_PLAYER"
-            and menuTag ~= "MENU_UNIT_FRIEND" and menuTag ~= "MENU_UNIT_ENEMY_PLAYER" then
-            return
-        end
+    local unit = ns.SafeString(contextData and contextData.unit)
+    if not unit then
+        -- Friends and chat menus can omit a unit and refer to someone else.
+        if menuTag ~= "MENU_UNIT_TARGET" then return end
         unit = "target"
     end
     local key, guid, _, realm = ns.GetPlayerFromUnit(unit)
@@ -76,15 +63,15 @@ local function AddPlayerMenu(menuTag, rootDescription, contextData)
         if currentKey == key and (not guid or guid == currentGUID) then return unit end
     end
 
-    local savedKey = FindSavedKey(key, guid)
+    local savedKey, savedRecord = FindSavedKey(key, guid)
     rootDescription:CreateDivider()
     rootDescription:CreateTitle("KnownPlayers")
     if savedKey then
         rootDescription:CreateButton("Why do I know this player?", function()
-            ns.OpenPlayerHistory(savedKey, CurrentUnit())
+            if ns.GetPlayer(savedKey) == savedRecord then ns.OpenPlayerHistory(savedKey, CurrentUnit()) end
         end)
         rootDescription:CreateButton("Forget Player", function()
-            if ns.ForgetPlayer(savedKey, true) then
+            if ns.GetPlayer(savedKey) == savedRecord and ns.ForgetPlayer(savedKey, true) then
                 Refresh()
             end
         end)

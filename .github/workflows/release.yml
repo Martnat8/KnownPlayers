@@ -90,6 +90,10 @@ jobs:
         run: |
           find KnownPlayers -type f -name '*.lua' -print0 | xargs -0 -r luac5.1 -p
 
+      - name: Test addon behavior
+        run: |
+          for test in tests/*.lua; do lua5.1 "$test" || exit "$?"; done
+
       - name: Check required addon files
         run: |
           test -f KnownPlayers/KnownPlayers.toc

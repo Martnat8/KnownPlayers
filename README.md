@@ -16,6 +16,7 @@ Maybe you trade with someone in town, exchange a few whispers, or group up for a
 - Optionally open a tabbed settings window with adjustable height from a minimap button that MinimapButtonButton can collect.
 - See why a player is known, search private notes and tags, and sort by recent interactions.
 - Pin favorite players and NPCs to protect them from inactivity expiration, or undo the most recent individual removal within 30 seconds.
+- Create an in-game restore point or export settings, player history, and saved NPCs through Backup & Restore.
 - Set optional, category-specific inactivity expiration (guild membership is exempt).
 - Hide unknown player nameplates; choose health bars, name format, and guild name display.
 - Customize category name colors and priority.
@@ -44,13 +45,13 @@ The GitHub source archive contains repository files as well as the addon folder;
 
 The addon stores character names, realms, identifiers, interaction categories, and timestamps in WoW **SavedVariables** on your computer. It also saves available race, portrait, and class information for known characters and linked Battle.net alts. For linked Battle.net friends, it stores BattleTags and observed character associations locally to support alt recognition across sessions. Unlinked friend observations are session-only. The addon does **not** upload this information.
 
-**Do not publish or attach your personal SavedVariables files to bug reports.** To back up your lists, copy your SavedVariables before upgrading or clearing a list.
+**Keep history exports and SavedVariables private.** For a copy outside WoW, open **Backup & Restore → Export**, choose which sections to include, and save the generated text to a file. Settings-only exports are the default. Private player exports include character identities, personal notes, and tags. Battle.net links stay in local restore points, and Blizzard's client-wide settings stay in WoW.
 
 ## Limitations
 
 - Battle.net alt recognition only works for available friend information; it cannot reveal every character on an account or discover strangers' alts.
 - Nameplate compatibility with other UI addons and behavior during combat have not been comprehensively tested.
-- Clearing lists is destructive; automatic tracking may subsequently add players again.
+- Clearing a list saves an automatic restore point. Automatic tracking may subsequently add players again.
 
 ## Reporting issues
 

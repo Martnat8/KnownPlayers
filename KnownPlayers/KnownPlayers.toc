@@ -8,6 +8,7 @@
 Safety.lua
 Categories.lua
 Database.lua
+Backups.lua
 QuestieDBBridge.lua
 NPC.lua
 PlayerMenu.lua
@@ -17,6 +18,7 @@ Nameplates.lua
 Settings.lua
 Minimap.lua
 PlayerList.lua
+BackupWindow.lua
 Tracking.lua
 BattleNet.lua
 Core.lua

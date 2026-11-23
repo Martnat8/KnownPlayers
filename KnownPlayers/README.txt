@@ -36,7 +36,19 @@ SETTINGS
   visibility, category colors, nameplate distances, and minimum opacity.
 
 Use Undo in the lists or /kp undo within 30 seconds of the last individual
-removal. Bulk clears require confirmation and cannot be undone.
+removal. Use Backup & Restore on the KnownPlayers tab for bulk clears.
+
+BACKUP & RESTORE
+Create a dated manual restore point or use the latest automatic point saved
+before a reset, bulk clear, import or restore. Select settings, player history,
+or saved NPCs independently when restoring.
+Export selects settings by default. Choose more sections to include them, then
+press Ctrl+C and save the text outside WoW. Keep exports with private player
+history to yourself. Battle.net links stay in local restore points. Exports
+cover KnownPlayers preferences. Blizzard's client-wide settings stay in WoW.
+Paste a KnownPlayers export under Import and preview its contents. Merge adds
+missing player and NPC records and keeps existing personal notes. Replace
+prompts before overwriting the selected sections.
 
 RETENTION
 On a fresh install or Reset Settings, Manually Added, Raid, Party, Trade,

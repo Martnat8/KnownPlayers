@@ -375,11 +375,12 @@ end
 
 local popupKey = "KNOWNPLAYERS_CLEAR_CATEGORY_WINDOW"
 StaticPopupDialogs[popupKey] = {
-    text = "Clear all entries from the %s list?\nOther lists will be kept.",
+    text = "Clear all entries from the %s list?\n\nA restore point will be saved in Backup & Restore.",
     button1 = YES,
     button2 = CANCEL,
     OnAccept = function(_, categoryKey)
         if categoryKey then
+            if not ns.BackupBeforeChange("Before clearing a list") then return end
             ns.ClearRemovalUndo()
             if categoryKey == "npc" then ns.ClearNPCs()
             else ns.ClearPlayerCategory(categoryKey) end
@@ -1093,9 +1094,10 @@ local function CreateNPCManagementWindow()
     local clearPopup = "KNOWNPLAYERS_CLEAR_NPC_MANAGEMENT"
     if not StaticPopupDialogs[clearPopup] then
         StaticPopupDialogs[clearPopup] = {
-            text = "Clear ALL manually remembered NPCs and NPC visibility overrides? This cannot be undone.",
+            text = "Clear all manually remembered NPCs and NPC visibility overrides?\n\nA restore point will be saved in Backup & Restore.",
             button1 = YES, button2 = CANCEL,
             OnAccept = function()
+                if not ns.BackupBeforeChange("Before clearing saved NPCs") then return end
                 ns.ClearNPCManagement()
                 if RefreshAllWindows then RefreshAllWindows() end
             end,

@@ -463,6 +463,46 @@ MergeInto = function(destination, source, keepDestinationDetails)
     if tags then destination.tags = NormalizeTags((ns.SafeString(destination.tags) or "") .. "," .. tags) end
 end
 
+-- Merge into a staged store with the same identity rules as live tracking.
+function ns.MergeBackupPlayers(staged, incoming)
+    local original = KnownPlayersDB.players
+    KnownPlayersDB.players = staged
+    ns.InvalidateIdentityIndex()
+    local ok, skipped = pcall(function()
+        local keys = {}
+        for key in pairs(incoming) do keys[#keys + 1] = key end
+        table.sort(keys)
+        local conflicts = 0
+        for _, key in ipairs(keys) do
+            local record = incoming[key]
+            local name = record.displayName and record.realm and (record.displayName .. "-" .. record.realm) or key
+            local destination = ns.FindDirectKeyByGUID(record.guid)
+            local ambiguous
+            if not destination then destination, ambiguous = ns.FindDirectKeyByName(name, record.guid) end
+            if destination then
+                local current = staged[destination]
+                local note = ns.SafeString(current.note)
+                MergeInto(current, record)
+                if note then current.note = note end
+                ns.UpdateIdentityIndex(destination, current)
+            else
+                local newKey = staged[key] and record.guid and ("guid:" .. record.guid) or key
+                if staged[newKey] or (ambiguous and not record.guid) then
+                    conflicts = conflicts + 1
+                else
+                    staged[newKey] = record
+                    ns.UpdateIdentityIndex(newKey, record)
+                end
+            end
+        end
+        return conflicts
+    end)
+    KnownPlayersDB.players = original
+    ns.InvalidateIdentityIndex()
+    if not ok then error(skipped, 0) end
+    return skipped
+end
+
 function ns.SetPlayerClass(record, class, token)
     class, token = ns.SafeString(class), ns.SafeString(token)
     if class and class ~= record.class then

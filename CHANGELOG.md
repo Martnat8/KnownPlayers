@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Add Backup & Restore with dated restore points, automatic backups before bulk changes, settings-only exports by default, and a preview before merging or replacing imported data.
+- Show the QuestieDB connection status beside the NPC database heading and fit the category list and NPC Manager controls in the default settings window.
+- Expand the minimap settings window to fit the Appearance tab within the screen and restore its previous height when switching tabs.
+- Give distance and opacity labels enough space beside their sliders and shorten the NPC distance label.
+
 ## [0.5.1b4] - 2026-11-23
 
 - Isolate the database self-test from saved history and prevent player menu actions from falling back to an unrelated target.

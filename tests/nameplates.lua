@@ -273,8 +273,10 @@ C_CVar = {
 }
 StaticPopupDialogs = {}
 KnownPlayersDB = {}
+time = function() return 1000000 end
 assert(loadfile("KnownPlayers/Categories.lua"))("KnownPlayers", ns)
 assert(loadfile("KnownPlayers/Database.lua"))("KnownPlayers", ns)
+assert(loadfile("KnownPlayers/Backups.lua"))("KnownPlayers", ns)
 assert(loadfile("KnownPlayers/Settings.lua"))("KnownPlayers", ns)
 ns.RefreshMinimapButton = function() end
 ns.InitializeDatabase()

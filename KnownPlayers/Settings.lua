@@ -9,7 +9,9 @@ local TRACKING_CONTROLS = {
 }
 local CONTENT_RIGHT_PADDING = 18
 local SCROLL_LEFT, SCROLL_RIGHT = 3, 28
+local SCROLL_TOP, SCROLL_BOTTOM = 4, 6
 local PAGE_PADDING, WINDOW_PADDING = 6, 10
+local MIN_SETTINGS_HEIGHT = 340
 local CONTENT_WIDTH = TABLE_LEFT + TRACKING_CONTROLS.priorityX + 2 * TRACKING_CONTROLS.arrow
     + TRACKING_CONTROLS.arrowGap + TRACKING_CONTROLS.gap + TRACKING_CONTROLS.manage + CONTENT_RIGHT_PADDING
 local INSET_WIDTH = CONTENT_WIDTH + SCROLL_LEFT + SCROLL_RIGHT + 2 * PAGE_PADDING
@@ -20,35 +22,34 @@ local function RefreshSettingsControls()
     for _, callback in ipairs(settingsRefreshers) do callback() end
 end
 
--- Reset preferences only; KnownPlayersDB and player histories are untouched.
+function ns.ApplyKnownPlayersSettings(settings)
+    -- The CVar backups describe this client and travel with its live settings.
+    local previous = KnownPlayersSettings or {}
+    previous.knownOnlyNameplates = false
+    previous.filterNPCNameplates = false
+    if ns.RestoreNativeOverheadNames then ns.RestoreNativeOverheadNames() end
+    if ns.RestoreNPCNameplateCVars then ns.RestoreNPCNameplateCVars() end
+    settings.overheadNameCVarsBackup = previous.overheadNameCVarsBackup
+    settings.npcCVarBackup = previous.npcCVarBackup
+    KnownPlayersSettings = settings
+    ns.InitializeDatabase()
+    if ns.InitializeNameplateColors then ns.InitializeNameplateColors() end
+    RefreshSettingsControls()
+    ns.RefreshMinimapButton()
+    if ns.InvalidateBattleNetIndex then ns.InvalidateBattleNetIndex() end
+    if ns.SyncNativeOverheadNames then ns.SyncNativeOverheadNames() end
+    if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
+    if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+    if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
+end
+
 StaticPopupDialogs["KNOWNPLAYERS_RESET_SETTINGS"] = {
-    text = "Reset all KnownPlayers settings to their defaults?\n\nSaved player lists will not be deleted.",
+    text = "Reset all KnownPlayers settings to their defaults?\n\nA restore point will be saved in Backup & Restore.",
     button1 = "Reset Settings",
     button2 = CANCEL,
     OnAccept = function()
-        -- Restore WoW's own overhead-name settings before discarding the backup.
-        if KnownPlayersSettings then
-            KnownPlayersSettings.knownOnlyNameplates = false
-            KnownPlayersSettings.filterNPCNameplates = false
-            if ns.RestoreNativeOverheadNames then ns.RestoreNativeOverheadNames() end
-            if ns.RestoreNPCNameplateCVars then ns.RestoreNPCNameplateCVars() end
-        end
-        local previous = KnownPlayersSettings or {}
-        KnownPlayersSettings = {
-            overheadNameCVarsBackup = previous.overheadNameCVarsBackup,
-            npcCVarBackup = previous.npcCVarBackup,
-        }
-        ns.InitializeDatabase()
-        if ns.InitializeNameplateColors then ns.InitializeNameplateColors() end
-        -- Rebind retention rows to their new SavedVariables tables, then repaint
-        -- every existing control. A full UI reload would be unnecessary.
-        RefreshSettingsControls()
-        ns.RefreshMinimapButton()
-        if ns.InvalidateBattleNetIndex then ns.InvalidateBattleNetIndex() end
-        if ns.SyncNativeOverheadNames then ns.SyncNativeOverheadNames() end
-        if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
-        if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
-        if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
+        if not ns.BackupBeforeChange("Before resetting settings") then return end
+        ns.ApplyKnownPlayersSettings({})
         print("|cff33ff99KnownPlayers:|r Settings restored to defaults.")
     end,
     timeout = 0,
@@ -176,8 +177,8 @@ end
 local function NewScrollingPage(parent)
     local page = CreateFrame("Frame", nil, parent)
     local scroller = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
-    scroller:SetPoint("TOPLEFT", page, "TOPLEFT", SCROLL_LEFT, -4)
-    scroller:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -SCROLL_RIGHT, 6)
+    scroller:SetPoint("TOPLEFT", page, "TOPLEFT", SCROLL_LEFT, -SCROLL_TOP)
+    scroller:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -SCROLL_RIGHT, SCROLL_BOTTOM)
     local content = CreateFrame("Frame", nil, scroller)
     content:SetSize(CONTENT_WIDTH, 600)
     scroller:SetScrollChild(content)
@@ -322,20 +323,26 @@ local function AddRetentionDropdown(row, key, x, relayout)
 end
 
 local function NameplateSliderRow(parent, anchor, option)
+    local rowWidth = CONTENT_WIDTH - 2 * TABLE_LEFT
+    local labelWidth, valueWidth, buttonWidth, columnGap = 174, 46, 74, 10
+    local sliderX = labelWidth + columnGap
+    local valueX = rowWidth - buttonWidth - columnGap - valueWidth
     local row = CreateFrame("Frame", nil, parent)
     row:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -6)
-    row:SetSize(CONTENT_WIDTH - 2 * TABLE_LEFT, 44)
-    Label(row, option.label, 0, -7, "GameFontHighlight")
+    row:SetSize(rowWidth, 44)
+    local label = Label(row, option.label, 0, -7, "GameFontHighlight")
+    label:SetWidth(labelWidth)
+    label:SetJustifyH("LEFT")
     local slider = CreateFrame("Slider", nil, row, "UISliderTemplate")
-    slider:SetPoint("TOPLEFT", row, "TOPLEFT", 146, -4)
-    slider:SetSize(145, 17)
+    slider:SetPoint("TOPLEFT", row, "TOPLEFT", sliderX, -4)
+    slider:SetSize(valueX - sliderX - columnGap, 17)
     slider:SetMinMaxValues(option.min, option.max)
     slider:SetValueStep(1)
     slider:SetObeyStepOnDrag(true)
-    local valueLabel = Label(row, "", 296, -7)
-    valueLabel:SetWidth(46)
+    local valueLabel = Label(row, "", valueX, -7)
+    valueLabel:SetWidth(valueWidth)
     valueLabel:SetJustifyH("RIGHT")
-    local status = Label(row, "", 146, -28)
+    local status = Label(row, "", sliderX, -28)
 
     local function ReadNumber(getter)
         local ok, value = pcall(getter, option.cvar)
@@ -389,7 +396,7 @@ local function NameplateSliderRow(parent, anchor, option)
         end
     end
 
-    defaultButton = Button(row, "Default", 74, function()
+    defaultButton = Button(row, "Default", buttonWidth, function()
         local defaultValue = ReadNumber(C_CVar and C_CVar.GetCVarDefault)
         if defaultValue then Apply(defaultValue) end
     end)
@@ -554,6 +561,8 @@ local function BuildHomePage(parent)
     local reset = Button(content, "Reset Settings to Defaults", 205, function()
         StaticPopup_Show("KNOWNPLAYERS_RESET_SETTINGS")
     end)
+    local backups = Button(content, "Backup & Restore", 135, function() ns.OpenBackupWindow(page) end)
+    backups:SetPoint("LEFT", reset, "RIGHT", 9, 0)
     local version = Label(content, "Version " .. ns.AddonVersion, 0, 0)
     local repository = Label(content, "https://github.com/Martnat8/KnownPlayers", 0, 0)
 
@@ -649,7 +658,7 @@ local function AddPriorityTable(body, top, options)
     local ready = false
     for _, key in ipairs(KnownPlayersSettings[orderKey]) do
         local row = CreateFrame("Frame", nil, body)
-        row:SetSize(CONTENT_WIDTH - TABLE_LEFT - CONTENT_RIGHT_PADDING, ROW_HEIGHT)
+        row:SetSize(CONTENT_WIDTH - TABLE_LEFT - CONTENT_RIGHT_PADDING, options.rowHeight or ROW_HEIGHT)
         rows[key] = row
         row.tracking = Checkbox(row, 0, -1, options.labels[key], options.enabled(key), function(checked)
             options.setEnabled(key, checked)
@@ -699,17 +708,15 @@ end
 local function BuildNPCPage(parent)
     local page, body = NewScrollingPage(parent)
 
-    Label(body, "NPC database", 21, -12, "GameFontNormal")
+    local sourceHeading = Label(body, "", 21, -12, "GameFontNormal")
+    sourceHeading:SetWidth(CONTENT_WIDTH - 42)
+    sourceHeading:SetJustifyH("LEFT")
     Label(body, "Automatic NPC roles come from the separately installed QuestieDB addon.", 21, -36)
     Label(body, "Higher categories take priority for NPCs with several roles.", 21, -56)
-    local sourceStatus = Label(body, "", 21, -90)
     local function RefreshSourceStatus()
-        sourceStatus:SetText(ns.GetNPCDataSourceStatus())
-        if ns.IsQuestieDBConnected() then
-            sourceStatus:SetTextColor(0.35, 1.0, 0.45)
-        else
-            sourceStatus:SetTextColor(1.0, 0.33, 0.33)
-        end
+        local status = ns.GetNPCDataSourceStatus():gsub(" %- automatic NPC categories unavailable$", "")
+        local color = ns.IsQuestieDBConnected() and "ff59ff73" or "ffff5454"
+        sourceHeading:SetText("NPC database - |c" .. color .. status .. "|r")
     end
     RegisterSettingsRefresher(RefreshSourceStatus)
     local sourceEvents = CreateFrame("Frame", nil, page)
@@ -720,24 +727,27 @@ local function BuildNPCPage(parent)
     RefreshSourceStatus()
 
     local management = CreateFrame("Frame", nil, body)
-    management:SetSize(425, 100)
+    management:SetWidth(CONTENT_WIDTH - 42)
     Label(management, "Forget manually remembered NPCs over time", 0, -4, "GameFontNormal")
+    local retentionOffset = 25
     local retention = CreateFrame("Frame", nil, management)
-    retention:SetSize(425, ROW_HEIGHT)
-    retention:SetPoint("TOPLEFT", management, "TOPLEFT", 0, -28)
+    retention:SetSize(management:GetWidth(), ROW_HEIGHT)
+    retention:SetPoint("TOPLEFT", management, "TOPLEFT", 0, -retentionOffset)
     Label(retention, "Remember for", 0, -8)
-    local manager = Button(management, "Open NPC Manager", 180, function() ns.OpenPlayerList("npc", page) end)
-    manager:SetPoint("TOPLEFT", retention, "BOTTOMLEFT", 0, -10)
+    local manager = Button(retention, "NPC Manager", 118, function() ns.OpenPlayerList("npc", page) end)
+    local managerX = TRACKING_CONTROLS.durationX + TRACKING_CONTROLS.duration + TRACKING_CONTROLS.gap
+    manager:SetPoint("TOPLEFT", retention, "TOPLEFT", managerX, -2)
     local managementY
     local function LayoutManagement()
-        management:SetHeight(28 + retention:GetHeight() + 49)
+        management:SetHeight(retentionOffset + retention:GetHeight() + 6)
         if managementY then body:SetHeight(-managementY + management:GetHeight()) end
     end
     AddRetentionDropdown(retention, "npc", TRACKING_CONTROLS.durationX, LayoutManagement)
     LayoutManagement()
 
-    AddPriorityTable(body, -120, {
+    AddPriorityTable(body, -76, {
         orderKey = "npcNameplateColorOrder",
+        rowHeight = 28,
         labels = NPCLabels(),
         enabled = function(key) return KnownPlayersSettings.npcServiceCategories[key] == true end,
         setEnabled = function(key, checked)
@@ -745,7 +755,7 @@ local function BuildNPCPage(parent)
             ns.RefreshKnownNameplates()
         end,
         afterRows = function(y)
-            managementY = y - 17
+            managementY = y - 12
             management:ClearAllPoints()
             management:SetPoint("TOPLEFT", body, "TOPLEFT", 21, managementY)
             LayoutManagement()
@@ -802,7 +812,7 @@ local function AddNameplateSliders(page, body, anchor)
     for _, option in ipairs({
         {label = "Player distance", cvar = "nameplatePlayerMaxDistance",
             min = 20, max = 60, scale = 1, suffix = " yd"},
-        {label = "NPC / non-player distance", cvar = "nameplateMaxDistance",
+        {label = "NPC distance", cvar = "nameplateMaxDistance",
             min = 20, max = 60, scale = 1, suffix = " yd"},
         {label = "Minimum opacity", cvar = "nameplateMinAlpha",
             min = 0, max = 100, scale = 100, suffix = "%"},
@@ -916,6 +926,7 @@ local function BuildAppearancePage(parent)
     AddColorTable(npcColors, "NPC category colors", "npcNameplateColorOrder",
         NPCLabels(), ns.GetNPCNameplateCategoryColor, "npcNameplateCategoryColors")
     body:SetHeight(-sliderTop + heading:GetStringHeight() + sliderHeight + 19 + colorHeight + 20)
+    page.fitHeightContent = body
     return page
 end
 
@@ -937,9 +948,9 @@ local function CreateSettingsPage(definition, parent)
     return page
 end
 
-local function CreateSettingsTabs(frame, tabTop, bottomInset)
+local function CreateSettingsTabs(frame, tabTop, bottomInset, autoFitHeight)
     local pages = {}
-    local selectedTab
+    local selectedTab, previousHeight
     local inset = CreateFrame("Frame", nil, frame, "InsetFrameTemplate")
     inset:SetPoint("BOTTOM", frame, "BOTTOM", 0, bottomInset)
     frame.Tabs = {}
@@ -958,6 +969,26 @@ local function CreateSettingsTabs(frame, tabTop, bottomInset)
         first:ClearAllPoints()
         first:SetPoint("TOPLEFT", frame, "TOP", -tabWidth / 2, tabTop)
     end
+    local function FitPageHeight(page)
+        -- Blizzard owns the enclosing window for the AddOns settings panel.
+        if not autoFitHeight then return end
+        local content = page.fitHeightContent
+        if content then
+            previousHeight = previousHeight or frame:GetHeight()
+            local chrome = frame.Tabs[1]:GetHeight() - tabTop - 1 + bottomInset
+                + 2 * PAGE_PADDING + SCROLL_TOP + SCROLL_BOTTOM
+            local height = math.max(previousHeight, math.ceil(content:GetHeight() + chrome))
+            local screenHeight = UIParent:GetHeight()
+            if screenHeight > 0 then
+                local maximum = math.max(MIN_SETTINGS_HEIGHT, screenHeight - 2 * WINDOW_PADDING)
+                height = math.min(height, maximum)
+            end
+            frame:SetHeight(height)
+        elseif previousHeight then
+            frame:SetHeight(previousHeight)
+            previousHeight = nil
+        end
+    end
     local function SelectTab(selected)
         if selectedTab and selectedTab ~= selected then
             ns.CloseWindowsFromSettingsPage(pages[selectedTab])
@@ -966,6 +997,7 @@ local function CreateSettingsTabs(frame, tabTop, bottomInset)
         PanelTemplates_SetTab(frame, selected)
         FitTabs(frame:GetWidth())
         for index, page in ipairs(pages) do page:SetShown(index == selected) end
+        FitPageHeight(pages[selected])
     end
     for index, definition in ipairs(SETTINGS_PAGES) do
         local page = CreateSettingsPage(definition, frame)
@@ -984,6 +1016,9 @@ local function CreateSettingsTabs(frame, tabTop, bottomInset)
     inset:SetPoint("TOP", frame, "TOP", 0, tabTop - frame.Tabs[1]:GetHeight() + 1)
     PanelTemplates_SetNumTabs(frame, #pages)
     SelectTab(1)
+    if autoFitHeight then
+        frame:HookScript("OnShow", function() FitPageHeight(pages[selectedTab]) end)
+    end
     local previousWidth = frame:GetWidth()
     frame:HookScript("OnSizeChanged", function(_, width)
         if width == previousWidth then return end
@@ -1001,7 +1036,7 @@ local function CreateSettingsWindow()
     frame:SetClampedToScreen(true)
     frame:SetMovable(true)
     frame:SetResizable(true)
-    frame:SetResizeBounds(width, 340, width)
+    frame:SetResizeBounds(width, MIN_SETTINGS_HEIGHT, width)
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
@@ -1021,7 +1056,7 @@ local function CreateSettingsWindow()
         if mouseButton == "LeftButton" then frame:StopMovingOrSizing() end
     end)
 
-    CreateSettingsTabs(frame, -22, 22)
+    CreateSettingsTabs(frame, -22, 22, true)
     return frame
 end
 

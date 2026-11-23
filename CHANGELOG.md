@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.1b4] - 2026-11-23
+
 - Isolate the database self-test from saved history and prevent player menu actions from falling back to an unrelated target.
 - Scope guild records to their guild, preserve personal details, and reconcile later roster changes during the same session.
 - Remove stale Battle.net links after a complete friend-list scan, reject ambiguous name-only matches, and update the identity index incrementally.

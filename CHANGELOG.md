@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.2b1] - 2026-11-24
+
 - Preserve GUID-less history during startup when multiple players claim the same name and realm.
 - Skip ambiguous GUID-less backup rows after checking both saved and incoming identities.
 - Keep long notes and extensive history in local backups and checkpoint only the sections changed by each bulk action.

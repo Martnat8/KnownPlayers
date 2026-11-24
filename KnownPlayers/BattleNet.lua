@@ -195,6 +195,25 @@ end
 
 -- Cache which characters belong to which BNet friend. Rebuild only on
 -- observation changes or direct record changes, never per nameplate tick.
+local function AssociationNameKey(name, realm)
+    name = ns.SafeString(name)
+    if name then return (ns.NormalizePlayerKey(name, realm) or name):lower() end
+end
+
+local function IndexAssociatedName(key, observed, group)
+    local name = AssociationNameKey(key, observed.realm)
+    if not name then return end
+    local existing = indexedMembersByKey[name]
+    local guid = ns.SafePlayerGUID(observed.guid)
+    if existing == nil then
+        indexedMembersByKey[name] = {group = group, guid = guid}
+    elseif existing and (existing.group ~= group or (guid and existing.guid and guid ~= existing.guid)) then
+        indexedMembersByKey[name] = false
+    elseif existing and guid then
+        existing.guid = guid
+    end
+end
+
 local function BuildAssociationIndex()
     if not associationDirty then return end
     indexedMembersByKey, indexedMembersByGUID, linkedGroups = {}, {}, {}
@@ -212,7 +231,7 @@ local function BuildAssociationIndex()
                 linkedGroups[#linkedGroups+1] = summary
                 for key, observed in pairs(group) do
                     if type(observed) == "table" then
-                        indexedMembersByKey[key] = summary
+                        IndexAssociatedName(key, observed, summary)
                         if IsPlayerGUID(observed.guid) then
                             indexedMembersByGUID[observed.guid] = summary
                         end
@@ -229,12 +248,8 @@ local function AssociatedGroup(name, guid)
     if IsPlayerGUID(guid) and indexedMembersByGUID[guid] then
         return indexedMembersByGUID[guid]
     end
-    local group = indexedMembersByKey[name]
-    if group and IsPlayerGUID(guid) then
-        local observed = group.members[name]
-        if observed and observed.guid and observed.guid ~= guid then return nil end
-    end
-    return group
+    local entry = indexedMembersByKey[AssociationNameKey(name)]
+    if entry and (not IsPlayerGUID(guid) or not entry.guid or entry.guid == guid) then return entry.group end
 end
 
 local function EnabledAnchor(group)

@@ -315,4 +315,30 @@ reject = false
 Event("PLAYER_REGEN_ENABLED")
 assert(cvars.UnitNameFriendlyPlayerName == "1" and cvars.UnitNameNPC == "1")
 assert(not KnownPlayersSettings.overheadNameCVarsBackup and not KnownPlayersSettings.npcCVarBackup)
+-- A partially successful restore must forget resolved keys before later retries.
+for _, config in ipairs({
+    {"knownOnlyNameplates", "overheadNameCVarsBackup", ns.SyncNativeOverheadNames,
+        "UnitNameFriendlyPlayerName", "UnitNameEnemyPlayerName"},
+    {"filterNPCNameplates", "npcCVarBackup", ns.SyncNPCNameplateCVars,
+        "UnitNameNPC", "UnitNameInteractiveNPC"},
+}) do
+    local toggle, backupKey, sync, first, second = unpack(config)
+    cvars[first], cvars[second] = "1", "1"
+    KnownPlayersSettings[toggle] = true
+    sync()
+    assert(cvars[first] == "0" and cvars[second] == "0")
+    C_CVar.SetCVar = function(name, value)
+        if name == second then return false end
+        cvars[name] = value
+        return true
+    end
+    KnownPlayersSettings[toggle] = false
+    sync()
+    local pending = KnownPlayersSettings[backupKey]
+    assert(cvars[first] == "1" and cvars[second] == "0" and not pending[first] and pending[second] == "1")
+    cvars[first] = "0"
+    C_CVar.SetCVar = function(name, value) cvars[name] = value; return true end
+    Event("PLAYER_REGEN_ENABLED")
+    assert(cvars[first] == "0" and cvars[second] == "1" and not KnownPlayersSettings[backupKey])
+end
 print("Nameplate lifecycle, filtering, scaling, and settings restoration checks passed.")

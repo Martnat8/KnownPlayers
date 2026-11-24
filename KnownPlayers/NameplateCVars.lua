@@ -106,11 +106,12 @@ function ns.RestoreNativeOverheadNames()
     if not KnownPlayersSettings then return end
     local old = KnownPlayersSettings.overheadNameCVarsBackup
     if type(old) ~= "table" then return end
-    local allRestored = true
+    local pending = false
     for _, name in ipairs(nativePlayerNameCVars) do
-        if not RestoreManagedCVar(name, old[name], "0") then allRestored = false end
+        if RestoreManagedCVar(name, old[name], "0") then old[name] = nil
+        else pending = true end
     end
-    if allRestored then KnownPlayersSettings.overheadNameCVarsBackup = nil end
+    if not pending then KnownPlayersSettings.overheadNameCVarsBackup = nil end
 end
 
 function ns.SyncNativeOverheadNames()
@@ -187,11 +188,10 @@ function ns.RestoreNPCNameplateCVars()
     if not KnownPlayersSettings then return end
     local backup = KnownPlayersSettings.npcCVarBackup
     if type(backup) ~= "table" then return end
-    local complete = true
     for key, prior in pairs(backup) do
-        if not RestoreNPCNameplateCVar(key, prior) then complete = false end
+        if RestoreNPCNameplateCVar(key, prior) then backup[key] = nil end
     end
-    if complete then KnownPlayersSettings.npcCVarBackup = nil end
+    if not next(backup) then KnownPlayersSettings.npcCVarBackup = nil end
 end
 
 function ns.SyncNPCNameplateCVars()

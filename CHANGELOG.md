@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- Preserve GUID-less history during startup when multiple players claim the same name and realm.
+- Skip ambiguous GUID-less backup rows after checking both saved and incoming identities.
+- Keep long notes and extensive history in local backups and checkpoint only the sections changed by each bulk action.
+- Resolve already-qualified whisper senders against saved identities before appending a local realm.
+- Decline ambiguous Battle.net alt matches when looking up a name without a GUID.
+- Retry only unresolved nameplate CVar restores so newer settings stay intact.
+
 ## [0.5.2b0] - 2026-11-24
 
 - Check the addon manifest and smoke-test startup in load order in CI.

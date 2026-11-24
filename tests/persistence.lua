@@ -140,6 +140,23 @@ assert(buttons["Forget Player"])
 buttons["Forget Player"]()
 assert(ns.GetPlayer(target) == nil and ns.GetPlayer(MEMBER))
 
+-- Preserve GUID-less history through startup and later GUID-confirmed tracking.
+local sharedKey = "Shared-Player-" .. REALM
+local firstAlias, secondAlias = "Shared Player-" .. REALM, "shared-player-" .. REALM
+ns, state = StartSession({players = {
+    [sharedKey] = {note = "Ambiguous history", categories = {trade = true}, lastSeen = NOW},
+    [firstAlias] = {guid = "Player-Migrate-1", categories = {manual = true}},
+    [secondAlias] = {guid = "Player-Migrate-2", categories = {manual = true}},
+}})
+local ambiguousHistory = ns.GetPlayer(sharedKey)
+assert(ambiguousHistory and ambiguousHistory.note == "Ambiguous history")
+local confirmed = ns.RememberPlayer(sharedKey, "whisper", NOW, "Player-Migrate-1")
+assert(confirmed and not confirmed.note and not ns.PlayerHasCategory(confirmed, "trade"))
+assert(ns.GetPlayer(sharedKey) == ambiguousHistory and ns.CountPlayers() == 3)
+local newcomer = ns.RememberPlayer(sharedKey, "party", NOW, "Player-Migrate-3")
+assert(newcomer and newcomer ~= ambiguousHistory and not ns.PlayerHasCategory(newcomer, "trade"))
+assert(ns.GetPlayer(sharedKey) == ambiguousHistory and ns.CountPlayers() == 4)
+
 ns, state = StartSession(nil, {trackWhispers = true})
 local localMember = ns.RememberPlayer(MEMBER, "manual")
 state:Fire("CHAT_MSG_WHISPER", "Synthetic message", "Test-Member")
@@ -149,6 +166,15 @@ state:Fire("CHAT_MSG_WHISPER", "Synthetic message", remote)
 assert(ns.PlayerHasCategory(ns.GetPlayer(remote), "whisper"))
 state:Fire("CHAT_MSG_WHISPER_INFORM", "Synthetic message", "Test-Self")
 assert(ns.CountPlayers() == 2 and not ns.GetPlayer(SELF))
+local remoteRealm = "LegacyRealm"
+local qualified = "Test-Member-" .. remoteRealm
+local remoteMember = ns.RememberPlayer(qualified, "manual", NOW, nil, remoteRealm)
+state:Fire("CHAT_MSG_WHISPER", "Synthetic message", qualified)
+assert(ns.PlayerHasCategory(remoteMember, "whisper") and ns.CountPlayers() == 3)
+local conflict = ns.RememberPlayer(qualified, "manual", NOW, "Player-Whisper-1", remoteRealm)
+local another = ns.RememberPlayer(qualified, "manual", NOW, "Player-Whisper-2", remoteRealm)
+state:Fire("CHAT_MSG_WHISPER", "Synthetic message", qualified)
+assert(conflict ~= another and not ns.PlayerHasCategory(another, "whisper") and ns.CountPlayers() == 4)
 
 -- Full and partial Battle.net snapshots exercise persisted and transient links.
 ns, state = StartSession()
@@ -174,6 +200,29 @@ assert(#ns.GetAssociatedCharacters() == 1)
 state:Fire("BN_FRIEND_LIST_SIZE_CHANGED")
 assert(#ns.GetAssociatedCharacters() == 0 and next(KnownPlayersDB.bnetCharacters) == nil)
 assert(ns.GetPlayer(MEMBER))
+
+-- Two linked groups can report the same name while each GUID remains valid.
+ns, state = StartSession()
+local altKey = "Shared-Alt-" .. REALM
+local secondAnchor = "Second-Anchor-" .. REALM
+ns.RememberPlayer(MEMBER, "manual", NOW, "Player-Anchor-1")
+ns.RememberPlayer(secondAnchor, "manual", NOW, "Player-Anchor-2")
+KnownPlayersDB.bnetCharacters = {
+    ["Example#0001"] = {
+        [MEMBER] = {guid = "Player-Anchor-1"},
+        [altKey] = {guid = "Player-Alt-1"},
+    },
+    ["Example#0002"] = {
+        [secondAnchor] = {guid = "Player-Anchor-2"},
+        ["shared alt-" .. REALM] = {guid = "Player-Alt-2"},
+    },
+}
+ns.InvalidateBattleNetIndex()
+assert(ns.IsAssociatedCharacter(altKey, "Player-Alt-1") and ns.IsAssociatedCharacter(altKey, "Player-Alt-2"))
+assert(not ns.IsKnownOrAssociated(altKey) and not ns.IsAssociatedCharacter(altKey, "Player-Alt-3"))
+KnownPlayersDB.bnetCharacters["Example#0002"] = nil
+ns.InvalidateBattleNetIndex()
+assert(ns.IsAssociatedCharacter(altKey) and not ns.IsAssociatedCharacter(altKey, "Player-Alt-2"))
 
 -- New and existing roster imports must grow linearly in identity lookups.
 ns, state = StartSession()

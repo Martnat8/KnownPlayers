@@ -284,7 +284,7 @@ StaticPopupDialogs[popupKey] = {
     button2 = CANCEL,
     OnAccept = function(_, categoryKey)
         if ns.IsPlayerCategory(categoryKey) then
-            if not ns.BackupBeforeChange("Before clearing a list") then return end
+            if not ns.BackupBeforeChange("Before clearing a list", {players = true}) then return end
             ns.ClearRemovalUndo()
             ns.ClearPlayerCategory(categoryKey)
             if RefreshAllWindows then RefreshAllWindows() end
@@ -996,7 +996,7 @@ local function CreateNPCManagementWindow()
             text = "Clear all manually remembered NPCs and NPC visibility overrides?\n\nA restore point will be saved in Backup & Restore.",
             button1 = YES, button2 = CANCEL,
             OnAccept = function()
-                if not ns.BackupBeforeChange("Before clearing saved NPCs") then return end
+                if not ns.BackupBeforeChange("Before clearing saved NPCs", {npcs = true}) then return end
                 ns.ClearNPCManagement()
                 if RefreshAllWindows then RefreshAllWindows() end
             end,

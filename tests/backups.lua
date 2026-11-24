@@ -67,11 +67,13 @@ C_EncodingUtil = oldCodec
 StaticPopupDialogs.KNOWNPLAYERS_RESET_SETTINGS.OnAccept()
 assert(KnownPlayersSettings.showMinimapButton == true and KnownPlayersDB.players[key] == record)
 assert(ns.GetRestorePoint("automatic").sections.settings.showMinimapButton == false)
+assert(not ns.GetRestorePoint("automatic").sections.players and not ns.GetRestorePoint("automatic").sections.npcs)
 assert(ns.ApplyBackup(ns.GetRestorePoint("automatic"), {settings = true}, "replace", true))
 assert(KnownPlayersSettings.showMinimapButton == false and KnownPlayersSettings.overheadNameCVarsBackup)
 StaticPopupDialogs.KNOWNPLAYERS_CLEAR_CATEGORY_WINDOW.OnAccept(nil, "manual")
 assert(not ns.PlayerHasCategory(record, "manual"))
 assert(ns.GetRestorePoint("automatic").sections.players.records[key].categories.manual)
+assert(not ns.GetRestorePoint("automatic").sections.settings and not ns.GetRestorePoint("automatic").sections.npcs)
 assert(ns.GetRestorePoint("manual") == manual)
 
 -- Import into an existing record with the same GUID after a rename.
@@ -123,6 +125,19 @@ assert(staged[key].categories.trade and staged[key].note == "Staged note" and no
 assert(KnownPlayersDB.players == livePlayers and ns.FindDirectRecord(key, guid) == liveRecord)
 ns.InvalidateBattleNetIndex = invalidateBattleNet
 
+-- An incoming GUID-less alias sorts before the incoming conflicting GUID.
+local shared = "Backup-Player-CAMWOW1"
+ns.RememberPlayer(shared, "manual", NOW, "Player-Backup-1")
+local competing = {version = 1, created = NOW, sections = {players = {records = {
+    ["Backup Player-CAMWOW1"] = {favorite = true, categories = {trade = true}},
+    [shared] = {guid = "Player-Backup-2", categories = {target = true}},
+}}}}
+applied, skipped = ns.ApplyBackup(competing, {players = true}, "merge", false)
+assert(applied and skipped == 1)
+local preserved = ns.FindDirectRecord(shared, "Player-Backup-1")
+assert(preserved and not preserved.favorite and not ns.PlayerHasCategory(preserved, "trade"))
+assert(ns.PlayerHasCategory(ns.FindDirectRecord(shared, "Player-Backup-2"), "target"))
+
 -- Reject a merge beyond the portable limit before changing history or checkpoints.
 local extraNPC = {version = 1, created = NOW, sections = {npcs = {
     records = {["10001"] = {name = "Extra NPC"}}, overrides = {},
@@ -145,6 +160,32 @@ assert(KnownPlayersSettings.showMinimapButton and KnownPlayersDB.npcs == npcs)
 assert(ns.ApplyBackup(extraNPC, {npcs = true}, "replace", false))
 assert(ns.ApplyBackup(oversized, {npcs = true}, "replace", true))
 assert(KnownPlayersDB.npcs["10001"].name == "Existing NPC" and KnownPlayersDB.npcs["1"])
+
+local nested = ns.RememberPlayer("Nested-History-CAMWOW1", "manual", NOW)
+nested.guildMemberships = {}
+for clubID = 1, 201 do nested.guildMemberships[tostring(clubID)] = {firstSeen = NOW} end
+assert(not ns.ExportBackup({players = true}))
+nested.guildMemberships["201"] = nil
+local longNote = string.rep("x", 65537)
+assert(ns.SavePlayerDetails("Nested-History-CAMWOW1", nested, longNote, ""))
+assert(not ns.ExportBackup({players = true}))
+nested.guildMemberships["201"] = {firstSeen = NOW}
+local nestedPoint = assert(ns.CreateRestorePoint("manual", "Nested history"))
+nested.note, nested.guildMemberships = nil, nil
+assert(ns.ApplyBackup(nestedPoint, {players = true}, "replace", true))
+local restored = ns.GetPlayer("Nested-History-CAMWOW1")
+assert(restored.note == longNote and restored.guildMemberships["201"].firstSeen == NOW)
+-- A malformed unrelated history row must not block a settings-only action.
+restored.favorite = "invalid"
+KnownPlayersSettings.showMinimapButton = false
+StaticPopupDialogs.KNOWNPLAYERS_RESET_SETTINGS.OnAccept()
+assert(KnownPlayersSettings.showMinimapButton and ns.GetPlayer("Nested-History-CAMWOW1") == restored)
+assert(ns.ApplyBackup(ns.GetRestorePoint("automatic"), {settings = true}, "replace", true))
+assert(KnownPlayersSettings.showMinimapButton == false and restored.favorite == "invalid")
+assert(ns.ApplyBackup({version = 1, created = NOW, sections = {settings = {}, players = "invalid"}},
+    {settings = true}, "replace", true))
+assert(KnownPlayersSettings.showMinimapButton)
+restored.favorite = nil
 
 local scans = {}
 ns.ScanGroupRoster = function() scans[#scans + 1] = "group" end

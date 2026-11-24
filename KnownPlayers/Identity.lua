@@ -30,13 +30,18 @@ local function Alias(name, realm)
     return normalized and normalized:lower()
 end
 
-local function AddRecord(index, key, record)
-    if type(record) ~= "table" or type(record.categories) ~= "table" then return end
+function ns.PlayerIdentityAliases(key, record)
     local preferredName, realm = ns.SafeString(record.displayName), ns.SafeString(record.realm)
     local alias = Alias(key, realm)
     local preferred = preferredName and realm and Alias(preferredName .. "-" .. realm, realm)
+    return alias, preferred ~= alias and preferred or nil
+end
+
+local function AddRecord(index, key, record)
+    if type(record) ~= "table" or type(record.categories) ~= "table" then return end
+    local alias, preferred = ns.PlayerIdentityAliases(key, record)
     local guid = ns.SafePlayerGUID(record.guid)
-    local entry = {record = record, guid = guid, alias = alias, preferred = preferred ~= alias and preferred or nil}
+    local entry = {record = record, guid = guid, alias = alias, preferred = preferred}
     index.entries[key] = entry
     AddIndexKey(index.aliases, alias, key)
     AddIndexKey(index.aliases, entry.preferred, key)
@@ -74,11 +79,11 @@ function ns.UpdateIdentityIndex(key, record)
 end
 
 -- Match only an unambiguous name on the same realm, without a conflicting GUID.
-function IdentityIndex:FindKeyByName(name, guid)
+function IdentityIndex:FindKeyByName(name, guid, realm)
     name = ns.SafeString(name)
     if not name then return nil end
     guid = ns.SafePlayerGUID(guid)
-    local candidates = self.aliases[Alias(name)]
+    local candidates = self.aliases[Alias(name, realm)]
     if not candidates then
         local exact = self.entries[name]
         if exact and (not guid or not exact.guid or exact.guid == guid) then return name end
@@ -107,12 +112,22 @@ function IdentityIndex:FindKeyByGUID(guid)
     return match
 end
 
-function ns.FindDirectKeyByName(name, guid)
-    if ns.SafeString(name) then return GetLiveIndex():FindKeyByName(name, guid) end
+function ns.FindDirectKeyByName(name, guid, realm)
+    if ns.SafeString(name) then return GetLiveIndex():FindKeyByName(name, guid, realm) end
 end
 
 function ns.FindDirectKeyByGUID(guid)
     if ns.SafePlayerGUID(guid) then return GetLiveIndex():FindKeyByGUID(guid) end
+end
+
+function ns.HasConflictingPlayerGUID(name, guid, realm)
+    local index = GetLiveIndex()
+    local candidates = index.aliases[Alias(name, realm)]
+    for key in pairs(candidates or {}) do
+        local existing = index.entries[key].guid
+        if existing and existing ~= guid then return true end
+    end
+    return false
 end
 
 function ns.FindDirectRecord(name, guid)

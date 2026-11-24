@@ -20,8 +20,8 @@ function ns.IsPlayerCategory(key)
     return categories[key] ~= nil
 end
 
-function ns.CategoryTrackingEnabled(key)
-    local settings = KnownPlayersSettings
+function ns.CategoryTrackingEnabled(key, settings)
+    settings = settings or KnownPlayersSettings
     local category = key == "associated" and ns.AssociatedCategory or categories[key]
     if not settings or not category then return false end
     if category.group then

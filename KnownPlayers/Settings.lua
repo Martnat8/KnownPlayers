@@ -33,11 +33,20 @@ local function RunInitialTrackingScan(key)
     end
 end
 
-function ns.ApplyKnownPlayersSettings(settings)
-    local partyWasEnabled = ns.CategoryTrackingEnabled("party")
-    local raidWasEnabled = ns.CategoryTrackingEnabled("raid")
-    local guildWasEnabled = ns.CategoryTrackingEnabled("guild")
-    local battleNetWasEnabled = ns.CategoryTrackingEnabled("associated")
+function ns.GetInitialTrackingScans(settings)
+    ns.FillKnownPlayersSettingsDefaults(settings)
+    local function TurnsOn(key)
+        return not ns.CategoryTrackingEnabled(key) and ns.CategoryTrackingEnabled(key, settings)
+    end
+    local scans = {}
+    if TurnsOn("party") or TurnsOn("raid") then scans[#scans + 1] = "party" end
+    if TurnsOn("guild") then scans[#scans + 1] = "guild" end
+    if TurnsOn("associated") then scans[#scans + 1] = "associated" end
+    return scans
+end
+
+function ns.ApplyKnownPlayersSettings(settings, initialScans)
+    initialScans = initialScans or ns.GetInitialTrackingScans(settings)
     -- The CVar backups describe this client and travel with its live settings.
     local previous = KnownPlayersSettings or {}
     previous.knownOnlyNameplates = false
@@ -52,12 +61,7 @@ function ns.ApplyKnownPlayersSettings(settings)
     RefreshSettingsControls()
     ns.RefreshMinimapButton()
     if ns.InvalidateBattleNetIndex then ns.InvalidateBattleNetIndex() end
-    if (not partyWasEnabled and ns.CategoryTrackingEnabled("party"))
-        or (not raidWasEnabled and ns.CategoryTrackingEnabled("raid")) then
-        RunInitialTrackingScan("party")
-    end
-    if not guildWasEnabled and ns.CategoryTrackingEnabled("guild") then RunInitialTrackingScan("guild") end
-    if not battleNetWasEnabled and ns.CategoryTrackingEnabled("associated") then RunInitialTrackingScan("associated") end
+    for _, key in ipairs(initialScans) do RunInitialTrackingScan(key) end
     if ns.SyncNativeOverheadNames then ns.SyncNativeOverheadNames() end
     if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
     if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
@@ -69,8 +73,10 @@ StaticPopupDialogs["KNOWNPLAYERS_RESET_SETTINGS"] = {
     button1 = "Reset Settings",
     button2 = CANCEL,
     OnAccept = function()
-        if not ns.BackupBeforeChange("Before resetting settings", {settings = true}) then return end
-        ns.ApplyKnownPlayersSettings({})
+        local defaults = {}
+        local scans = ns.GetInitialTrackingScans(defaults)
+        if not ns.BackupBeforeChange("Before resetting settings", {settings = true, players = #scans > 0}) then return end
+        ns.ApplyKnownPlayersSettings(defaults, scans)
         print("|cff33ff99KnownPlayers:|r Settings restored to defaults.")
     end,
     timeout = 0,

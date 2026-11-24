@@ -157,6 +157,18 @@ local newcomer = ns.RememberPlayer(sharedKey, "party", NOW, "Player-Migrate-3")
 assert(newcomer and newcomer ~= ambiguousHistory and not ns.PlayerHasCategory(newcomer, "trade"))
 assert(ns.GetPlayer(sharedKey) == ambiguousHistory and ns.CountPlayers() == 4)
 
+-- A preferred alias from a GUID-keyed record also claims the name.
+local guidKey = "guid:Player-Migrate-2"
+ns, state = StartSession({players = {
+    [sharedKey] = {note = "Unassigned note", categories = {trade = true}, lastSeen = NOW},
+    [firstAlias] = {guid = "Player-Migrate-1", categories = {manual = true}},
+    [guidKey] = {guid = "Player-Migrate-2", displayName = "Shared Player", realm = REALM,
+        categories = {manual = true}},
+}})
+assert(ns.GetPlayer(sharedKey).note == "Unassigned note" and ns.CountPlayers() == 3)
+assert(not ns.GetPlayer(firstAlias).note and not ns.GetPlayer(guidKey).note)
+assert(not ns.PlayerHasCategory(ns.GetPlayer(firstAlias), "trade"))
+
 ns, state = StartSession(nil, {trackWhispers = true})
 local localMember = ns.RememberPlayer(MEMBER, "manual")
 state:Fire("CHAT_MSG_WHISPER", "Synthetic message", "Test-Member")
@@ -175,6 +187,15 @@ local conflict = ns.RememberPlayer(qualified, "manual", NOW, "Player-Whisper-1",
 local another = ns.RememberPlayer(qualified, "manual", NOW, "Player-Whisper-2", remoteRealm)
 state:Fire("CHAT_MSG_WHISPER", "Synthetic message", qualified)
 assert(conflict ~= another and not ns.PlayerHasCategory(another, "whisper") and ns.CountPlayers() == 4)
+
+local sender = "Qualified-Player-" .. remoteRealm
+local existing = ns.RememberPlayer(sender, "manual", NOW, "Player-Qualified-1", remoteRealm)
+local event = {"Synthetic message", sender, [12] = "Player-Qualified-2"}
+state:Fire("CHAT_MSG_WHISPER", unpack(event, 1, 12))
+local qualifiedWhisper = ns.FindDirectRecord(nil, "Player-Qualified-2")
+assert(qualifiedWhisper and qualifiedWhisper.realm == remoteRealm and qualifiedWhisper.displayName == "Qualified-Player")
+assert(ns.PlayerHasCategory(qualifiedWhisper, "whisper") and not ns.PlayerHasCategory(existing, "whisper"))
+assert(ns.GetPlayer("guid:Player-Qualified-2") == qualifiedWhisper and not ns.GetPlayer(sender .. "-" .. REALM))
 
 -- Full and partial Battle.net snapshots exercise persisted and transient links.
 ns, state = StartSession()

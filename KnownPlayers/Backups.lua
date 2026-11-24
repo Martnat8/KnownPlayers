@@ -348,8 +348,11 @@ function ns.ApplyBackup(snapshot, selection, mode, localBackup)
     if mode ~= "merge" and mode ~= "replace" then return nil, "Choose how to restore this backup." end
     local ok, plan, skipped = pcall(PlanRestore, snapshot, selection, mode, localBackup)
     if not ok then return nil, plan end
+    local scans = plan.settings and ns.GetInitialTrackingScans(plan.settings) or {}
+    local checkpoint = {settings = plan.settings ~= nil, players = plan.players ~= nil or #scans > 0,
+        npcs = plan.npcs ~= nil}
     local reason = localBackup and "Before restoring a backup" or "Before importing"
-    local point, message = ns.CreateRestorePoint("automatic", reason, plan)
+    local point, message = ns.CreateRestorePoint("automatic", reason, checkpoint)
     if not point then return nil, "Could not create a restore point. " .. message end
 
     if plan.players then
@@ -364,7 +367,7 @@ function ns.ApplyBackup(snapshot, selection, mode, localBackup)
     end
     if plan.players or plan.npcs then ns.ClearRemovalUndo() end
     if plan.settings then
-        ns.ApplyKnownPlayersSettings(plan.settings)
+        ns.ApplyKnownPlayersSettings(plan.settings, scans)
     else
         ns.RefreshKnownNameplates()
         ns.RefreshPlayerListWindows()

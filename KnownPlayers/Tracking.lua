@@ -66,6 +66,10 @@ local function NormalizeWhisperName(sender, guid)
     local saved = ns.GetPlayer(sender)
     if saved then
         realm = ns.SafeString(saved.realm)
+        -- A different event GUID rules out the saved player, but the exact
+        -- key still identifies the realm that the client supplied.
+        local qualified, _, qualifiedRealm = ns.NormalizePlayerKey(sender, realm)
+        if guid and qualified then return qualified, qualifiedRealm end
         local matched, ambiguous = ns.FindDirectKeyByName(sender, guid, realm)
         if ambiguous then return nil end
         if matched == sender then return sender, realm end

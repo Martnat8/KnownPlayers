@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.2b0] - 2026-11-24
+
 - Check the addon manifest and smoke-test startup in load order in CI.
 - Reject backup merges that exceed history limits and keep local restore points and settings resets available for existing oversized histories.
 - Scan group, guild, and Battle.net rosters when restoring or resetting settings enables tracking.

@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+- Check the addon manifest and smoke-test startup in load order in CI.
+- Reject backup merges that exceed history limits and keep local restore points and settings resets available for existing oversized histories.
+- Scan group, guild, and Battle.net rosters when restoring or resetting settings enables tracking.
+- Keep whispers from hyphenated character names in the correct history and skip self-whispers.
+- Match imported players against staged history without modifying live data or invalidating its caches during planning.
+- Restore a released nameplate's opacity during combat when the game permits it, so the next unit can use the frame.
+- Refresh player lists once per opening, share name searches across lists, and centralize window navigation and Escape handling.
+- Separate nameplate CVar ownership from rendering and reuse the player category color when drawing custom labels.
+- Remove unused legacy player and NPC helpers while preserving older health-bar preferences and saved priorities on upgrade.
+
 ## [0.5.1] - 2026-11-23
 
 - Add Backup & Restore with dated restore points, automatic backups before bulk changes, settings-only exports by default, and a preview before merging or replacing imported data.

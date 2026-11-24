@@ -24,13 +24,9 @@ function ns.GetPlayerFromUnit(unit)
     if not name or name == UNKNOWNOBJECT then
         return nil, unidentified
     end
-    if realm == nil or realm == "" then
-        local readRealm, localRealm = pcall(GetNormalizedRealmName)
-        if readRealm then realm = localRealm end
-    end
-    realm = ns.SafeString(realm)
-    if not realm then return nil, "Could not identify the player's realm." end
-    return name .. "-" .. realm, ns.SafePlayerGUID(ns.SafeUnitGUID(unit)), name, realm
+    local key, _, resolvedRealm = ns.PlayerKeyFromName(name, realm)
+    if not key then return nil, "Could not identify the player's realm." end
+    return key, ns.SafePlayerGUID(ns.SafeUnitGUID(unit)), name, resolvedRealm
 end
 
 local function FindSavedKey(name, guid)

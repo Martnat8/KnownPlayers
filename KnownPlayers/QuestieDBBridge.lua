@@ -90,8 +90,3 @@ function ns.GetNPCDataSourceStatus()
     ResolveProvider()
     return providerStatus
 end
-
--- A manual invalidate is useful if QuestieDB's correction overlay changes at runtime.
-function ns.InvalidateNPCServiceCache()
-    servicesCache = {}
-end

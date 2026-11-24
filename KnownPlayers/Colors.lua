@@ -85,6 +85,11 @@ function ns.GetNPCNameplateCategoryColor(category)
         or NPC_DEFAULT_COLORS[category] or {1, 1, 1}
 end
 
+function ns.GetNPCNameplateColorOrder()
+    local saved = KnownPlayersSettings and KnownPlayersSettings.npcNameplateColorOrder
+    return type(saved) == "table" and next(saved) and saved or NPC_DEFAULT_ORDER
+end
+
 -- Share the indexed identity/association lookups with the visibility filter.
 local function DirectRecord(name, guid)
     return ns.FindDirectRecord and ns.FindDirectRecord(name, guid) or nil

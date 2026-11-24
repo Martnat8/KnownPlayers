@@ -94,10 +94,11 @@ jobs:
         run: |
           for test in tests/*.lua; do lua5.1 "$test" || exit "$?"; done
 
-      - name: Check required addon files
+      - name: Check the addon manifest and startup
+        shell: bash
         run: |
-          test -f KnownPlayers/KnownPlayers.toc
-          test -f KnownPlayers/Core.lua
+          mapfile -d '' modules < <(find KnownPlayers -type f -name '*.lua' -print0)
+          lua5.1 scripts/check-startup.lua "${modules[@]}"
 
       - name: Authorize and validate release tag
         if: startsWith(github.ref, 'refs/tags/v')

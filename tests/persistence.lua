@@ -140,6 +140,16 @@ assert(buttons["Forget Player"])
 buttons["Forget Player"]()
 assert(ns.GetPlayer(target) == nil and ns.GetPlayer(MEMBER))
 
+ns, state = StartSession(nil, {trackWhispers = true})
+local localMember = ns.RememberPlayer(MEMBER, "manual")
+state:Fire("CHAT_MSG_WHISPER", "Synthetic message", "Test-Member")
+assert(ns.PlayerHasCategory(localMember, "whisper") and ns.CountPlayers() == 1)
+local remote = "Test-Member-CAMWOW2"
+state:Fire("CHAT_MSG_WHISPER", "Synthetic message", remote)
+assert(ns.PlayerHasCategory(ns.GetPlayer(remote), "whisper"))
+state:Fire("CHAT_MSG_WHISPER_INFORM", "Synthetic message", "Test-Self")
+assert(ns.CountPlayers() == 2 and not ns.GetPlayer(SELF))
+
 -- Full and partial Battle.net snapshots exercise persisted and transient links.
 ns, state = StartSession()
 local function Game(name, guid)

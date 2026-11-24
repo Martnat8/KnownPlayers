@@ -8,20 +8,8 @@ local function GetPlayerKey(unit)
     end
 
     local ok, name, realm = pcall(UnitFullName, unit)
-    if not ok or not ns.IsAccessibleValue(realm) then return nil end
-    name, realm = ns.SafeString(name), ns.SafeString(realm)
-    if not name or name == UNKNOWNOBJECT then
-        return nil
-    end
-
-    if not realm or realm == "" then
-        realm = ns.SafeString(GetNormalizedRealmName())
-    end
-    if not realm or realm == "" then
-        return nil
-    end
-
-    return name .. "-" .. realm, ns.SafePlayerGUID(ns.SafeUnitGUID(unit))
+    local key = ok and ns.PlayerKeyFromName(name, realm)
+    if key then return key, ns.SafePlayerGUID(ns.SafeUnitGUID(unit)) end
 end
 
 function ns.ScanGroupRoster()
@@ -71,22 +59,7 @@ local function NormalizeWhisperName(sender)
         return nil
     end
 
-    local name, realm = sender:match("^([^%-]+)%-(.+)$")
-    if not name then
-        name = sender
-    end
-    if name == "" then
-        return nil
-    end
-
-    if not realm or realm == "" then
-        realm = GetNormalizedRealmName()
-    end
-    if not realm or realm == "" then
-        return nil
-    end
-
-    return name .. "-" .. realm
+    return ns.NormalizePlayerKey(sender) or ns.PlayerKeyFromName(sender)
 end
 
 local whisperFrame = CreateFrame("Frame")
@@ -106,12 +79,9 @@ whisperFrame:SetScript("OnEvent", function(_, _, ...)
     end
 
     -- Do not retain your own character if the client reports a self-whisper.
-    local _, selfName, selfRealm = pcall(UnitFullName, "player")
-    selfName, selfRealm = ns.SafeString(selfName), ns.SafeString(selfRealm)
-    if selfName and (not selfRealm or selfRealm == "") then
-        selfRealm = GetNormalizedRealmName()
-    end
-    if selfName and selfRealm and key == selfName .. "-" .. selfRealm then
+    local ok, selfName, selfRealm = pcall(UnitFullName, "player")
+    local selfKey = ok and ns.PlayerKeyFromName(selfName, selfRealm)
+    if (selfKey and key:lower() == selfKey:lower()) or (guid and guid == ns.SafeUnitGUID("player")) then
         return
     end
 

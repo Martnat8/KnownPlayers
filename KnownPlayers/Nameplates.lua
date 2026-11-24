@@ -29,225 +29,7 @@ local function PlayerHealthBarVisible()
     return HealthBarVisible(PlayerHealthBarMode())
 end
 
-local CategoryColorForUnit
-
--- Native overhead names cannot be filtered per owner. Suppress those labels
--- while Known Only is active so player and minion names use the nameplate filter.
-local nativePlayerNameCVars = {
-    "UnitNameFriendlyPlayerName",
-    "UnitNameEnemyPlayerName",
-    "UnitNameEnemyMinionName",
-    "UnitNameEnemyPetName",
-    "UnitNameEnemyGuardianName",
-    "UnitNameEnemyTotemName",
-}
-local friendlyMinionCVars = {
-    "UnitNameFriendlyMinionName",
-    "UnitNameFriendlyPetName",
-    "UnitNameFriendlyGuardianName",
-    "UnitNameFriendlyTotemName",
-}
-for _, name in ipairs(friendlyMinionCVars) do
-    nativePlayerNameCVars[#nativePlayerNameCVars + 1] = name
-end
-local firstFriendlyMinionPlateIndex = #friendlyMinionCVars + 1
-for _, name in ipairs({
-    "nameplateShowFriendlyPlayerMinions",
-    "nameplateShowFriendlyPlayerPets",
-    "nameplateShowFriendlyPlayerGuardians",
-    "nameplateShowFriendlyPlayerTotems",
-}) do
-    friendlyMinionCVars[#friendlyMinionCVars + 1] = name
-end
-local nativeNamesShuttingDown = false
 local nativeNameCheckElapsed = 0
-local syncingNativeNames = false
-
-local function ReadNativeNameCVar(name)
-    local getter = C_CVar and C_CVar.GetCVar or GetCVar
-    if type(getter) ~= "function" then return nil end
-    local ok, value = pcall(getter, name)
-    if ok then return ns.SafeString(value) end
-end
-
-local function WriteNativeNameCVar(name, value)
-    local setter = C_CVar and C_CVar.SetCVar or SetCVar
-    if type(setter) ~= "function" then return false end
-    local ok = pcall(setter, name, value)
-    return ok and ReadNativeNameCVar(name) == value
-end
-
-local nameplateSettings = {
-    player = "nameplateShowFriendlyPlayers",
-    npc = "nameplateShowFriendlyNpcs",
-    always = "nameplateShowAll",
-}
-
-function ns.GetNameplateSetting(key)
-    local cvar = nameplateSettings[key]
-    local value = cvar and ReadNativeNameCVar(cvar)
-    if value == "1" then return true end
-    if value == "0" then return false end
-end
-
-function ns.EnableNameplateSettings(keys)
-    if InCombatLockdown() then return false end
-    local applied, changed = true, false
-    for _, key in ipairs(keys) do
-        local cvar = nameplateSettings[key]
-        if cvar and ns.GetNameplateSetting(key) == false then
-            if WriteNativeNameCVar(cvar, "1") then
-                changed = true
-                if key == "npc" and KnownPlayersSettings and type(KnownPlayersSettings.npcCVarBackup) == "table" then
-                    KnownPlayersSettings.npcCVarBackup[cvar] = nil
-                end
-            else
-                applied = false
-            end
-        end
-    end
-    if changed then ns.RefreshKnownNameplates() end
-    return applied
-end
-
-function ns.RestoreNativeOverheadNames()
-    if not KnownPlayersSettings then return end
-    local old = KnownPlayersSettings.overheadNameCVarsBackup
-    if type(old) ~= "table" then return end
-    local allRestored = true
-    for _, name in ipairs(nativePlayerNameCVars) do
-        local previous = old[name]
-        if type(previous) == "string" then
-            local current = ReadNativeNameCVar(name)
-            -- If something else already changed the setting while we managed
-            -- it, do not overwrite that newer user/addon choice on restoration.
-            if current == "0" and previous ~= "0" then
-                if not WriteNativeNameCVar(name, previous) then
-                    allRestored = false
-                end
-            elseif current == nil then
-                allRestored = false
-            end
-        end
-    end
-    if allRestored then KnownPlayersSettings.overheadNameCVarsBackup = nil end
-end
-
-function ns.SyncNativeOverheadNames()
-    if not KnownPlayersSettings or nativeNamesShuttingDown or syncingNativeNames then return end
-    syncingNativeNames = true
-    if KnownPlayersSettings.knownOnlyNameplates then
-        local old = KnownPlayersSettings.overheadNameCVarsBackup
-        if type(old) ~= "table" then old = {} end
-        for _, name in ipairs(nativePlayerNameCVars) do
-            if old[name] == nil then old[name] = ReadNativeNameCVar(name) end
-        end
-        if next(old) then KnownPlayersSettings.overheadNameCVarsBackup = old end
-        for _, name in ipairs(nativePlayerNameCVars) do
-            local current = ReadNativeNameCVar(name)
-            if current ~= nil and current ~= "0" then
-                WriteNativeNameCVar(name, "0")
-            end
-        end
-    else
-        ns.RestoreNativeOverheadNames()
-    end
-    syncingNativeNames = false
-end
-
-function ns.GetFriendlyMinionVisibility()
-    -- During filtering, only the plate CVars determine what can be shown.
-    local first = KnownPlayersSettings.knownOnlyNameplates and firstFriendlyMinionPlateIndex or 1
-    local available, visible = false, false
-    for i = first, #friendlyMinionCVars do
-        local value = ReadNativeNameCVar(friendlyMinionCVars[i])
-        available = available or value ~= nil
-        visible = visible or value == "1"
-    end
-    local setter = C_CVar and C_CVar.SetCVar or SetCVar
-    return visible, available and type(setter) == "function"
-end
-
-function ns.SetFriendlyMinionVisibility(visible)
-    if InCombatLockdown() then return false end
-    ns.SyncNativeOverheadNames()
-    local old = KnownPlayersSettings.knownOnlyNameplates and KnownPlayersSettings.overheadNameCVarsBackup
-    local desired, applied = visible and "1" or "0", true
-    for _, name in ipairs(friendlyMinionCVars) do
-        local current = ReadNativeNameCVar(name)
-        if type(old) == "table" and old[name] then
-            -- The native labels stay suppressed while filtering. Remember
-            -- the user's new choice for when the nameplate filter turns off.
-            old[name] = desired
-        elseif current and current ~= desired and not WriteNativeNameCVar(name, desired) then
-            applied = false
-        end
-    end
-    return applied
-end
-
--- The NPC filter is independent from the player Known Only filter.
--- When active, suppress native overhead labels that would otherwise bypass
--- the per-NPC filter. Friendly NPC plates are enabled explicitly in Settings.
--- Leave the client's dedicated hostile NPC name setting alone.
-local npcNameCVars = {
-    "UnitNameNPC", "UnitNameInteractiveNPC", "UnitNameFriendlySpecialNPCName",
-}
-local legacyNPCNameplateCVars = {nameplateSettings.npc, "UnitNameHostleNPC"}
-local npcCVarsShuttingDown = false
-local npcSyncing = false
-
-function ns.HasUnfilteredOverheadNames(key)
-    local cvars = key == "npc" and npcNameCVars or nativePlayerNameCVars
-    for _, name in ipairs(cvars) do
-        if ReadNativeNameCVar(name) == "1" then return true end
-    end
-    return false
-end
-
-local function RestoreNPCNameplateCVar(key, prior)
-    if type(prior) ~= "string" then return true end
-    local current = ReadNativeNameCVar(key)
-    if current == nil then return false end
-    local forced = key == nameplateSettings.npc and "1" or "0"
-    return current ~= forced or prior == forced or WriteNativeNameCVar(key, prior)
-end
-
-function ns.RestoreNPCNameplateCVars()
-    if not KnownPlayersSettings then return end
-    local backup = KnownPlayersSettings.npcCVarBackup
-    if type(backup) ~= "table" then return end
-    local complete = true
-    for key, prior in pairs(backup) do
-        if not RestoreNPCNameplateCVar(key, prior) then complete = false end
-    end
-    if complete then KnownPlayersSettings.npcCVarBackup = nil end
-end
-
-function ns.SyncNPCNameplateCVars()
-    if not KnownPlayersSettings or npcCVarsShuttingDown or npcSyncing then return end
-    npcSyncing = true
-    if KnownPlayersSettings.filterNPCNameplates and ns.IsQuestieDBConnected() then
-        local backup = KnownPlayersSettings.npcCVarBackup
-        if type(backup) ~= "table" then backup = {} end
-        -- Restore CVars that older versions forced and retire their backups.
-        for _, key in ipairs(legacyNPCNameplateCVars) do
-            if backup[key] ~= nil and RestoreNPCNameplateCVar(key, backup[key]) then
-                backup[key] = nil
-            end
-        end
-        for _, key in ipairs(npcNameCVars) do
-            if backup[key] == nil then backup[key] = ReadNativeNameCVar(key) end
-        end
-        KnownPlayersSettings.npcCVarBackup = next(backup) and backup or nil
-        for _, key in ipairs(npcNameCVars) do
-            if ReadNativeNameCVar(key) == "1" then WriteNativeNameCVar(key, "0") end
-        end
-    else
-        ns.RestoreNPCNameplateCVars()
-    end
-    npcSyncing = false
-end
 
 local function Print(message)
     print("|cff33ff99KnownPlayers:|r " .. message)
@@ -269,10 +51,8 @@ end
 
 local function RestoreFrame(frame, allowCombat)
     local alpha = changedFrames[frame]
-    if alpha == nil or IsProtected(frame) then return false end
-    -- Protected nameplate changes can be blocked while fighting. In the
-    -- Combat-only mode we try the alpha restoration safely, keeping the
-    -- original alpha for a later retry if the client rejects the call.
+    if alpha == nil or IsProtected(frame) or IsCombatRestricted(frame) then return false end
+    -- Keep the saved alpha for a later retry if the client rejects the call.
     if InCombatLockdown and InCombatLockdown() and not allowCombat then return false end
     local current = ReadAppearanceValue(frame.GetAlpha, frame)
     if type(current) == "number" and current ~= 0 then
@@ -418,7 +198,7 @@ local function GetNameSubtitle(unit, isNPC)
     end
 end
 
-local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, npcColor)
+local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, displayColor)
     if not frame.name then return false end
     local firstName = isNPC and KnownPlayersSettings.npcNameDisplayMode == "first"
         or not isNPC and KnownPlayersSettings.nameDisplayMode == "first"
@@ -455,15 +235,9 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, npcColor)
     local label = labels.name
     MirrorNativeNameFont(label, frame.name)
     label:SetText(name)
-    local displayColor
-    if isNPC then
-        displayColor = npcColor
-        if not displayColor and frame.name and type(frame.name.GetTextColor) == "function" then
-            local ok, r, g, b = pcall(frame.name.GetTextColor, frame.name)
-            if ok and type(r) == "number" then displayColor = {r, g, b} end
-        end
-    else
-        displayColor = CategoryColorForUnit(unit)
+    if isNPC and not displayColor and type(frame.name.GetTextColor) == "function" then
+        local ok, r, g, b = pcall(frame.name.GetTextColor, frame.name)
+        if ok and type(r) == "number" then displayColor = {r, g, b} end
     end
     displayColor = displayColor or {1, 1, 1}
     label:SetTextColor(displayColor[1], displayColor[2], displayColor[3], 1)
@@ -550,17 +324,12 @@ local function SetNameColor(frame, color)
     end
 end
 
-CategoryColorForUnit = function(unit)
+local function CategoryColorForUnit(unit)
     if not ns.GetNameplateCategory then return nil end
-    local ok, n, r = pcall(UnitFullName, unit)
-    if not ok or not ns.IsAccessibleValue(r) then return nil end
-    n, r = ns.SafeString(n), ns.SafeString(r)
-    if not n then return nil end
-    if type(r) ~= "string" or r == "" then
-        r = type(GetNormalizedRealmName) == "function" and GetNormalizedRealmName() or nil
-    end
-    if type(r) ~= "string" or r == "" then return nil end
-    local category = ns.GetNameplateCategory(n .. "-" .. r, ns.SafePlayerGUID(ns.SafeUnitGUID(unit)))
+    local ok, name, realm = pcall(UnitFullName, unit)
+    local key = ok and ns.PlayerKeyFromName(name, realm)
+    if not key then return nil end
+    local category = ns.GetNameplateCategory(key, ns.SafePlayerGUID(ns.SafeUnitGUID(unit)))
     if category then return ns.GetNameplateCategoryColor(category) end
 end
 
@@ -630,19 +399,10 @@ local function FindTargetPlate()
     return nil, "Target has no visible nameplate. Enable player nameplates and move closer."
 end
 
-local function PlayerKey(name, realm)
-    name, realm = ns.SafeString(name), ns.SafeString(realm)
-    if not name or name == UNKNOWNOBJECT then return nil end
-    if not realm and type(GetNormalizedRealmName) == "function" then
-        realm = ns.SafeString(GetNormalizedRealmName())
-    end
-    return realm and name .. "-" .. realm
-end
-
 local function IsRecognized(unit)
     -- Leave the plate visible when the game can't identify the player.
     local ok, name, realm = pcall(UnitFullName, unit)
-    local key = ok and ns.IsAccessibleValue(realm) and PlayerKey(name, realm)
+    local key = ok and ns.PlayerKeyFromName(name, realm)
     if not key then return true end
     local guid = ns.SafePlayerGUID(ns.SafeUnitGUID(unit))
     return ns.IsKnownOrAssociated(key, guid)
@@ -658,7 +418,7 @@ local function IsRecognizedMinion(unit)
     -- Older player records may only have a name and realm.
     if type(UnitNameFromGUID) ~= "function" then return false end
     local found, name, realm = pcall(UnitNameFromGUID, owner)
-    local key = found and PlayerKey(name, realm)
+    local key = found and ns.PlayerKeyFromName(name, realm)
     return key and ns.IsKnownOrAssociated(key, owner) or false
 end
 
@@ -670,7 +430,8 @@ end
 local function ReleasePlate(unit, binding)
     local plate, frame = binding.plate, binding.frame
     HideNameLabels(plate, frame)
-    RestoreFrame(frame)
+    -- A recycled frame can carry our zero alpha into the next unit's binding.
+    RestoreFrame(frame, true)
     RestoreNameColor(frame)
     plateUnits[unit] = nil
 end
@@ -719,7 +480,7 @@ function ns.RefreshKnownNameplates()
                     MakeTransparent(frame)
                 elseif namesOnly then
                     RestoreNameColor(frame)
-                    if not ShowNameOnly(plate, frame, unit) then
+                    if not ShowNameOnly(plate, frame, unit, false, false, CategoryColorForUnit(unit)) then
                         -- Fail open if the name cannot be displayed.
                         HideNameLabels(plate, frame)
                         RestoreFrame(frame)
@@ -733,7 +494,7 @@ function ns.RefreshKnownNameplates()
                     else RestoreNameColor(frame) end
                     -- Preserve Blizzard's actual font/scale/placement when
                     -- neither first-name mode nor a guild line is requested.
-                    if not ShowNameOnly(plate, frame, unit, true) then
+                    if not ShowNameOnly(plate, frame, unit, true, false, color) then
                         HideNameLabels(plate, frame)
                     end
                 end
@@ -805,11 +566,6 @@ function ns.SetNPCHealthBarMode(mode)
     ns.RefreshKnownNameplates()
 end
 
--- Legacy entry point retained for compatibility with previously shipped code.
-function ns.SetNamesOnlyNameplates(enabled)
-    ns.SetPlayerHealthBarMode(enabled and "never" or "always")
-end
-
 function ns.TestTargetNameplate(hide)
     if InCombatLockdown and InCombatLockdown() then
         Print("Nameplate test is disabled during combat.")
@@ -869,10 +625,7 @@ frame:SetScript("OnEvent", function(_, event, unit, isBehindCamera)
         return
     end
     if event == "PLAYER_LOGOUT" then
-        nativeNamesShuttingDown = true
-        ns.RestoreNativeOverheadNames()
-        npcCVarsShuttingDown = true
-        ns.RestoreNPCNameplateCVars()
+        ns.ShutdownNameplateCVars()
         for token, binding in pairs(plateUnits) do ReleasePlate(token, binding) end
         RestoreAll()
         RestoreAllNameColors()
@@ -881,20 +634,7 @@ frame:SetScript("OnEvent", function(_, event, unit, isBehindCamera)
     if event == "CVAR_UPDATE" then
         -- If the native names are turned back on in WoW's settings, keep the
         -- active filter consistent. Do not change unrelated CVars.
-        if type(unit) == "string" then
-            for _, name in ipairs(nativePlayerNameCVars) do
-                if unit:lower() == name:lower() then
-                    ns.SyncNativeOverheadNames()
-                    break
-                end
-            end
-            for _, name in ipairs(npcNameCVars) do
-                if unit:lower() == name:lower() then
-                    ns.SyncNPCNameplateCVars()
-                    break
-                end
-            end
-        end
+        ns.OnNameplateCVarUpdate(unit)
         return
     end
     if event == "NAME_PLATE_UNIT_BEHIND_CAMERA_CHANGED" then

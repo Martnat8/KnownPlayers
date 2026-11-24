@@ -22,7 +22,22 @@ local function RefreshSettingsControls()
     for _, callback in ipairs(settingsRefreshers) do callback() end
 end
 
+local function RunInitialTrackingScan(key)
+    if key == "party" or key == "raid" then
+        if ns.ScanGroupRoster then ns.ScanGroupRoster() end
+    elseif key == "guild" then
+        if ns.RequestGuildRoster then ns.RequestGuildRoster() end
+        if ns.ScanGuildRoster then ns.ScanGuildRoster() end
+    elseif key == "associated" and ns.ScanBattleNetFriends then
+        ns.ScanBattleNetFriends()
+    end
+end
+
 function ns.ApplyKnownPlayersSettings(settings)
+    local partyWasEnabled = ns.CategoryTrackingEnabled("party")
+    local raidWasEnabled = ns.CategoryTrackingEnabled("raid")
+    local guildWasEnabled = ns.CategoryTrackingEnabled("guild")
+    local battleNetWasEnabled = ns.CategoryTrackingEnabled("associated")
     -- The CVar backups describe this client and travel with its live settings.
     local previous = KnownPlayersSettings or {}
     previous.knownOnlyNameplates = false
@@ -37,6 +52,12 @@ function ns.ApplyKnownPlayersSettings(settings)
     RefreshSettingsControls()
     ns.RefreshMinimapButton()
     if ns.InvalidateBattleNetIndex then ns.InvalidateBattleNetIndex() end
+    if (not partyWasEnabled and ns.CategoryTrackingEnabled("party"))
+        or (not raidWasEnabled and ns.CategoryTrackingEnabled("raid")) then
+        RunInitialTrackingScan("party")
+    end
+    if not guildWasEnabled and ns.CategoryTrackingEnabled("guild") then RunInitialTrackingScan("guild") end
+    if not battleNetWasEnabled and ns.CategoryTrackingEnabled("associated") then RunInitialTrackingScan("associated") end
     if ns.SyncNativeOverheadNames then ns.SyncNativeOverheadNames() end
     if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
     if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
@@ -193,16 +214,10 @@ local function SetCategoryTracking(key, checked)
     local category = key == "associated" and ns.AssociatedCategory or ns.PlayerCategoryByKey[key]
     if category.group then
         KnownPlayersSettings.trackGroup[category.group] = checked
-        if checked and ns.ScanGroupRoster then ns.ScanGroupRoster() end
     else
         KnownPlayersSettings[category.tracking] = checked
-        if checked and key == "guild" and ns.RequestGuildRoster then
-            ns.RequestGuildRoster()
-            if ns.ScanGuildRoster then ns.ScanGuildRoster() end
-        elseif checked and key == "associated" and ns.ScanBattleNetFriends then
-            ns.ScanBattleNetFriends()
-        end
     end
+    if checked then RunInitialTrackingScan(key) end
     if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
 end
 

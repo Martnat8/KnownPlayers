@@ -33,13 +33,6 @@ local NPC_CATEGORIES = {
     {key="manual", label="Manually Added"},
 }
 
--- Default precedence matches 0.4.2 for existing users; the saved order
--- overrides it after initialization.
-local NPC_COLOR_PRIORITY = {
-    "manual", "flight", "banker", "auctioneer", "repair",
-    "trainer", "innkeeper", "vendor", "quest",
-}
-
 function ns.GetNPCServiceCategories()
     return NPC_CATEGORIES
 end
@@ -58,7 +51,7 @@ function ns.GetNPCNameplateCategory(id)
         services = ns.GetNPCServiceInfo(id)
     end
     if not remembered and type(services) ~= "table" then return nil end
-    for _, category in ipairs(KnownPlayersSettings.npcNameplateColorOrder or NPC_COLOR_PRIORITY) do
+    for _, category in ipairs(ns.GetNPCNameplateColorOrder()) do
         if enabled[category] then
             if category == "manual" and remembered then return "manual", services ~= nil end
             if category ~= "manual" and type(services) == "table"
@@ -106,13 +99,6 @@ function ns.SetNPCVisibilityOverride(id, name, mode)
     if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
     if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
     return true
-end
-
-function ns.IsKnownNPC(unit, resolvedID)
-    local id = resolvedID or NPCFromUnit(unit)
-    if not id or ns.GetNPCVisibilityOverride(id) == "hide" then return false end
-    return ns.GetNPCVisibilityOverride(id) == "show"
-        or ns.GetNPCNameplateCategory(id) ~= nil
 end
 
 function ns.RememberNPC(id, name, favorite)
@@ -173,15 +159,6 @@ function ns.ForgetNPC(id)
     if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
     if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
     return true
-end
-
-function ns.ClearNPCs()
-    local count = ns.CountNPCs()
-    ns.ClearRemovalUndo()
-    KnownPlayersDB.npcs = {}
-    if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
-    if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
-    return count
 end
 
 function ns.ClearNPCManagement()

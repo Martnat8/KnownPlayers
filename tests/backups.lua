@@ -24,7 +24,7 @@ local ns = {
     RefreshMinimapButton = function() end, RefreshKnownNameplates = function() end,
 }
 for _, module in ipairs({"Safety", "Categories", "Database", "Identity", "NPC", "Backups",
-    "BattleNet", "Colors", "Settings", "PlayerList"}) do
+    "BattleNet", "Colors", "Settings", "Windows", "PlayerList"}) do
     assert(loadfile("KnownPlayers/" .. module .. ".lua"))("KnownPlayers", ns)
 end
 ns.InitializeDatabase()
@@ -112,5 +112,66 @@ ns.RememberPlayer(key, "raid", NOW, "Player-Test-2")
 applied, skipped = ns.ApplyBackup(noGUID, {players = true}, "merge", false)
 assert(applied and skipped == 1)
 assert(not ns.PlayerHasCategory(ns.FindDirectRecord(key, guid), "party"))
+
+local livePlayers = KnownPlayersDB.players
+local liveRecord = ns.FindDirectRecord(key, guid)
+local invalidateBattleNet = ns.InvalidateBattleNetIndex
+ns.InvalidateBattleNetIndex = function() error("Staging invalidated the live Battle.net index") end
+local staged = {[key] = {guid = guid, note = "Staged note", categories = {manual = true}}}
+assert(ns.MergeBackupPlayers(staged, {[renamed] = {guid = guid, categories = {trade = true}}}) == 0)
+assert(staged[key].categories.trade and staged[key].note == "Staged note" and not staged[renamed])
+assert(KnownPlayersDB.players == livePlayers and ns.FindDirectRecord(key, guid) == liveRecord)
+ns.InvalidateBattleNetIndex = invalidateBattleNet
+
+-- Reject a merge beyond the portable limit before changing history or checkpoints.
+local extraNPC = {version = 1, created = NOW, sections = {npcs = {
+    records = {["10001"] = {name = "Extra NPC"}}, overrides = {},
+}}}
+local npcs = {}
+for id = 1, 10000 do npcs[tostring(id)] = {name = "Synthetic NPC"} end
+KnownPlayersDB.npcs = npcs
+automatic = ns.GetRestorePoint("automatic")
+local ok, message = ns.ApplyBackup(extraNPC, {npcs = true}, "merge", false)
+assert(not ok and message:find("10000 saved NPCs", 1, true))
+assert(KnownPlayersDB.npcs == npcs and not npcs["10001"] and ns.GetRestorePoint("automatic") == automatic)
+
+-- Existing oversized histories remain eligible for local checkpoints and replacement.
+npcs["10001"] = {name = "Existing NPC"}
+local oversized = assert(ns.CreateRestorePoint("manual", "Oversized history"))
+assert(oversized.sections.npcs.records["10001"] and not ns.ExportBackup({npcs = true}))
+KnownPlayersSettings.showMinimapButton = false
+StaticPopupDialogs.KNOWNPLAYERS_RESET_SETTINGS.OnAccept()
+assert(KnownPlayersSettings.showMinimapButton and KnownPlayersDB.npcs == npcs)
+assert(ns.ApplyBackup(extraNPC, {npcs = true}, "replace", false))
+assert(ns.ApplyBackup(oversized, {npcs = true}, "replace", true))
+assert(KnownPlayersDB.npcs["10001"].name == "Existing NPC" and KnownPlayersDB.npcs["1"])
+
+local scans = {}
+ns.ScanGroupRoster = function() scans[#scans + 1] = "group" end
+ns.RequestGuildRoster = function() scans[#scans + 1] = "guild request" end
+ns.ScanGuildRoster = function() scans[#scans + 1] = "guild scan" end
+ns.ScanBattleNetFriends = function() scans[#scans + 1] = "Battle.net" end
+local disabled = {trackGroup = {party = false, raid = false}, trackGuild = false, trackBattleNetAssociations = false}
+local enabledBackup = assert(ns.CreateRestorePoint("manual", "Enabled tracking"))
+ns.ApplyKnownPlayersSettings(disabled)
+assert(#scans == 0)
+assert(ns.ApplyBackup(enabledBackup, {settings = true}, "replace", true))
+assert(table.concat(scans, ", ") == "group, guild request, guild scan, Battle.net")
+scans = {}
+assert(ns.ApplyBackup(enabledBackup, {settings = true}, "replace", true))
+assert(#scans == 0)
+ns.ApplyKnownPlayersSettings(disabled)
+StaticPopupDialogs.KNOWNPLAYERS_RESET_SETTINGS.OnAccept()
+assert(table.concat(scans, ", ") == "group, guild request, guild scan, Battle.net")
+
+KnownPlayersSettings = {
+    namesOnlyNameplates = true, npcNamesOnlyNameplates = true,
+    nameplateColorOrder = {"trade", "manual"}, npcNameplateColorOrder = {"trainer", "vendor"},
+}
+ns.InitializeDatabase()
+ns.InitializeNameplateColors()
+assert(KnownPlayersSettings.playerHealthBarMode == "never" and KnownPlayersSettings.npcHealthBarMode == "never")
+assert(table.concat(KnownPlayersSettings.nameplateColorOrder, ",", 1, 2) == "trade,manual")
+assert(table.concat(ns.GetNPCNameplateColorOrder(), ",", 1, 2) == "trainer,vendor")
 
 io.write("Backup and restore checkpoints, portable sections, merge conflicts, and invalid imports passed.\n")

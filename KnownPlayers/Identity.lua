@@ -2,7 +2,9 @@ local _, ns = ...
 
 -- Volatile lookup index. Entries keep their old aliases for incremental updates.
 local dirty = true
-local entries, aliases, guids = {}, {}, {}
+local liveIndex
+local IdentityIndex = {}
+IdentityIndex.__index = IdentityIndex
 
 function ns.InvalidateIdentityIndex()
     dirty = true
@@ -28,53 +30,63 @@ local function Alias(name, realm)
     return normalized and normalized:lower()
 end
 
-local function AddRecord(key, record)
+local function AddRecord(index, key, record)
     if type(record) ~= "table" or type(record.categories) ~= "table" then return end
     local preferredName, realm = ns.SafeString(record.displayName), ns.SafeString(record.realm)
     local alias = Alias(key, realm)
     local preferred = preferredName and realm and Alias(preferredName .. "-" .. realm, realm)
     local guid = ns.SafePlayerGUID(record.guid)
-    entries[key] = {record = record, guid = guid, alias = alias, preferred = preferred ~= alias and preferred or nil}
-    AddIndexKey(aliases, alias, key)
-    AddIndexKey(aliases, entries[key].preferred, key)
-    AddIndexKey(guids, guid, key)
+    local entry = {record = record, guid = guid, alias = alias, preferred = preferred ~= alias and preferred or nil}
+    index.entries[key] = entry
+    AddIndexKey(index.aliases, alias, key)
+    AddIndexKey(index.aliases, entry.preferred, key)
+    AddIndexKey(index.guids, guid, key)
 end
 
-local function Rebuild()
-    if not dirty then return end
-    entries, aliases, guids = {}, {}, {}
-    for key, record in pairs(KnownPlayersDB.players) do AddRecord(key, record) end
-    dirty = false
+function ns.CreatePlayerIdentityIndex(players)
+    local index = setmetatable({entries = {}, aliases = {}, guids = {}}, IdentityIndex)
+    for key, record in pairs(players) do AddRecord(index, key, record) end
+    return index
+end
+
+local function GetLiveIndex()
+    if dirty then
+        liveIndex = ns.CreatePlayerIdentityIndex(KnownPlayersDB.players)
+        dirty = false
+    end
+    return liveIndex
+end
+
+function IdentityIndex:Update(key, record)
+    local old = self.entries[key]
+    if old then
+        RemoveIndexKey(self.aliases, old.alias, key)
+        RemoveIndexKey(self.aliases, old.preferred, key)
+        RemoveIndexKey(self.guids, old.guid, key)
+        self.entries[key] = nil
+    end
+    AddRecord(self, key, record)
 end
 
 function ns.UpdateIdentityIndex(key, record)
-    if not dirty then
-        local old = entries[key]
-        if old then
-            RemoveIndexKey(aliases, old.alias, key)
-            RemoveIndexKey(aliases, old.preferred, key)
-            RemoveIndexKey(guids, old.guid, key)
-        end
-        AddRecord(key, record)
-    end
+    if not dirty then liveIndex:Update(key, record) end
     if ns.InvalidateBattleNetIndex then ns.InvalidateBattleNetIndex() end
 end
 
 -- Match only an unambiguous name on the same realm, without a conflicting GUID.
-function ns.FindDirectKeyByName(name, guid)
+function IdentityIndex:FindKeyByName(name, guid)
     name = ns.SafeString(name)
     if not name then return nil end
-    Rebuild()
     guid = ns.SafePlayerGUID(guid)
-    local candidates = aliases[Alias(name)]
+    local candidates = self.aliases[Alias(name)]
     if not candidates then
-        local exact = entries[name]
+        local exact = self.entries[name]
         if exact and (not guid or not exact.guid or exact.guid == guid) then return name end
         return nil
     end
     local match
     for key in pairs(candidates) do
-        local storedGUID = entries[key].guid
+        local storedGUID = self.entries[key].guid
         if not guid or not storedGUID or storedGUID == guid then
             if match then return nil, true end
             match = key
@@ -83,11 +95,10 @@ function ns.FindDirectKeyByName(name, guid)
     return match
 end
 
-function ns.FindDirectKeyByGUID(guid)
+function IdentityIndex:FindKeyByGUID(guid)
     guid = ns.SafePlayerGUID(guid)
     if not guid then return nil end
-    Rebuild()
-    local candidates = guids[guid]
+    local candidates = self.guids[guid]
     if not candidates then return nil end
     local match
     for key in pairs(candidates) do
@@ -96,7 +107,15 @@ function ns.FindDirectKeyByGUID(guid)
     return match
 end
 
+function ns.FindDirectKeyByName(name, guid)
+    if ns.SafeString(name) then return GetLiveIndex():FindKeyByName(name, guid) end
+end
+
+function ns.FindDirectKeyByGUID(guid)
+    if ns.SafePlayerGUID(guid) then return GetLiveIndex():FindKeyByGUID(guid) end
+end
+
 function ns.FindDirectRecord(name, guid)
     local key = ns.FindDirectKeyByGUID(guid) or ns.FindDirectKeyByName(name, guid)
-    return key and entries[key].record or nil
+    return key and liveIndex.entries[key].record or nil
 end

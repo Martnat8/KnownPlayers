@@ -64,7 +64,7 @@ local function Map(value, keyCheck, valueCheck, limit)
     local count, copy = 0, {}
     for key, entry in pairs(value) do
         count = count + 1
-        if count > limit then Invalid() end
+        if limit and count > limit then Invalid() end
         copy[keyCheck(key)] = valueCheck(entry)
     end
     return copy
@@ -164,14 +164,16 @@ local function Validate(snapshot, localBackup)
     if sections.settings ~= nil then copy.sections.settings = Settings(sections.settings) end
     if sections.players ~= nil then
         local data = Object(sections.players)
-        copy.sections.players = {records = Map(data.records, Name, Player, MAX_PLAYERS)}
+        local limit = not localBackup and MAX_PLAYERS or nil
+        copy.sections.players = {records = Map(data.records, Name, Player, limit)}
         if localBackup and data.bnet ~= nil then copy.sections.players.bnet = BattleNet(data.bnet) end
     end
     if sections.npcs ~= nil then
         local data = Object(sections.npcs)
+        local limit = not localBackup and MAX_NPCS or nil
         copy.sections.npcs = {
-            records = Map(data.records, NPCID, NPC, MAX_NPCS),
-            overrides = Map(data.overrides, NPCID, Override, MAX_NPCS),
+            records = Map(data.records, NPCID, NPC, limit),
+            overrides = Map(data.overrides, NPCID, Override, limit),
         }
     end
     if not next(copy.sections) then error("Select at least one section to back up.", 0) end
@@ -284,6 +286,16 @@ local function MergeNPCs(staged, incoming)
     end
 end
 
+local function CheckMergedCount(records, limit, label)
+    local count = 0
+    for _ in pairs(records) do
+        count = count + 1
+        if count > limit then
+            error("Merging would exceed the backup limit of " .. limit .. " " .. label .. ".", 0)
+        end
+    end
+end
+
 local function PlanRestore(snapshot, selection, mode, localBackup)
     local sections = Validate(snapshot, localBackup).sections
     local plan = {}
@@ -300,10 +312,15 @@ local function PlanRestore(snapshot, selection, mode, localBackup)
         local current = Capture(selection, true).sections
         if plan.players then
             skipped = ns.MergeBackupPlayers(current.players.records, plan.players.records)
+            CheckMergedCount(current.players.records, MAX_PLAYERS, "player records")
+            -- A merge can also combine maps within one player record.
+            current.players.records = Map(current.players.records, Name, Player, MAX_PLAYERS)
             plan.players = current.players
         end
         if plan.npcs then
             MergeNPCs(current.npcs, plan.npcs)
+            CheckMergedCount(current.npcs.records, MAX_NPCS, "saved NPCs")
+            CheckMergedCount(current.npcs.overrides, MAX_NPCS, "NPC overrides")
             plan.npcs = current.npcs
         end
     end

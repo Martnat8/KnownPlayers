@@ -2,6 +2,20 @@ local addonName, ns = ...
 
 local CATEGORIES = ns.PlayerCategories
 
+local function NormalizeSearchName(name)
+    return (name:lower():gsub("%-", " "):gsub("%s+", " "))
+end
+
+local function PlayerSearchTerms(search)
+    local term = search:GetText():lower():match("^%s*(.-)%s*$")
+    return term, NormalizeSearchName(term)
+end
+
+local function MatchesPlayerSearch(entry, term, nameTerm)
+    return term == "" or NormalizeSearchName(entry.name):find(nameTerm, 1, true)
+        or (entry.realm or ""):lower():find(term, 1, true)
+end
+
 local function FormatKnownDuration(firstSeen)
     if type(firstSeen) ~= "number" then return "Unknown" end
     local seconds = math.max(0, time() - firstSeen)
@@ -14,117 +28,7 @@ local function FormatKnownDuration(firstSeen)
 end
 
 local windows = {}
-local openWindows = {}
-local hidingForNavigation
 local RefreshAllWindows
-
-local function RemoveOpenWindow(frame)
-    for i = #openWindows, 1, -1 do
-        if openWindows[i] == frame then
-            table.remove(openWindows, i)
-            return
-        end
-    end
-end
-
-local function HideForNavigation(frame)
-    local previous = hidingForNavigation
-    hidingForNavigation = frame
-    frame:Hide()
-    hidingForNavigation = previous
-end
-
-local function UpdateOpenWindows()
-    local singleWindow = false
-    for _, frame in ipairs(openWindows) do
-        if frame.hideOtherWindows == true then
-            singleWindow = true
-            break
-        end
-    end
-    local latest = openWindows[#openWindows]
-    for _, frame in ipairs(openWindows) do
-        if frame ~= latest and singleWindow and frame:IsShown() then
-            -- Keep this frame in the navigation stack so closing the child returns to it.
-            HideForNavigation(frame)
-        end
-    end
-    for _, frame in ipairs(openWindows) do
-        if frame == latest or not singleWindow then frame:Show() end
-    end
-    if latest then latest:Raise() end
-end
-
-local function ShowWindow(frame, settingsPage)
-    frame.settingsPage = settingsPage
-    RemoveOpenWindow(frame)
-    openWindows[#openWindows + 1] = frame
-    UpdateOpenWindows()
-end
-
-function ns.CloseWindowsFromSettingsPage(page)
-    if not page then return end
-    local closing = {}
-    for i = #openWindows, 1, -1 do
-        local frame = openWindows[i]
-        if frame.settingsPage == page then
-            table.remove(openWindows, i)
-            closing[#closing + 1] = frame
-        end
-    end
-    if #closing == 0 then return end
-    for _, frame in ipairs(closing) do HideForNavigation(frame) end
-    UpdateOpenWindows()
-end
-
-local function CloseLatestWindow()
-    local frame = openWindows[#openWindows]
-    if not frame then return end
-    if frame.classFilter and frame.classFilter:IsMenuOpen() then
-        frame.classFilter:CloseMenu()
-    else
-        frame:Hide()
-    end
-end
-
-local function EnableWindowKeyboard(frame)
-    frame:EnableKeyboard(true)
-    frame:SetPropagateKeyboardInput(true)
-end
-
-local function EnableWindowEscape(frame)
-    -- Use opening order even when mouse or keyboard focus is on a lower window.
-    frame:HookScript("OnShow", function(self)
-        if InCombatLockdown and InCombatLockdown() then
-            self:RegisterEvent("PLAYER_REGEN_ENABLED")
-        else
-            EnableWindowKeyboard(self)
-        end
-    end)
-    frame:SetScript("OnEvent", function(self)
-        self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-        if self:IsShown() then EnableWindowKeyboard(self) end
-    end)
-    frame:HookScript("OnHide", function(self)
-        if self == hidingForNavigation or self:IsShown() then return end
-        RemoveOpenWindow(self)
-        UpdateOpenWindows()
-    end)
-    frame:SetScript("OnKeyDown", function(self, key)
-        if InCombatLockdown and InCombatLockdown() then return end
-        local escape = key == "ESCAPE"
-        self:SetPropagateKeyboardInput(not escape)
-        if escape then CloseLatestWindow() end
-    end)
-end
-
-ns.ShowWindow = ShowWindow
-ns.EnableWindowEscape = EnableWindowEscape
-
-local function EscapeFromEditBox(self)
-    self:ClearFocus()
-    CloseLatestWindow()
-end
 
 local classTokens
 local function GetRowClass(appearance)
@@ -379,11 +283,10 @@ StaticPopupDialogs[popupKey] = {
     button1 = YES,
     button2 = CANCEL,
     OnAccept = function(_, categoryKey)
-        if categoryKey then
+        if ns.IsPlayerCategory(categoryKey) then
             if not ns.BackupBeforeChange("Before clearing a list") then return end
             ns.ClearRemovalUndo()
-            if categoryKey == "npc" then ns.ClearNPCs()
-            else ns.ClearPlayerCategory(categoryKey) end
+            ns.ClearPlayerCategory(categoryKey)
             if RefreshAllWindows then RefreshAllWindows() end
         end
     end,
@@ -408,7 +311,7 @@ local function CreateCategoryWindow(category, index)
     frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     frame:Hide()
 
-    EnableWindowEscape(frame)
+    ns.EnableWindowEscape(frame)
 
     if frame.TitleText then
         frame.TitleText:SetText("KnownPlayers - " .. category.label)
@@ -428,7 +331,7 @@ local function CreateCategoryWindow(category, index)
     search:SetAutoFocus(false)
     search:SetMaxLetters(100)
     search:SetText("")
-    search:SetScript("OnEscapePressed", EscapeFromEditBox)
+    search:SetScript("OnEscapePressed", ns.EscapeFromEditBox)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
 
     local searchHint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -495,12 +398,11 @@ local function CreateCategoryWindow(category, index)
     Refresh = function(keepScroll)
         local all = ns.GetCategoryPlayers(category.key)
         local classFilter = ReadClassFilter(all)
-        local term = search:GetText():lower():match("^%s*(.-)%s*$")
+        local term, nameTerm = PlayerSearchTerms(search)
         local filtered = {}
         for _, entry in ipairs(all) do
             if (classFilter == "all" or entry.classKey == classFilter)
-                and (term == "" or entry.name:lower():find(term, 1, true)
-                or entry.realm:lower():find(term, 1, true)) then
+                and MatchesPlayerSearch(entry, term, nameTerm) then
                 filtered[#filtered + 1] = entry
             end
         end
@@ -568,7 +470,7 @@ local function CreatePlayerHistoryWindow()
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
     frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     frame:Hide()
-    EnableWindowEscape(frame)
+    ns.EnableWindowEscape(frame)
     if frame.TitleText then frame.TitleText:SetText("KnownPlayers - Player History") end
 
     local name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
@@ -594,7 +496,7 @@ local function CreatePlayerHistoryWindow()
     noteScroll.hideCharCount = true
     local note = noteScroll.EditBox
     note:SetWidth(445)
-    note:SetScript("OnEscapePressed", EscapeFromEditBox)
+    note:SetScript("OnEscapePressed", ns.EscapeFromEditBox)
 
     local tagsLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     tagsLabel:SetPoint("TOPLEFT", 23, -223)
@@ -603,7 +505,7 @@ local function CreatePlayerHistoryWindow()
     tags:SetPoint("TOPLEFT", 27, -243)
     tags:SetSize(450, 25)
     tags:SetAutoFocus(false)
-    tags:SetScript("OnEscapePressed", EscapeFromEditBox)
+    tags:SetScript("OnEscapePressed", ns.EscapeFromEditBox)
 
     local reasonsLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     reasonsLabel:SetPoint("TOPLEFT", 23, -288)
@@ -661,7 +563,7 @@ local function CreatePlayerHistoryWindow()
         tags:SetText(ns.SafeString(record.tags) or "")
         tags:SetCursorPosition(0)
         frame.RefreshFavorite()
-        ShowWindow(frame, settingsPage)
+        ns.ShowWindow(frame, settingsPage)
     end
     return frame
 end
@@ -690,7 +592,7 @@ local function CreatePlayersWindow()
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
     frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     frame:Hide()
-    EnableWindowEscape(frame)
+    ns.EnableWindowEscape(frame)
     if frame.TitleText then frame.TitleText:SetText("KnownPlayers - All Players") end
 
     local count = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -702,7 +604,7 @@ local function CreatePlayersWindow()
     search:SetAutoFocus(false)
     search:SetMaxLetters(100)
     search:SetText("")
-    search:SetScript("OnEscapePressed", EscapeFromEditBox)
+    search:SetScript("OnEscapePressed", ns.EscapeFromEditBox)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     local hint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     hint:SetPoint("LEFT", search, "RIGHT", 12, 0)
@@ -841,8 +743,7 @@ local function CreatePlayersWindow()
             end
         end
         local classFilter = ReadClassFilter(all)
-        local term = search:GetText():lower():match("^%s*(.-)%s*$")
-        local nameTerm = term:gsub("%-", " ")
+        local term, nameTerm = PlayerSearchTerms(search)
         local filtered = {}
         for _, entry in ipairs(all) do
             local record = KnownPlayersDB.players[entry.key]
@@ -855,8 +756,7 @@ local function CreatePlayersWindow()
             end
             if eligible and (classFilter == "all" or entry.classKey == classFilter)
                 and (not favorites:GetChecked() or entry.favorite)
-                and (term == "" or entry.name:lower():find(nameTerm, 1, true)
-                or entry.realm:lower():find(term, 1, true)
+                and (MatchesPlayerSearch(entry, term, nameTerm)
                 or entry.reasons:lower():find(term, 1, true)
                 or (ns.SafeString(record.note) or ""):lower():find(term, 1, true)
                 or (ns.SafeString(record.tags) or ""):lower():find(term, 1, true)) then
@@ -908,7 +808,7 @@ local function CreateAssociatedWindow()
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
     frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     frame:Hide()
-    EnableWindowEscape(frame)
+    ns.EnableWindowEscape(frame)
     if frame.TitleText then frame.TitleText:SetText("KnownPlayers - Known Battle.net Alts") end
 
     local description = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -922,7 +822,7 @@ local function CreateAssociatedWindow()
     search:SetPoint("TOPLEFT", 26, -94)
     search:SetAutoFocus(false)
     search:SetMaxLetters(100)
-    search:SetScript("OnEscapePressed", EscapeFromEditBox)
+    search:SetScript("OnEscapePressed", ns.EscapeFromEditBox)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     local searchLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     searchLabel:SetPoint("LEFT", search, "RIGHT", 12, 0)
@@ -945,12 +845,11 @@ local function CreateAssociatedWindow()
     Refresh = function()
         local all = ns.GetAssociatedCharacters()
         local classFilter = ReadClassFilter(all)
-        local term = search:GetText():lower():match("^%s*(.-)%s*$")
+        local term, nameTerm = PlayerSearchTerms(search)
         local filtered = {}
         for _, entry in ipairs(all) do
             if (classFilter == "all" or entry.classKey == classFilter)
-                and (term == "" or entry.name:lower():find(term, 1, true)
-                or (entry.realm or ""):lower():find(term, 1, true)
+                and (MatchesPlayerSearch(entry, term, nameTerm)
                 or (entry.linkedTo or ""):lower():find(term, 1, true)) then
                 filtered[#filtered + 1] = entry
             end
@@ -1021,7 +920,7 @@ local function CreateNPCManagementWindow()
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
     frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     frame:Hide()
-    EnableWindowEscape(frame)
+    ns.EnableWindowEscape(frame)
     if frame.TitleText then frame.TitleText:SetText("KnownPlayers - NPC Manager") end
     local count = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     count:SetPoint("TOPLEFT", 22, -43)
@@ -1036,7 +935,7 @@ local function CreateNPCManagementWindow()
     search:SetAutoFocus(false)
     search:SetMaxLetters(100)
     search:SetText("")
-    search:SetScript("OnEscapePressed", EscapeFromEditBox)
+    search:SetScript("OnEscapePressed", ns.EscapeFromEditBox)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     local searchHint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     searchHint:SetPoint("LEFT", search, "RIGHT", 10, 0)
@@ -1239,14 +1138,20 @@ function ns.RefreshPlayerListWindows(keepScroll)
     RefreshAllWindows(keepScroll)
 end
 
+local function ShowListWindow(window, settingsPage)
+    local alreadyShown = window:IsShown()
+    ns.ShowWindow(window, settingsPage)
+    -- A hidden window refreshes in OnShow; raising a visible window does not.
+    if alreadyShown then window.Refresh() end
+end
+
 local function OpenCategoryWindow(category, index, settingsPage)
     local window = windows[category.key]
     if not window then
         window = CreateCategoryWindow(category, index)
         windows[category.key] = window
     end
-    ShowWindow(window, settingsPage)
-    window.Refresh()
+    ShowListWindow(window, settingsPage)
 end
 
 -- Settings controls open these dialogs; the dialogs contain list tools only.
@@ -1256,20 +1161,17 @@ function ns.OpenPlayerList(categoryKey, settingsPage)
     end
     if categoryKey == "players" then
         if not windows.players then windows.players = CreatePlayersWindow() end
-        ShowWindow(windows.players, settingsPage)
-        windows.players.Refresh()
+        ShowListWindow(windows.players, settingsPage)
         return
     end
     if categoryKey == "associated" then
         if not windows.associated then windows.associated = CreateAssociatedWindow() end
-        ShowWindow(windows.associated, settingsPage)
-        windows.associated.Refresh()
+        ShowListWindow(windows.associated, settingsPage)
         return
     end
     if categoryKey == "npc" then
         if not windows.npc then windows.npc = CreateNPCManagementWindow() end
-        ShowWindow(windows.npc, settingsPage)
-        windows.npc.Refresh()
+        ShowListWindow(windows.npc, settingsPage)
         return
     end
     for index, category in ipairs(CATEGORIES) do

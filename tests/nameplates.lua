@@ -88,8 +88,8 @@ local function Bind(plate, unitFrame, token, info)
 end
 
 local ns = {
-    IsKnownOrAssociated = function(key) return key == "Familiar Player-Example" end,
-    GetNameplateCategory = function(key) return key == "Familiar Player-Example" and "guild" or nil end,
+    IsKnownOrAssociated = function(key) return key == "Familiar-Player-Example" end,
+    GetNameplateCategory = function(key) return key == "Familiar-Player-Example" and "guild" or nil end,
     GetNameplateCategoryColor = function() return {0.2, 0.7, 0.8} end,
     GetNPCFromUnit = function(unit) return units[unit].npc and unit end,
     GetNPCNameplateCategory = function(unit) return units[unit].category, units[unit].classified end,
@@ -98,6 +98,9 @@ local ns = {
     IsQuestieDBConnected = function() return true end,
 }
 assert(loadfile("KnownPlayers/Safety.lua"))("KnownPlayers", ns)
+assert(loadfile("KnownPlayers/Categories.lua"))("KnownPlayers", ns)
+assert(loadfile("KnownPlayers/Database.lua"))("KnownPlayers", ns)
+assert(loadfile("KnownPlayers/NameplateCVars.lua"))("KnownPlayers", ns)
 assert(loadfile("KnownPlayers/Nameplates.lua"))("KnownPlayers", ns)
 local function Event(event, ...) assert(registered[event], "unregistered event: " .. event); scripts.OnEvent(nil, event, ...) end
 local function Tick() scripts.OnUpdate(nil, 0.016) end
@@ -260,6 +263,27 @@ plates = {restrictedPlate, second}
 ns.RefreshKnownNameplates()
 assert(not restrictedPlate.labels[1] and secondName.shown)
 
+-- Release a filtered plate in combat before WoW reuses the frame's alpha.
+local recycledPlate, recycledFrame = Plate(), UnitFrame()
+plates = {recycledPlate}
+KnownPlayersSettings.knownOnlyNameplates = true
+KnownPlayersSettings.playerHealthBarMode, KnownPlayersSettings.npcHealthBarMode = "always", "always"
+for _, protected in ipairs({false, true}) do
+    Bind(recycledPlate, recycledFrame, "nameplate7", {name = "Unrecognized Player", player = true})
+    Event("NAME_PLATE_UNIT_ADDED", "nameplate7")
+    assert(recycledFrame.alpha == 0)
+    combat, recycledFrame.protected = true, protected
+    Event("NAME_PLATE_UNIT_REMOVED", "nameplate7")
+    Bind(recycledPlate, recycledFrame, "nameplate8", {name = "Familiar Player", player = true})
+    Event("NAME_PLATE_UNIT_ADDED", "nameplate8")
+    assert(recycledFrame.alpha == (protected and 0 or 1))
+    combat = false
+    Event("PLAYER_REGEN_ENABLED")
+    assert(recycledFrame.alpha == 1)
+    Event("NAME_PLATE_UNIT_REMOVED", "nameplate8")
+    recycledFrame.protected = false
+end
+
 -- Reset settings while WoW refuses CVar writes. Retry the saved values afterward.
 local cvars = {UnitNameFriendlyPlayerName = "1", UnitNameNPC = "1"}
 local reject = false
@@ -274,8 +298,6 @@ C_CVar = {
 StaticPopupDialogs = {}
 KnownPlayersDB = {}
 time = function() return 1000000 end
-assert(loadfile("KnownPlayers/Categories.lua"))("KnownPlayers", ns)
-assert(loadfile("KnownPlayers/Database.lua"))("KnownPlayers", ns)
 assert(loadfile("KnownPlayers/Backups.lua"))("KnownPlayers", ns)
 assert(loadfile("KnownPlayers/Settings.lua"))("KnownPlayers", ns)
 ns.RefreshMinimapButton = function() end

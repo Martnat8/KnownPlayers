@@ -140,8 +140,6 @@ local RETENTION_DEFAULTS = {
 }
 
 local DEFAULT_SETTINGS = {
-    expirationEnabled = false,
-    expirationDays = 30,
     categoryRetention = {},
     trackBattleNetAssociations = true,
     showMinimapButton = true,
@@ -280,6 +278,17 @@ function ns.NormalizePlayerKey(key, realmHint)
     name = name:match("^%s*(.-)%s*$"):gsub("%s+", "-")
     if name == "" then return nil end
     return name .. "-" .. realm, name, realm
+end
+
+function ns.PlayerKeyFromName(name, realm)
+    name = ns.SafeString(name)
+    if not name or name == UNKNOWNOBJECT or not ns.IsAccessibleValue(realm) then return nil end
+    realm = ns.SafeString(realm)
+    if not realm then
+        local ok, localRealm = pcall(GetNormalizedRealmName)
+        realm = ok and ns.SafeString(localRealm)
+    end
+    if realm then return ns.NormalizePlayerKey(name .. "-" .. realm, realm) end
 end
 
 local function ReadableCharacterName(name)
@@ -465,42 +474,34 @@ end
 
 -- Merge into a staged store with the same identity rules as live tracking.
 function ns.MergeBackupPlayers(staged, incoming)
-    local original = KnownPlayersDB.players
-    KnownPlayersDB.players = staged
-    ns.InvalidateIdentityIndex()
-    local ok, skipped = pcall(function()
-        local keys = {}
-        for key in pairs(incoming) do keys[#keys + 1] = key end
-        table.sort(keys)
-        local conflicts = 0
-        for _, key in ipairs(keys) do
-            local record = incoming[key]
-            local name = record.displayName and record.realm and (record.displayName .. "-" .. record.realm) or key
-            local destination = ns.FindDirectKeyByGUID(record.guid)
-            local ambiguous
-            if not destination then destination, ambiguous = ns.FindDirectKeyByName(name, record.guid) end
-            if destination then
-                local current = staged[destination]
-                local note = ns.SafeString(current.note)
-                MergeInto(current, record)
-                if note then current.note = note end
-                ns.UpdateIdentityIndex(destination, current)
+    local index = ns.CreatePlayerIdentityIndex(staged)
+    local keys = {}
+    for key in pairs(incoming) do keys[#keys + 1] = key end
+    table.sort(keys)
+    local conflicts = 0
+    for _, key in ipairs(keys) do
+        local record = incoming[key]
+        local name = record.displayName and record.realm and (record.displayName .. "-" .. record.realm) or key
+        local destination = index:FindKeyByGUID(record.guid)
+        local ambiguous
+        if not destination then destination, ambiguous = index:FindKeyByName(name, record.guid) end
+        if destination then
+            local current = staged[destination]
+            local note = ns.SafeString(current.note)
+            MergeInto(current, record)
+            if note then current.note = note end
+            index:Update(destination, current)
+        else
+            local newKey = staged[key] and record.guid and ("guid:" .. record.guid) or key
+            if staged[newKey] or (ambiguous and not record.guid) then
+                conflicts = conflicts + 1
             else
-                local newKey = staged[key] and record.guid and ("guid:" .. record.guid) or key
-                if staged[newKey] or (ambiguous and not record.guid) then
-                    conflicts = conflicts + 1
-                else
-                    staged[newKey] = record
-                    ns.UpdateIdentityIndex(newKey, record)
-                end
+                staged[newKey] = record
+                index:Update(newKey, record)
             end
         end
-        return conflicts
-    end)
-    KnownPlayersDB.players = original
-    ns.InvalidateIdentityIndex()
-    if not ok then error(skipped, 0) end
-    return skipped
+    end
+    return conflicts
 end
 
 function ns.SetPlayerClass(record, class, token)

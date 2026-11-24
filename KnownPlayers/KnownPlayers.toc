@@ -14,9 +14,11 @@ NPC.lua
 PlayerMenu.lua
 Identity.lua
 Colors.lua
+NameplateCVars.lua
 Nameplates.lua
 Settings.lua
 Minimap.lua
+Windows.lua
 PlayerList.lua
 BackupWindow.lua
 Tracking.lua

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.2b2] - 2026-11-24
+
 - Check both player aliases for competing GUIDs before moving history at startup or during backup import.
 - Preserve the remote realm when an exact whisper sender key is shared by a different GUID.
 - Include player history in automatic checkpoints before settings changes that schedule roster scans.

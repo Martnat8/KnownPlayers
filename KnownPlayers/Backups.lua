@@ -70,7 +70,6 @@ local function Map(value, keyCheck, valueCheck, limit)
     return copy
 end
 
-local function TimeMap(value) return Map(value, Name, Stamp, 64) end
 local function Flags(value) return Map(value, Name, Boolean, 64) end
 local function Duration(value)
     return Fields(value, {enabled = Boolean, days = Stamp, hours = Stamp, minutes = Stamp})
@@ -122,12 +121,22 @@ end
 
 local function Membership(value) return Fields(value, {firstSeen = Stamp, lastSeen = Stamp}) end
 
-local function Player(value)
+local function LocalNote(value)
+    if type(value) ~= "string" then Invalid() end
+    return value
+end
+
+local function Player(value, localBackup)
+    local mapLimit = not localBackup and 64 or nil
+    local membershipLimit = not localBackup and 200 or nil
+    local note = localBackup and LocalNote or Note
+    local function TimeMap(value) return Map(value, Name, Stamp, mapLimit) end
     local player = Fields(value, {
         displayName = Name, realm = Name, guid = Guid, class = Name, classToken = Name,
-        race = Name, raceAtlas = Name, note = Note, tags = Note, favorite = Boolean,
-        categories = Flags, lastSeen = Stamp, categoryFirstSeen = TimeMap, categoryLastSeen = TimeMap,
-        guildMemberships = function(memberships) return Map(memberships, Name, Membership, 200) end,
+        race = Name, raceAtlas = Name, note = note, tags = note, favorite = Boolean,
+        categories = function(categories) return Map(categories, Name, Boolean, mapLimit) end,
+        lastSeen = Stamp, categoryFirstSeen = TimeMap, categoryLastSeen = TimeMap,
+        guildMemberships = function(memberships) return Map(memberships, Name, Membership, membershipLimit) end,
         preservedGuildDetails = Boolean,
     })
     player.categories = player.categories or {}
@@ -152,23 +161,27 @@ local function BattleNet(value)
                 name = Name, realm = Name, guid = Guid, class = Name, classToken = Name,
                 race = Name, raceAtlas = Name, firstObserved = Stamp, lastObserved = Stamp,
             })
-        end, MAX_PLAYERS)
-    end, 3000)
+        end)
+    end)
 end
 
-local function Validate(snapshot, localBackup)
+local function Validate(snapshot, localBackup, selection)
     Object(snapshot)
     if snapshot.version ~= FORMAT then error("This backup format is unsupported.", 0) end
     local sections = Object(snapshot.sections)
     local copy = {version = FORMAT, created = Stamp(snapshot.created), sections = {}}
-    if sections.settings ~= nil then copy.sections.settings = Settings(sections.settings) end
-    if sections.players ~= nil then
+    if sections.settings ~= nil and (not selection or selection.settings) then
+        copy.sections.settings = Settings(sections.settings)
+    end
+    if sections.players ~= nil and (not selection or selection.players) then
         local data = Object(sections.players)
         local limit = not localBackup and MAX_PLAYERS or nil
-        copy.sections.players = {records = Map(data.records, Name, Player, limit)}
+        copy.sections.players = {records = Map(data.records, Name, function(record)
+            return Player(record, localBackup)
+        end, limit)}
         if localBackup and data.bnet ~= nil then copy.sections.players.bnet = BattleNet(data.bnet) end
     end
-    if sections.npcs ~= nil then
+    if sections.npcs ~= nil and (not selection or selection.npcs) then
         local data = Object(sections.npcs)
         local limit = not localBackup and MAX_NPCS or nil
         copy.sections.npcs = {
@@ -176,7 +189,7 @@ local function Validate(snapshot, localBackup)
             overrides = Map(data.overrides, NPCID, Override, limit),
         }
     end
-    if not next(copy.sections) then error("Select at least one section to back up.", 0) end
+    if not selection and not next(copy.sections) then error("Select at least one section to back up.", 0) end
     return copy
 end
 
@@ -192,8 +205,8 @@ local function Capture(selection, localBackup)
     return Validate({version = FORMAT, created = time(), sections = sections}, localBackup)
 end
 
-function ns.CreateRestorePoint(kind, reason)
-    local ok, snapshot = pcall(Capture, ALL_SECTIONS, true)
+function ns.CreateRestorePoint(kind, reason, selection)
+    local ok, snapshot = pcall(Capture, selection or ALL_SECTIONS, true)
     if not ok then return nil, snapshot end
     local points = KnownPlayersDB.restorePoints
     if type(points) ~= "table" then points = {}; KnownPlayersDB.restorePoints = points end
@@ -209,8 +222,8 @@ function ns.GetRestorePoint(kind)
     return snapshot
 end
 
-function ns.BackupBeforeChange(reason)
-    local point, message = ns.CreateRestorePoint("automatic", reason)
+function ns.BackupBeforeChange(reason, selection)
+    local point, message = ns.CreateRestorePoint("automatic", reason, selection)
     if not point then print("|cff33ff99KnownPlayers:|r Could not create a restore point. " .. message) end
     return point ~= nil
 end
@@ -297,7 +310,7 @@ local function CheckMergedCount(records, limit, label)
 end
 
 local function PlanRestore(snapshot, selection, mode, localBackup)
-    local sections = Validate(snapshot, localBackup).sections
+    local sections = Validate(snapshot, localBackup, localBackup and selection or nil).sections
     local plan = {}
     for key in pairs(ALL_SECTIONS) do
         if selection[key] then
@@ -312,15 +325,19 @@ local function PlanRestore(snapshot, selection, mode, localBackup)
         local current = Capture(selection, true).sections
         if plan.players then
             skipped = ns.MergeBackupPlayers(current.players.records, plan.players.records)
-            CheckMergedCount(current.players.records, MAX_PLAYERS, "player records")
-            -- A merge can also combine maps within one player record.
-            current.players.records = Map(current.players.records, Name, Player, MAX_PLAYERS)
+            if not localBackup then
+                CheckMergedCount(current.players.records, MAX_PLAYERS, "player records")
+                -- A merge can also combine maps within one player record.
+                current.players.records = Map(current.players.records, Name, Player, MAX_PLAYERS)
+            end
             plan.players = current.players
         end
         if plan.npcs then
             MergeNPCs(current.npcs, plan.npcs)
-            CheckMergedCount(current.npcs.records, MAX_NPCS, "saved NPCs")
-            CheckMergedCount(current.npcs.overrides, MAX_NPCS, "NPC overrides")
+            if not localBackup then
+                CheckMergedCount(current.npcs.records, MAX_NPCS, "saved NPCs")
+                CheckMergedCount(current.npcs.overrides, MAX_NPCS, "NPC overrides")
+            end
             plan.npcs = current.npcs
         end
     end
@@ -332,7 +349,7 @@ function ns.ApplyBackup(snapshot, selection, mode, localBackup)
     local ok, plan, skipped = pcall(PlanRestore, snapshot, selection, mode, localBackup)
     if not ok then return nil, plan end
     local reason = localBackup and "Before restoring a backup" or "Before importing"
-    local point, message = ns.CreateRestorePoint("automatic", reason)
+    local point, message = ns.CreateRestorePoint("automatic", reason, plan)
     if not point then return nil, "Could not create a restore point. " .. message end
 
     if plan.players then

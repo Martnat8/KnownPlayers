@@ -69,7 +69,7 @@ StaticPopupDialogs["KNOWNPLAYERS_RESET_SETTINGS"] = {
     button1 = "Reset Settings",
     button2 = CANCEL,
     OnAccept = function()
-        if not ns.BackupBeforeChange("Before resetting settings") then return end
+        if not ns.BackupBeforeChange("Before resetting settings", {settings = true}) then return end
         ns.ApplyKnownPlayersSettings({})
         print("|cff33ff99KnownPlayers:|r Settings restored to defaults.")
     end,

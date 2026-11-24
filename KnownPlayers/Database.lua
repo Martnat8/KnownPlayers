@@ -306,6 +306,14 @@ end
 
 local MergeInto
 
+-- False marks an alias claimed by more than one distinct GUID.
+local function ClaimAlias(claims, alias, guid)
+    if not alias or not guid then return end
+    local existing = claims[alias]
+    if existing == nil then claims[alias] = guid
+    elseif existing ~= guid then claims[alias] = false end
+end
+
 function ns.MigratePlayerRecords()
     local changed = 0
     local legacyGuildKey = GuildKey(KnownPlayersDB.guildRosterClubID) or "legacy"
@@ -347,13 +355,14 @@ function ns.MigratePlayerRecords()
     -- blocks the merge, even when the displayed names look identical.
     -- Choose an already-canonical key first, so roster refreshes and direct
     -- encounters continue writing to that one SavedVariables entry.
-    local entries = {}
+    local entries, claims = {}, {}
     for key, record in pairs(KnownPlayersDB.players) do
         if type(record) == "table" then
             local canonical, _, realm = ns.NormalizePlayerKey(key, record.realm)
             if canonical and realm then
                 entries[#entries + 1] = {key = key, canonical = canonical,
                     group = canonical:lower(), record = record}
+                ClaimAlias(claims, canonical:lower(), ns.SafePlayerGUID(record.guid))
             end
         end
     end
@@ -367,7 +376,7 @@ function ns.MigratePlayerRecords()
     local leaders = {}
     for _, entry in ipairs(entries) do
         local record = KnownPlayersDB.players[entry.key]
-        if record == entry.record then
+        if record == entry.record and (claims[entry.group] ~= false or ns.SafePlayerGUID(record.guid)) then
             local leaderKey = leaders[entry.group]
             local leader = leaderKey and KnownPlayersDB.players[leaderKey]
             local oldGUID = ns.SafePlayerGUID(record.guid)
@@ -475,25 +484,43 @@ end
 -- Merge into a staged store with the same identity rules as live tracking.
 function ns.MergeBackupPlayers(staged, incoming)
     local index = ns.CreatePlayerIdentityIndex(staged)
-    local keys = {}
+    local keys, claims = {}, {}
+    for _, records in ipairs({staged, incoming}) do
+        for key, record in pairs(records) do
+            local alias, preferred = ns.PlayerIdentityAliases(key, record)
+            local guid = ns.SafePlayerGUID(record.guid)
+            ClaimAlias(claims, alias or key, guid)
+            ClaimAlias(claims, preferred, guid)
+        end
+    end
     for key in pairs(incoming) do keys[#keys + 1] = key end
     table.sort(keys)
     local conflicts = 0
     for _, key in ipairs(keys) do
         local record = incoming[key]
         local name = record.displayName and record.realm and (record.displayName .. "-" .. record.realm) or key
-        local destination = index:FindKeyByGUID(record.guid)
+        local guid = ns.SafePlayerGUID(record.guid)
+        local alias, preferred = ns.PlayerIdentityAliases(key, record)
+        local conflictingClaim = claims[alias or key] == false or claims[preferred] == false
+        local destination = index:FindKeyByGUID(guid)
         local ambiguous
-        if not destination then destination, ambiguous = index:FindKeyByName(name, record.guid) end
-        if destination then
+        if not destination and (guid or not conflictingClaim) then
+            destination, ambiguous = index:FindKeyByName(name, guid, record.realm)
+            if conflictingClaim and destination and not ns.SafePlayerGUID(staged[destination].guid) then
+                destination = nil
+            end
+        end
+        if not guid and (conflictingClaim or ambiguous) then
+            conflicts = conflicts + 1
+        elseif destination then
             local current = staged[destination]
             local note = ns.SafeString(current.note)
             MergeInto(current, record)
             if note then current.note = note end
             index:Update(destination, current)
         else
-            local newKey = staged[key] and record.guid and ("guid:" .. record.guid) or key
-            if staged[newKey] or (ambiguous and not record.guid) then
+            local newKey = staged[key] and guid and ("guid:" .. guid) or key
+            if staged[newKey] then
                 conflicts = conflicts + 1
             else
                 staged[newKey] = record
@@ -566,23 +593,26 @@ function ns.RememberPlayer(name, category, seenAt, guid, realmHint, unit)
     local matchedKey = guid and ns.FindDirectKeyByGUID and ns.FindDirectKeyByGUID(guid) or nil
     if not matchedKey and ns.FindDirectKeyByName then
         local ambiguous
-        matchedKey, ambiguous = ns.FindDirectKeyByName(name, guid)
+        matchedKey, ambiguous = ns.FindDirectKeyByName(name, guid, realm)
         if ambiguous and not guid then return nil end
     end
 
     local record = matchedKey and players[matchedKey] or nil
     local exact = players[name]
+    local conflictingGUID = guid and ((record and not record.guid) or (type(exact) == "table" and not exact.guid))
+        and ns.HasConflictingPlayerGUID(name, guid, realm)
+    if conflictingGUID and record and not record.guid then record, matchedKey = nil, nil end
     local merged
     if record and type(exact) == "table" and exact ~= record then
         -- Merge only if no GUID conflicts, and the exact entry has either
         -- the same GUID or no existing GUID of its own.
-        if not exact.guid or exact.guid == guid then
+        if exact.guid == guid or (not exact.guid and not conflictingGUID) then
             MergeInto(record, exact)
             players[name] = nil
             merged = true
         end
     elseif not record and type(exact) == "table" then
-        if not (guid and exact.guid and exact.guid ~= guid) then
+        if not (guid and ((exact.guid and exact.guid ~= guid) or conflictingGUID)) then
             record = exact
             matchedKey = name
         end

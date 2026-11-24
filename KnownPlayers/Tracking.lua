@@ -53,13 +53,25 @@ end)
 
 -- Chat events supply the other player's name as their second argument.
 -- Normalize names to the same Name-Realm keys used by roster tracking.
-local function NormalizeWhisperName(sender)
+local function NormalizeWhisperName(sender, guid)
     sender = ns.SafeString(sender)
     if not sender or sender == UNKNOWNOBJECT then
         return nil
     end
 
-    return ns.NormalizePlayerKey(sender) or ns.PlayerKeyFromName(sender)
+    local key, _, realm = ns.NormalizePlayerKey(sender)
+    if key then return key, realm end
+
+    -- A less common realm suffix can still be resolved from an exact saved key.
+    local saved = ns.GetPlayer(sender)
+    if saved then
+        realm = ns.SafeString(saved.realm)
+        local matched, ambiguous = ns.FindDirectKeyByName(sender, guid, realm)
+        if ambiguous then return nil end
+        if matched == sender then return sender, realm end
+    end
+    key, _, realm = ns.PlayerKeyFromName(sender)
+    return key, realm
 end
 
 local whisperFrame = CreateFrame("Frame")
@@ -73,7 +85,7 @@ whisperFrame:SetScript("OnEvent", function(_, _, ...)
         return
     end
 
-    local key = NormalizeWhisperName(sender)
+    local key, realm = NormalizeWhisperName(sender, guid)
     if not key then
         return
     end
@@ -81,11 +93,13 @@ whisperFrame:SetScript("OnEvent", function(_, _, ...)
     -- Do not retain your own character if the client reports a self-whisper.
     local ok, selfName, selfRealm = pcall(UnitFullName, "player")
     local selfKey = ok and ns.PlayerKeyFromName(selfName, selfRealm)
-    if (selfKey and key:lower() == selfKey:lower()) or (guid and guid == ns.SafeUnitGUID("player")) then
+    local comparableKey = realm and key or ns.PlayerKeyFromName(key)
+    if (selfKey and comparableKey and comparableKey:lower() == selfKey:lower())
+        or (guid and guid == ns.SafeUnitGUID("player")) then
         return
     end
 
-    ns.RememberPlayer(key, "whisper", nil, guid)
+    ns.RememberPlayer(key, "whisper", nil, guid, realm)
 end)
 
 -- Opening a trade window constitutes an encounter, even if the trade

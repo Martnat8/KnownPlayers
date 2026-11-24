@@ -182,6 +182,10 @@ local function CopyDefaults(source, destination)
     end
 end
 
+function ns.FillKnownPlayersSettingsDefaults(settings)
+    CopyDefaults(DEFAULT_SETTINGS, settings)
+end
+
 function ns.InitializeDatabase()
     if type(KnownPlayersDB) ~= "table" then
         KnownPlayersDB = {}
@@ -200,7 +204,7 @@ function ns.InitializeDatabase()
     if type(KnownPlayersSettings) ~= "table" then
         KnownPlayersSettings = {}
     end
-    CopyDefaults(DEFAULT_SETTINGS, KnownPlayersSettings)
+    ns.FillKnownPlayersSettingsDefaults(KnownPlayersSettings)
     -- Preserve the existing Show Health Bar preference on upgrade. A fresh
     -- install defaults to Always, while legacy Names Only maps to Never.
     if KnownPlayersSettings.playerHealthBarMode ~= "always"
@@ -314,6 +318,24 @@ local function ClaimAlias(claims, alias, guid)
     elseif existing ~= guid then claims[alias] = false end
 end
 
+local function CollectAliasClaims(claims, players)
+    for key, record in pairs(players) do
+        local guid = type(record) == "table" and ns.SafePlayerGUID(record.guid)
+        if guid then
+            local alias, preferred = ns.PlayerIdentityAliases(key, record)
+            ClaimAlias(claims, alias or key, guid)
+            ClaimAlias(claims, preferred, guid)
+        end
+    end
+end
+
+local function HasConflictingAliasClaims(claims, key, record)
+    local alias, preferred = ns.PlayerIdentityAliases(key, record)
+    local storedClaim, preferredClaim = claims[alias or key], claims[preferred]
+    return storedClaim == false or preferredClaim == false
+        or (storedClaim ~= nil and preferredClaim ~= nil and storedClaim ~= preferredClaim)
+end
+
 function ns.MigratePlayerRecords()
     local changed = 0
     local legacyGuildKey = GuildKey(KnownPlayersDB.guildRosterClubID) or "legacy"
@@ -356,13 +378,13 @@ function ns.MigratePlayerRecords()
     -- Choose an already-canonical key first, so roster refreshes and direct
     -- encounters continue writing to that one SavedVariables entry.
     local entries, claims = {}, {}
+    CollectAliasClaims(claims, KnownPlayersDB.players)
     for key, record in pairs(KnownPlayersDB.players) do
         if type(record) == "table" then
             local canonical, _, realm = ns.NormalizePlayerKey(key, record.realm)
             if canonical and realm then
                 entries[#entries + 1] = {key = key, canonical = canonical,
                     group = canonical:lower(), record = record}
-                ClaimAlias(claims, canonical:lower(), ns.SafePlayerGUID(record.guid))
             end
         end
     end
@@ -376,7 +398,8 @@ function ns.MigratePlayerRecords()
     local leaders = {}
     for _, entry in ipairs(entries) do
         local record = KnownPlayersDB.players[entry.key]
-        if record == entry.record and (claims[entry.group] ~= false or ns.SafePlayerGUID(record.guid)) then
+        if record == entry.record and (ns.SafePlayerGUID(record.guid)
+            or not HasConflictingAliasClaims(claims, entry.key, record)) then
             local leaderKey = leaders[entry.group]
             local leader = leaderKey and KnownPlayersDB.players[leaderKey]
             local oldGUID = ns.SafePlayerGUID(record.guid)
@@ -485,14 +508,8 @@ end
 function ns.MergeBackupPlayers(staged, incoming)
     local index = ns.CreatePlayerIdentityIndex(staged)
     local keys, claims = {}, {}
-    for _, records in ipairs({staged, incoming}) do
-        for key, record in pairs(records) do
-            local alias, preferred = ns.PlayerIdentityAliases(key, record)
-            local guid = ns.SafePlayerGUID(record.guid)
-            ClaimAlias(claims, alias or key, guid)
-            ClaimAlias(claims, preferred, guid)
-        end
-    end
+    CollectAliasClaims(claims, staged)
+    CollectAliasClaims(claims, incoming)
     for key in pairs(incoming) do keys[#keys + 1] = key end
     table.sort(keys)
     local conflicts = 0
@@ -500,8 +517,7 @@ function ns.MergeBackupPlayers(staged, incoming)
         local record = incoming[key]
         local name = record.displayName and record.realm and (record.displayName .. "-" .. record.realm) or key
         local guid = ns.SafePlayerGUID(record.guid)
-        local alias, preferred = ns.PlayerIdentityAliases(key, record)
-        local conflictingClaim = claims[alias or key] == false or claims[preferred] == false
+        local conflictingClaim = HasConflictingAliasClaims(claims, key, record)
         local destination = index:FindKeyByGUID(guid)
         local ambiguous
         if not destination and (guid or not conflictingClaim) then

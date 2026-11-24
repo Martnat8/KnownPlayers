@@ -24,7 +24,7 @@ local ns = {
     RefreshMinimapButton = function() end, RefreshKnownNameplates = function() end,
 }
 for _, module in ipairs({"Safety", "Categories", "Database", "Identity", "NPC", "Backups",
-    "BattleNet", "Colors", "Settings", "Windows", "PlayerList"}) do
+    "BattleNet", "Colors", "Settings", "Windows", "PlayerList", "Tracking"}) do
     assert(loadfile("KnownPlayers/" .. module .. ".lua"))("KnownPlayers", ns)
 end
 ns.InitializeDatabase()
@@ -138,6 +138,20 @@ local preserved = ns.FindDirectRecord(shared, "Player-Backup-1")
 assert(preserved and not preserved.favorite and not ns.PlayerHasCategory(preserved, "trade"))
 assert(ns.PlayerHasCategory(ns.FindDirectRecord(shared, "Player-Backup-2"), "target"))
 
+-- Individually unique aliases can still disagree on which player owns a row.
+local firstKey, secondKey = "First-Player-CAMWOW1", "Second-Player-CAMWOW1"
+ns.RememberPlayer(firstKey, "manual", NOW, "Player-Backup-3")
+ns.RememberPlayer(secondKey, "manual", NOW, "Player-Backup-4")
+local mismatched = {version = 1, created = NOW, sections = {players = {records = {
+    [firstKey] = {displayName = "Second Player", realm = "CAMWOW1", favorite = true, categories = {trade = true}},
+}}}}
+applied, skipped = ns.ApplyBackup(mismatched, {players = true}, "merge", false)
+assert(applied and skipped == 1)
+for _, alias in ipairs({firstKey, secondKey}) do
+    local saved = ns.GetPlayer(alias)
+    assert(saved and not saved.favorite and not ns.PlayerHasCategory(saved, "trade"))
+end
+
 -- Reject a merge beyond the portable limit before changing history or checkpoints.
 local extraNPC = {version = 1, created = NOW, sections = {npcs = {
     records = {["10001"] = {name = "Extra NPC"}}, overrides = {},
@@ -187,6 +201,33 @@ assert(ns.ApplyBackup({version = 1, created = NOW, sections = {settings = {}, pl
 assert(KnownPlayersSettings.showMinimapButton)
 restored.favorite = nil
 
+-- The real scanner writes a new player during any of these settings actions.
+local partyMember = "New-Party-Member-CAMWOW1"
+GetNumGroupMembers = function() return 2 end
+IsInRaid = function() return false end
+UnitExists = function(unit) return unit == "party1" end
+UnitIsPlayer = UnitExists
+UnitIsUnit = function(first, second) return first == second end
+UnitFullName = function() return "New Party Member", "CAMWOW1" end
+UnitGUID = function() return "Player-Party-1" end
+local function VerifyTrackingRollback(apply)
+    ns.ApplyKnownPlayersSettings({trackGroup = {party = false}})
+    assert(not ns.GetPlayer(partyMember))
+    apply()
+    assert(ns.CategoryTrackingEnabled("party") and ns.PlayerHasCategory(ns.GetPlayer(partyMember), "party"))
+    local point = ns.GetRestorePoint("automatic")
+    assert(point.sections.settings and point.sections.players.bnet and not point.sections.npcs)
+    assert(not point.sections.players.records[partyMember])
+    assert(ns.ApplyBackup(point, {settings = true, players = true}, "replace", true))
+    assert(not ns.CategoryTrackingEnabled("party") and not ns.GetPlayer(partyMember) and ns.GetPlayer(key))
+end
+VerifyTrackingRollback(StaticPopupDialogs.KNOWNPLAYERS_RESET_SETTINGS.OnAccept)
+local enableParty = {version = 1, created = NOW, sections = {settings = {trackGroup = {party = true}}}}
+VerifyTrackingRollback(function() assert(ns.ApplyBackup(enableParty, {settings = true}, "merge", false)) end)
+VerifyTrackingRollback(function() assert(ns.ApplyBackup(enableParty, {settings = true}, "replace", true)) end)
+
+GetNumGroupMembers = function() return 0 end
+ns.ApplyKnownPlayersSettings({})
 local scans = {}
 ns.ScanGroupRoster = function() scans[#scans + 1] = "group" end
 ns.RequestGuildRoster = function() scans[#scans + 1] = "guild request" end

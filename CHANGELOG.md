@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Preserve disputed GUID-less history when tracking or importing a player with a confirmed GUID.
+
 ## [0.5.2b2] - 2026-11-24
 
 - Check both player aliases for competing GUIDs before moving history at startup or during backup import.

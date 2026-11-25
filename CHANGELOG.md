@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.2b4] - 2026-11-25
+
 - Discard pending Battle.net observations when tracking is disabled and block their promotion after opt-out.
 - Preserve omitted tracking choices in settings imports and show explicit tracking changes in the backup preview.
 - Let players delete either local restore point and explain that restore points can retain forgotten history.

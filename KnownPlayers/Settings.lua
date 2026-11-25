@@ -5,7 +5,7 @@ local settingsRefreshers = {}
 local TABLE_LEFT, ROW_HEIGHT = 18, 31
 local TRACKING_CONTROLS = {
     durationX = 164, duration = 123, priorityX = 298, arrow = 25, arrowGap = 3,
-    manage = 70, gap = 8, color = 72,
+    manage = 70, gap = 8, color = 28,
 }
 local CONTENT_RIGHT_PADDING = 18
 local SCROLL_LEFT, SCROLL_RIGHT = 3, 28
@@ -106,14 +106,26 @@ local function Button(parent, value, width, click)
     return button
 end
 
-local function ColorButton(parent, click)
-    local button = Button(parent, "Color", TRACKING_CONTROLS.color, click)
+local function AddControlTooltip(control, text)
+    control:SetScript("OnEnter", function(self)
+        if not GameTooltip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(text)
+        GameTooltip:Show()
+    end)
+    local function HideTooltip(self)
+        if GameTooltip and GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+    end
+    control:SetScript("OnLeave", HideTooltip)
+    control:SetScript("OnHide", HideTooltip)
+end
+
+local function ColorButton(parent, category, click)
+    local button = Button(parent, "", TRACKING_CONTROLS.color, click)
     local swatch = button:CreateTexture(nil, "OVERLAY")
-    swatch:SetSize(12, 12)
-    swatch:SetPoint("LEFT", button, "LEFT", 10, 0)
-    local text = button:GetFontString()
-    text:ClearAllPoints()
-    text:SetPoint("LEFT", swatch, "RIGHT", 8, 0)
+    swatch:SetSize(14, 14)
+    swatch:SetPoint("CENTER")
+    AddControlTooltip(button, "Edit color for " .. category)
     return button, swatch
 end
 
@@ -147,8 +159,14 @@ local function ShowAbout(parent)
     ns.EnableWindowEscape(frame)
     if not standalone then parent:HookScript("OnHide", function() frame:Hide() end) end
 
-    Label(frame, "Version " .. ns.AddonVersion, 22, -38)
-    local y = -62
+    local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -30)
+    scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -32, 16)
+    local body = CreateFrame("Frame", nil, scroll)
+    body:SetWidth(472)
+    scroll:SetScrollChild(body)
+    Label(body, "Version " .. ns.AddonVersion, 6, -8)
+    local y = -32
     for _, section in ipairs({
         {"Remembering players",
             "Choose which interactions to track on Player Nameplates. Use a portrait menu or /kp remember to save someone manually. Open Player History to see why you know them and add a note, tags, or a favorite."},
@@ -159,13 +177,18 @@ local function ShowAbout(parent)
         {"Saved lists",
             "History and notes stay on this computer. Favorites stay saved when inactive. Use Undo or /kp undo within 30 seconds of an individual removal. Reset Settings to Defaults keeps your lists."},
     }) do
-        Label(frame, section[1], 22, y, "GameFontNormal")
-        local details = Label(frame, section[2], 22, y - 19, "GameFontHighlight")
-        details:SetWidth(476)
+        Label(body, section[1], 6, y, "GameFontNormal")
+        local details = Label(body, section[2], 6, y - 19, "GameFontHighlight")
+        details:SetWidth(460)
         details:SetJustifyH("LEFT")
         y = y - 19 - details:GetStringHeight() - 14
     end
-    frame:SetHeight(-y + 8)
+    body:SetHeight(-y)
+    local function FitAbout()
+        frame:SetHeight(math.min(body:GetHeight() + 46, math.max(120, UIParent:GetHeight() - 32)))
+    end
+    FitAbout()
+    frame:HookScript("OnShow", FitAbout)
 
     parent.aboutWindow = frame
     ns.ShowWindow(frame)
@@ -207,11 +230,26 @@ local function AddFriendlyMinionVisibility(parent, x, y)
     Refresh()
 end
 
-local function NewScrollingPage(parent)
+local function NewScrollingPage(parent, centerWhenFits)
     local page = CreateFrame("Frame", nil, parent)
     local scroller = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
-    scroller:SetPoint("TOPLEFT", page, "TOPLEFT", SCROLL_LEFT, -SCROLL_TOP)
-    scroller:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -SCROLL_RIGHT, SCROLL_BOTTOM)
+    scroller.scrollBarHideable = true
+    if scroller.ScrollBar then scroller.ScrollBar:Hide() end
+    scroller:EnableMouseWheel(false)
+    local offset
+    local function SetCentered(centered)
+        local newOffset = centered and math.floor((SCROLL_RIGHT - SCROLL_LEFT) / 2) or 0
+        if newOffset == offset then return end
+        offset = newOffset
+        scroller:SetPoint("TOPLEFT", page, "TOPLEFT", SCROLL_LEFT + offset, -SCROLL_TOP)
+        scroller:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -SCROLL_RIGHT + offset, SCROLL_BOTTOM)
+    end
+    SetCentered(centerWhenFits)
+    scroller:HookScript("OnScrollRangeChanged", function(self, _, verticalRange)
+        local canScroll = verticalRange >= 1
+        self:EnableMouseWheel(canScroll)
+        SetCentered(centerWhenFits and not canScroll)
+    end)
     local content = CreateFrame("Frame", nil, scroller)
     content:SetSize(CONTENT_WIDTH, 600)
     scroller:SetScrollChild(content)
@@ -254,12 +292,16 @@ local function Dropdown(parent, x, y, width)
 end
 
 local function AddRetentionDropdown(row, key, x, relayout)
-    local dropdown = Dropdown(row, x, -2, TRACKING_CONTROLS.duration)
     if not ns.GetCategoryRetention(key) then
-        dropdown:SetText("Forever")
-        dropdown:Disable()
+        local status = CreateFrame("Frame", nil, row)
+        status:SetSize(78, 25)
+        status:SetPoint("TOPLEFT", row, "TOPLEFT", x, -2)
+        status:EnableMouse(true)
+        Label(status, "No timer", 7, -6)
+        AddControlTooltip(status, "This category has no configurable retention timer.")
         return
     end
+    local dropdown = Dropdown(row, x, -2, TRACKING_CONTROLS.duration)
 
     local fields = {}
     local units = {"days", "hours", "minutes"}
@@ -355,7 +397,7 @@ end
 
 local function NameplateSliderRow(parent, anchor, option)
     local rowWidth = CONTENT_WIDTH - 2 * TABLE_LEFT
-    local labelWidth, valueWidth, buttonWidth, columnGap = 174, 46, 74, 10
+    local labelWidth, valueWidth, buttonWidth, columnGap = 136, 46, 74, 10
     local sliderX = labelWidth + columnGap
     local valueX = rowWidth - buttonWidth - columnGap - valueWidth
     local row = CreateFrame("Frame", nil, parent)
@@ -584,16 +626,17 @@ local function BuildHomePage(parent)
     local function Refresh() Layout() end
     local layoutSetup = AddNameplateSetup(content, Refresh)
 
+    local minimapHeading = Label(content, "Minimap", 18, 0, "GameFontNormal")
     local minimap = Checkbox(content, 17, 0, "Show minimap button",
         KnownPlayersSettings.showMinimapButton, function(checked)
             KnownPlayersSettings.showMinimapButton = checked
             ns.RefreshMinimapButton()
         end, function() return KnownPlayersSettings.showMinimapButton end)
+    local maintenanceHeading = Label(content, "Settings maintenance", 18, 0, "GameFontNormal")
+    local backups = Button(content, "Backup & Restore", 135, function() ns.OpenBackupWindow(page) end)
     local reset = Button(content, "Reset Settings to Defaults", 205, function()
         StaticPopup_Show("KNOWNPLAYERS_RESET_SETTINGS")
     end)
-    local backups = Button(content, "Backup & Restore", 135, function() ns.OpenBackupWindow(page) end)
-    backups:SetPoint("LEFT", reset, "RIGHT", 9, 0)
     local version = Label(content, "Version " .. ns.AddonVersion, 0, 0)
     local repository = Label(content, "https://github.com/Martnat8/KnownPlayers", 0, 0)
 
@@ -623,13 +666,17 @@ local function BuildHomePage(parent)
             or (questieReady and ns.HasUnfilteredOverheadNames("npc")) then
             messages[#messages + 1] = "WoW is still showing some overhead names outside the filter. Check WoW’s Names settings."
         end
-        local footer = layoutSetup({player = players, npc = npcPlates, always = players or npcPlates},
-            messages, -154) - 18
-        PlaceAt(minimap, content, 17, footer)
-        PlaceAt(reset, content, 18, footer - 39)
-        PlaceAt(version, content, 18, footer - 81)
-        PlaceAt(repository, content, 18, footer - 100)
-        content:SetHeight(-footer + 128)
+        local minimapY = layoutSetup({player = players, npc = npcPlates, always = players or npcPlates},
+            messages, -154) - 26
+        local maintenanceY = minimapY - 68
+        PlaceAt(minimapHeading, content, 18, minimapY)
+        PlaceAt(minimap, content, 17, minimapY - 20)
+        PlaceAt(maintenanceHeading, content, 18, maintenanceY)
+        PlaceAt(backups, content, 18, maintenanceY - 20)
+        PlaceAt(reset, content, 18, maintenanceY - 51)
+        PlaceAt(version, content, 18, maintenanceY - 92)
+        PlaceAt(repository, content, 18, maintenanceY - 111)
+        content:SetHeight(-maintenanceY + 139)
     end
     playerFilter:HookScript("OnClick", Refresh)
     npcFilter:HookScript("OnClick", Refresh)
@@ -654,6 +701,8 @@ local function AddPriorityTable(body, top, options)
     Label(body, options.player and "Track category" or "Show category", TABLE_LEFT + 6, top, "GameFontNormalSmall")
     if options.player then
         Label(body, "Remember for", TABLE_LEFT + TRACKING_CONTROLS.durationX + 3, top, "GameFontNormalSmall")
+        local manageX = priorityX + 2 * TRACKING_CONTROLS.arrow + TRACKING_CONTROLS.arrowGap + TRACKING_CONTROLS.gap
+        Label(body, "Saved players", TABLE_LEFT + manageX, top, "GameFontNormalSmall")
     end
     Label(body, "Priority", TABLE_LEFT + priorityX + 4, top, "GameFontNormalSmall")
 
@@ -739,11 +788,15 @@ end
 local function BuildNPCPage(parent)
     local page, body = NewScrollingPage(parent)
 
+    local managerWidth = 118
+    local manager = Button(body, "NPC Manager", managerWidth, function() ns.OpenPlayerList("npc", page) end)
+    manager:SetPoint("TOPRIGHT", body, "TOPRIGHT", -CONTENT_RIGHT_PADDING, -8)
     local sourceHeading = Label(body, "", 21, -12, "GameFontNormal")
-    sourceHeading:SetWidth(CONTENT_WIDTH - 42)
+    sourceHeading:SetWidth(CONTENT_WIDTH - 21 - CONTENT_RIGHT_PADDING - managerWidth - 12)
+    sourceHeading:SetMaxLines(2)
     sourceHeading:SetJustifyH("LEFT")
-    Label(body, "Automatic NPC roles come from the separately installed QuestieDB addon.", 21, -36)
-    Label(body, "Higher categories take priority for NPCs with several roles.", 21, -56)
+    Label(body, "Automatic NPC roles come from the separately installed QuestieDB addon.", 21, -42)
+    Label(body, "Higher categories take priority for NPCs with several roles.", 21, -62)
     local function RefreshSourceStatus()
         local status = ns.GetNPCDataSourceStatus():gsub(" %- automatic NPC categories unavailable$", "")
         local color = ns.IsQuestieDBConnected() and "ff59ff73" or "ffff5454"
@@ -759,15 +812,12 @@ local function BuildNPCPage(parent)
 
     local management = CreateFrame("Frame", nil, body)
     management:SetWidth(CONTENT_WIDTH - 42)
-    Label(management, "Forget manually remembered NPCs over time", 0, -4, "GameFontNormal")
+    Label(management, "Manually remembered NPCs", 0, -4, "GameFontNormal")
     local retentionOffset = 25
     local retention = CreateFrame("Frame", nil, management)
     retention:SetSize(management:GetWidth(), ROW_HEIGHT)
     retention:SetPoint("TOPLEFT", management, "TOPLEFT", 0, -retentionOffset)
     Label(retention, "Remember for", 0, -8)
-    local manager = Button(retention, "NPC Manager", 118, function() ns.OpenPlayerList("npc", page) end)
-    local managerX = TRACKING_CONTROLS.durationX + TRACKING_CONTROLS.duration + TRACKING_CONTROLS.gap
-    manager:SetPoint("TOPLEFT", retention, "TOPLEFT", managerX, -2)
     local managementY
     local function LayoutManagement()
         management:SetHeight(retentionOffset + retention:GetHeight() + 6)
@@ -776,7 +826,7 @@ local function BuildNPCPage(parent)
     AddRetentionDropdown(retention, "npc", TRACKING_CONTROLS.durationX, LayoutManagement)
     LayoutManagement()
 
-    AddPriorityTable(body, -76, {
+    AddPriorityTable(body, -82, {
         orderKey = "npcNameplateColorOrder",
         rowHeight = 28,
         labels = NPCLabels(),
@@ -920,7 +970,7 @@ local function AddColorTable(box, title, orderKey, labels, getColor, colorKey)
         label:SetMaxLines(1)
         label:SetJustifyH("LEFT")
         local button
-        button, row.swatch = ColorButton(row, function() PickColor(key) end)
+        button, row.swatch = ColorButton(row, labels[key], function() PickColor(key) end)
         button:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, -1)
     end
     Refresh()
@@ -940,7 +990,7 @@ local function AddAppearanceBoxes(body, anchor, anchorPoint, x, y, height)
 end
 
 local function BuildAppearancePage(parent)
-    local page, body = NewScrollingPage(parent)
+    local page, body = NewScrollingPage(parent, true)
     local appearanceTop, appearanceHeight = -14, 204
     local playerAppearance, npcAppearance =
         AddAppearanceBoxes(body, body, "TOPLEFT", TABLE_LEFT, appearanceTop, appearanceHeight)
@@ -951,12 +1001,13 @@ local function BuildAppearancePage(parent)
     local last, sliderHeight = AddNameplateSliders(page, body, heading)
     local colorHeight = 40 + math.max(#KnownPlayersSettings.nameplateColorOrder,
         #KnownPlayersSettings.npcNameplateColorOrder) * ROW_HEIGHT
-    local playerColors, npcColors = AddAppearanceBoxes(body, last, "BOTTOMLEFT", 0, -19, colorHeight)
+    local colorGap = 9
+    local playerColors, npcColors = AddAppearanceBoxes(body, last, "BOTTOMLEFT", 0, -colorGap, colorHeight)
     AddColorTable(playerColors, "Player category colors", "nameplateColorOrder",
         PLAYER_LABELS, ns.GetNameplateCategoryColor, "nameplateCategoryColors")
     AddColorTable(npcColors, "NPC category colors", "npcNameplateColorOrder",
         NPCLabels(), ns.GetNPCNameplateCategoryColor, "npcNameplateCategoryColors")
-    body:SetHeight(-sliderTop + heading:GetStringHeight() + sliderHeight + 19 + colorHeight + 20)
+    body:SetHeight(-sliderTop + heading:GetStringHeight() + sliderHeight + colorGap + colorHeight + 20)
     page.fitHeightContent = body
     return page
 end

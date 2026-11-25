@@ -55,7 +55,7 @@ local function AddClassFilter(frame, x, y, refresh)
     dropdown:SetSize(CLASS_COLUMN_WIDTH, 22)
     dropdown:SetPoint("TOPLEFT", x, y)
     dropdown:SetSelectionText(function()
-        if selected == "all" then return "Class" end
+        if selected == "all" then return "All classes" end
         return labels[selected] or "Unknown class"
     end)
     local function IsSelected(key) return selected == key end
@@ -107,13 +107,30 @@ end
 
 local function ShowIconTooltip(self)
     if not GameTooltip then return end
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetOwner(self, self.tooltipAnchor or "ANCHOR_RIGHT")
     GameTooltip:SetText(self.tooltip)
     GameTooltip:Show()
 end
 
 local function HideIconTooltip(self)
     if GameTooltip and GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+end
+
+local function AddHistoryTooltip(button)
+    button.tooltipAnchor = "ANCHOR_LEFT"
+    button:SetScript("OnEnter", ShowIconTooltip)
+    button:SetScript("OnLeave", HideIconTooltip)
+    button:SetScript("OnHide", HideIconTooltip)
+end
+
+local function PlayerIdentityText(entry)
+    local realm = ns.SafeString(entry.realm)
+    return realm and (entry.name .. "\n" .. realm) or entry.name
+end
+
+local function UpdateHistoryTooltip(button, text)
+    button.tooltip = text
+    if GameTooltip and GameTooltip:IsOwned(button) then ShowIconTooltip(button) end
 end
 
 local function AddAppearanceIcons(row, x)
@@ -255,11 +272,11 @@ local function ShowFavoriteState(button, favorite)
     if GameTooltip and GameTooltip:IsOwned(button) then ShowIconTooltip(button) end
 end
 
-local function AddPlayerRowActions(row, removeTooltip)
+local function AddPlayerRowActions(row, removeTooltip, gap)
     row.favoriteButton = CreateIconButton(row)
     row.favoriteButton:SetPoint("LEFT", row, "LEFT", 2, 0)
     row.removeButton = CreateIconButton(row)
-    row.removeButton:SetPoint("LEFT", row.favoriteButton, "RIGHT", 1, 0)
+    row.removeButton:SetPoint("LEFT", row.favoriteButton, "RIGHT", gap or 1, 0)
     row.removeButton.icon:SetTexture("Interface\\AddOns\\" .. addonName .. "\\Textures\\Trash")
     row.removeButton.tooltip = removeTooltip
 end
@@ -335,16 +352,19 @@ local function CreateCategoryWindow(category, index)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
 
     local searchHint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    searchHint:SetPoint("LEFT", search, "RIGHT", 12, 0)
-    searchHint:SetText("Search names")
+    searchHint:SetPoint("TOPLEFT", search, "BOTTOMLEFT", 0, -4)
+    searchHint:SetText("Search names or realms")
 
     local Refresh
     local Sort = AddSortHeaders(frame, -137, 411, function() Refresh() end, nil, 71)
-    local ReadClassFilter = AddClassFilter(frame, 285, -138, function() Refresh() end)
+    local ReadClassFilter = AddClassFilter(frame, 343, -83, function() Refresh() end)
+    local appearanceHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    appearanceHeader:SetPoint("CENTER", frame, "TOPLEFT", 341, -147)
+    appearanceHeader:SetText("Class / race")
 
     local clear = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     clear:SetSize(115, 24)
-    clear:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -111)
+    clear:SetPoint("RIGHT", frame.undoButton, "LEFT", -10, 0)
     clear:SetText("Clear List")
     clear:SetScript("OnClick", function()
         StaticPopup_Show(popupKey, category.label, nil, category.key)
@@ -383,6 +403,7 @@ local function CreateCategoryWindow(category, index)
         history:SetSize(68, 22)
         history:SetPoint("RIGHT", item, "RIGHT", -4, 0)
         history:SetText("History")
+        AddHistoryTooltip(history)
 
         item.nameText = name
         item.knownSinceText = knownSince
@@ -392,7 +413,7 @@ local function CreateCategoryWindow(category, index)
         return item
     end
 
-    local empty = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    local empty = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     empty:SetPoint("TOPLEFT", content, "TOPLEFT", 6, -8)
 
     Refresh = function(keepScroll)
@@ -410,7 +431,7 @@ local function CreateCategoryWindow(category, index)
         Sort(filtered)
         count:SetText(#all .. " players (" .. #filtered .. " shown)")
         clear:SetEnabled(#all > 0)
-        content:SetHeight(math.max(1, #filtered * ROW_HEIGHT))
+        content:SetHeight(math.max(1, #filtered) * ROW_HEIGHT)
         empty:SetShown(#filtered == 0)
         if #filtered == 0 then
             empty:SetText(#all > 0 and "No matching entries." or "No saved entries in this list.")
@@ -422,6 +443,7 @@ local function CreateCategoryWindow(category, index)
             ShowAppearanceIcons(item, entry)
             item.knownSinceText:SetText(FormatKnownDuration(entry.firstSeen))
             UpdateFavoriteButton(item.favoriteButton, entry)
+            UpdateHistoryTooltip(item.historyButton, PlayerIdentityText(entry))
             item.historyButton:SetScript("OnClick", function() ns.OpenPlayerHistory(entry.key, nil, frame.settingsPage) end)
             item.removeButton:SetScript("OnClick", function()
                 if ns.GetPlayer(entry.key) ~= entry.appearance
@@ -487,11 +509,19 @@ local function CreatePlayerHistoryWindow()
     local appearance = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     appearance:SetPoint("TOPLEFT", 50, -82)
 
+    local reasonsLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    reasonsLabel:SetPoint("TOPLEFT", 23, -112)
+    reasonsLabel:SetText("Why you know this player")
+    local reasons = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    reasons:SetPoint("TOPLEFT", reasonsLabel, "BOTTOMLEFT", 0, -6)
+    reasons:SetWidth(468)
+    reasons:SetJustifyH("LEFT")
+
     local noteLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    noteLabel:SetPoint("TOPLEFT", 23, -112)
+    noteLabel:SetPoint("TOPLEFT", reasons, "BOTTOMLEFT", 0, -16)
     noteLabel:SetText("Personal note")
     local noteScroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelInputScrollFrameTemplate")
-    noteScroll:SetPoint("TOPLEFT", 27, -135)
+    noteScroll:SetPoint("TOPLEFT", noteLabel, "BOTTOMLEFT", 4, -7)
     noteScroll:SetSize(450, 69)
     noteScroll.hideCharCount = true
     local note = noteScroll.EditBox
@@ -499,26 +529,22 @@ local function CreatePlayerHistoryWindow()
     note:SetScript("OnEscapePressed", ns.EscapeFromEditBox)
 
     local tagsLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    tagsLabel:SetPoint("TOPLEFT", 23, -223)
+    tagsLabel:SetPoint("TOPLEFT", noteScroll, "BOTTOMLEFT", -4, -16)
     tagsLabel:SetText("Tags (comma-separated)")
     local tags = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    tags:SetPoint("TOPLEFT", 27, -243)
+    tags:SetPoint("TOPLEFT", tagsLabel, "BOTTOMLEFT", 4, -7)
     tags:SetSize(450, 25)
     tags:SetAutoFocus(false)
     tags:SetScript("OnEscapePressed", ns.EscapeFromEditBox)
-
-    local reasonsLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    reasonsLabel:SetPoint("TOPLEFT", 23, -288)
-    reasonsLabel:SetText("Why you know this player")
-    local reasons = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    reasons:SetPoint("TOPLEFT", 23, -309)
-    reasons:SetWidth(468)
-    reasons:SetJustifyH("LEFT")
 
     local save = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     save:SetPoint("BOTTOMRIGHT", -22, 21)
     save:SetSize(82, 24)
     save:SetText("Save")
+    local saveStatus = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    saveStatus:SetPoint("LEFT", frame, "BOTTOMLEFT", 23, 33)
+    saveStatus:SetWidth(372)
+    saveStatus:SetJustifyH("LEFT")
     local key, record
     function frame.RefreshFavorite()
         local available = ns.GetPlayer(key) == record and ns.HasPlayerCategory(record)
@@ -532,7 +558,8 @@ local function CreatePlayerHistoryWindow()
 
     save:SetScript("OnClick", function()
         if not ns.SavePlayerDetails(key, record, note:GetText(), tags:GetText()) then
-            print("|cff33ff99KnownPlayers:|r The player record is no longer available. Reopen Player History to edit it.")
+            saveStatus:SetText("This player record is no longer available. Your edits are still here.")
+            return
         end
         frame:Hide()
     end)
@@ -557,6 +584,8 @@ local function CreatePlayerHistoryWindow()
             end
         end
         reasons:SetText(table.concat(history, "\n"))
+        frame:SetHeight(math.max(478, 380 + reasons:GetStringHeight()))
+        saveStatus:SetText("")
         noteScroll:SetVerticalScroll(0)
         note:SetText(ns.SafeString(record.note) or "")
         note:SetCursorPosition(0)
@@ -600,28 +629,34 @@ local function CreatePlayersWindow()
     AddUndoButton(frame)
     local search = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     search:SetSize(300, 24)
-    search:SetPoint("TOPLEFT", 26, -79)
+    search:SetPoint("TOPLEFT", 26, -68)
     search:SetAutoFocus(false)
     search:SetMaxLetters(100)
     search:SetText("")
     search:SetScript("OnEscapePressed", ns.EscapeFromEditBox)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     local hint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    hint:SetPoint("LEFT", search, "RIGHT", 12, 0)
-    hint:SetText("Search names, reasons, notes, or tags")
+    hint:SetPoint("TOPLEFT", search, "BOTTOMLEFT", 0, -4)
+    hint:SetText("Search names, realms, reasons, notes, or tags")
+
+    local Refresh
+    local ReadClassFilter = AddClassFilter(frame, 344, -69, function() Refresh() end)
+    local favorites = CreateFrame("CheckButton", nil, frame, "InterfaceOptionsCheckButtonTemplate")
+    favorites:SetPoint("LEFT", frame.classFilter, "RIGHT", 14, 0)
+    favorites.Text:SetText("Favorites only")
+    favorites:SetScript("OnClick", function() Refresh() end)
 
     local filterEnabled = {}
-    local Refresh
     for _, category in ipairs(CATEGORIES) do filterEnabled[category.key] = true end
     local filterTitle = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    filterTitle:SetPoint("TOPLEFT", 26, -113)
+    filterTitle:SetPoint("TOPLEFT", 26, -119)
     filterTitle:SetText("Filter reasons (any selected)")
     local checkboxes = {}
     for index, category in ipairs(CATEGORIES) do
         local column = (index - 1) % 3
         local row = math.floor((index - 1) / 3)
         local check = CreateFrame("CheckButton", nil, frame, "InterfaceOptionsCheckButtonTemplate")
-        check:SetPoint("TOPLEFT", frame, "TOPLEFT", 22 + 220 * column, -134 - 29 * row)
+        check:SetPoint("TOPLEFT", frame, "TOPLEFT", 22 + 220 * column, -140 - 29 * row)
         check.Text:SetText(category.label)
         check:SetChecked(true)
         check:SetScript("OnClick", function(self)
@@ -639,7 +674,7 @@ local function CreatePlayersWindow()
     end
     local allFilters = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     allFilters:SetSize(54, 21)
-    allFilters:SetPoint("TOPLEFT", frame, "TOPLEFT", 541, -106)
+    allFilters:SetPoint("LEFT", filterTitle, "RIGHT", 12, 0)
     allFilters:SetText("All")
     allFilters:SetScript("OnClick", function() SetAllFilters(true) end)
     local noFilters = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
@@ -649,21 +684,22 @@ local function CreatePlayersWindow()
     noFilters:SetScript("OnClick", function() SetAllFilters(false) end)
 
     local recent = CreateFrame("CheckButton", nil, frame, "InterfaceOptionsCheckButtonTemplate")
-    recent:SetPoint("TOPLEFT", 22, -226)
+    recent:SetPoint("TOPLEFT", 670, -226)
     recent.Text:SetText("Most recent first")
     recent:SetScript("OnClick", function() Refresh() end)
-    local favorites = CreateFrame("CheckButton", nil, frame, "InterfaceOptionsCheckButtonTemplate")
-    favorites:SetPoint("TOPLEFT", 242, -226)
-    favorites.Text:SetText("Favorites only")
-    favorites:SetScript("OnClick", function() Refresh() end)
+    local sortHint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    sortHint:SetPoint("LEFT", frame, "TOPLEFT", 26, -239)
+    sortHint:SetText("Favorites appear first in every sort")
 
-    local Sort = AddSortHeaders(frame, -260, 607, function() Refresh() end, recent, 71)
-    local ReadClassFilter = AddClassFilter(frame, 257, -261, function() Refresh() end)
+    local Sort = AddSortHeaders(frame, -260, 607, function() Refresh() end, recent, 77)
+    local appearanceHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    appearanceHeader:SetPoint("CENTER", frame, "TOPLEFT", 313, -270)
+    appearanceHeader:SetText("Class / race")
     local reasonHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    reasonHeader:SetPoint("TOPLEFT", 377, -264)
+    reasonHeader:SetPoint("LEFT", frame, "TOPLEFT", 377, -270)
     reasonHeader:SetText("Reasons known")
     local recentHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    recentHeader:SetPoint("TOPLEFT", 674, -264)
+    recentHeader:SetPoint("LEFT", frame, "TOPLEFT", 674, -270)
     recentHeader:SetText("Last interaction")
 
     local scroller = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
@@ -700,7 +736,7 @@ local function CreatePlayersWindow()
         item:SetPoint("TOPLEFT", 0, -(index - 1) * ROW_HEIGHT)
         item:SetPoint("RIGHT", 0, 0)
         item.name = item:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-        item.name:SetPoint("LEFT", 50, 0)
+        item.name:SetPoint("LEFT", 56, 0)
         item.name:SetWidth(175)
         item.name:SetJustifyH("LEFT")
         item.name:SetMaxLines(1)
@@ -722,11 +758,12 @@ local function CreatePlayersWindow()
         item.details:SetSize(68, 23)
         item.details:SetPoint("RIGHT", -3, 0)
         item.details:SetText("History")
-        AddPlayerRowActions(item, "Forget this player from every list")
+        AddHistoryTooltip(item.details)
+        AddPlayerRowActions(item, "Forget this player from every list", 6)
         rows[index] = item
         return item
     end
-    local empty = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    local empty = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     empty:SetPoint("TOPLEFT", 6, -8)
     Refresh = function(keepScroll)
         local all = {}
@@ -765,9 +802,28 @@ local function CreatePlayersWindow()
         end
         Sort(filtered, true)
         count:SetText(#all .. " players (" .. #filtered .. " shown)")
-        content:SetHeight(math.max(1, #filtered * ROW_HEIGHT))
+        content:SetHeight(math.max(1, #filtered) * ROW_HEIGHT)
         empty:SetShown(#filtered == 0)
-        if #filtered == 0 then empty:SetText("No players match the current filters.") end
+        if #filtered == 0 then
+            local reasonSelected = false
+            for _, enabled in pairs(filterEnabled) do
+                if enabled then
+                    reasonSelected = true
+                    break
+                end
+            end
+            if #all == 0 then
+                empty:SetText("No saved players yet")
+            elseif not reasonSelected then
+                empty:SetText("Select at least one reason or click All")
+            elseif term ~= "" then
+                empty:SetText("No matching players. Clear search or broaden filters.")
+            elseif classFilter == "all" and not favorites:GetChecked() then
+                empty:SetText("No matching players. Select more reasons or click All.")
+            else
+                empty:SetText("No matching players. Broaden the class, favorites, or reason filters.")
+            end
+        end
         for index, entry in ipairs(filtered) do
             local item = GetRow(index)
             item.name:SetText(entry.name)
@@ -776,6 +832,7 @@ local function CreatePlayersWindow()
             item.known:SetText(FormatKnownDuration(entry.firstSeen))
             item.recent:SetText(InteractionAge(entry.lastSeen))
             UpdateFavoriteButton(item.favoriteButton, entry)
+            UpdateHistoryTooltip(item.details, PlayerIdentityText(entry))
             item.details:SetScript("OnClick", function() ns.OpenPlayerHistory(entry.key, nil, frame.settingsPage) end)
             item.removeButton:SetScript("OnClick", function()
                 if ns.GetPlayer(entry.key) ~= entry.appearance then return end
@@ -826,7 +883,7 @@ local function CreateAssociatedWindow()
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     local searchLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     searchLabel:SetPoint("LEFT", search, "RIGHT", 12, 0)
-    searchLabel:SetText("Search names")
+    searchLabel:SetText("Search names, realms, or linked characters")
 
     local Refresh
     local Sort = AddSortHeaders(frame, -136, 508, function() Refresh() end)
@@ -842,6 +899,9 @@ local function CreateAssociatedWindow()
     content:SetSize(670, 1)
     scroller:SetScrollChild(content)
     local rows = {}
+    local ROW_HEIGHT = 28
+    local empty = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    empty:SetPoint("TOPLEFT", 6, -8)
     Refresh = function()
         local all = ns.GetAssociatedCharacters()
         local classFilter = ReadClassFilter(all)
@@ -856,12 +916,22 @@ local function CreateAssociatedWindow()
         end
         Sort(filtered)
         count:SetText(#all .. " associated characters (" .. #filtered .. " shown)")
-        content:SetHeight(math.max(1, #filtered * 28))
+        content:SetHeight(math.max(1, #filtered) * ROW_HEIGHT)
+        empty:SetShown(#filtered == 0)
+        if #filtered == 0 then
+            if #all == 0 then
+                empty:SetText("No linked Battle.net alts to show")
+            elseif term ~= "" then
+                empty:SetText("No matching alts. Clear search or change the class filter.")
+            else
+                empty:SetText("No alts match this class. Try All classes.")
+            end
+        end
         for i, entry in ipairs(filtered) do
             if not rows[i] then
                 local row = CreateFrame("Frame", nil, content)
-                row:SetHeight(28)
-                row:SetPoint("TOPLEFT", 0, -(i - 1) * 28)
+                row:SetHeight(ROW_HEIGHT)
+                row:SetPoint("TOPLEFT", 0, -(i - 1) * ROW_HEIGHT)
                 row:SetPoint("RIGHT", 0, 0)
                 row.name = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
                 row.name:SetPoint("LEFT", 5, 0)
@@ -881,13 +951,16 @@ local function CreateAssociatedWindow()
                 row.historyButton:SetSize(105, 22)
                 row.historyButton:SetPoint("RIGHT", -4, 0)
                 row.historyButton:SetText("Linked History")
+                AddHistoryTooltip(row.historyButton)
                 rows[i] = row
             end
             local row = rows[i]
             row.name:SetText(entry.name)
             ShowAppearanceIcons(row, entry)
-            row.source:SetText(entry.linkedTo or "Known player")
+            local linkedName = entry.linkedTo or "Known player"
+            row.source:SetText(linkedName)
             row.known:SetText(FormatKnownDuration(entry.firstSeen))
+            UpdateHistoryTooltip(row.historyButton, PlayerIdentityText(entry) .. "\nOpens history for " .. linkedName)
             row.historyButton:SetScript("OnClick", function()
                 ns.OpenPlayerHistory(entry.linkedPlayerKey, nil, frame.settingsPage)
             end)
@@ -977,7 +1050,7 @@ local function CreateNPCManagementWindow()
 
     local allFilters = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     allFilters:SetSize(85, 22)
-    allFilters:SetPoint("TOPLEFT", frame, "TOPLEFT", 400, -92)
+    allFilters:SetPoint("LEFT", title, "RIGHT", 12, 0)
     allFilters:SetText("Select All")
     allFilters:SetScript("OnClick", function()
         for key, checkbox in pairs(checkboxes) do
@@ -988,7 +1061,7 @@ local function CreateNPCManagementWindow()
     end)
     local clear = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     clear:SetSize(155, 22)
-    clear:SetPoint("TOPLEFT", frame, "TOPLEFT", 511, -92)
+    clear:SetPoint("RIGHT", frame.undoButton, "LEFT", -10, 0)
     clear:SetText("Clear Saved NPCs")
     local clearPopup = "KNOWNPLAYERS_CLEAR_NPC_MANAGEMENT"
     if not StaticPopupDialogs[clearPopup] then
@@ -1054,7 +1127,7 @@ local function CreateNPCManagementWindow()
         rows[index] = item
         return item
     end
-    local empty = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    local empty = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     empty:SetPoint("TOPLEFT", content, "TOPLEFT", 7, -10)
     Refresh = function()
         local all, filtered = ns.GetNPCList(), {}
@@ -1076,10 +1149,16 @@ local function CreateNPCManagementWindow()
         Sort(filtered, true)
         count:SetText(#all .. " saved NPCs (" .. #filtered .. " shown)")
         clear:SetEnabled(#all > 0)
-        content:SetHeight(math.max(1, #filtered * HEIGHT))
+        content:SetHeight(math.max(1, #filtered) * HEIGHT)
         empty:SetShown(#filtered == 0)
         if #filtered == 0 then
-            empty:SetText(term ~= "" and "No matching saved NPCs." or "No saved NPCs match these filters.")
+            if #all == 0 then
+                empty:SetText("No saved NPCs yet")
+            elseif term ~= "" then
+                empty:SetText("No matching saved NPCs. Clear search or broaden filters.")
+            else
+                empty:SetText("No saved NPCs match these filters. Select more categories or turn off Favorites only.")
+            end
         end
         local roleLabels = {}
         for _, category in ipairs(categories) do roleLabels[category.key] = category.label end

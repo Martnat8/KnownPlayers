@@ -2,6 +2,7 @@ local _, ns = ...
 
 local openWindows = {}
 local hidingForNavigation
+local escapeFrame
 
 local function RemoveOpenWindow(frame)
     for i = #openWindows, 1, -1 do
@@ -38,6 +39,7 @@ local function UpdateOpenWindows()
         if frame == latest or not singleWindow then frame:Show() end
     end
     if latest then latest:Raise() end
+    if escapeFrame then escapeFrame:SetShown(latest ~= nil) end
 end
 
 local function ShowWindow(frame, settingsPage)
@@ -78,7 +80,31 @@ local function EnableWindowKeyboard(frame)
 end
 
 local function EnableWindowEscape(frame)
-    -- Use opening order even when mouse or keyboard focus is on a lower window.
+    if frame.CloseButton then
+        frame.CloseButton:SetScript("OnClick", function() frame:Hide() end)
+    end
+    frame:HookScript("OnHide", function(self)
+        if self == hidingForNavigation or self:IsShown() then return end
+        RemoveOpenWindow(self)
+        UpdateOpenWindows()
+    end)
+
+    if type(UISpecialFrames) == "table" then
+        if not escapeFrame then
+            -- WoW closes every visible special frame. Register one frame so Escape
+            -- still closes only the top KnownPlayers window.
+            escapeFrame = CreateFrame("Frame", "KnownPlayersEscapeFrame", UIParent)
+            escapeFrame:Hide()
+            escapeFrame:SetScript("OnHide", function(self)
+                if self:IsShown() then return end
+                CloseLatestWindow()
+                if #openWindows > 0 then self:Show() end
+            end)
+            UISpecialFrames[#UISpecialFrames + 1] = "KnownPlayersEscapeFrame"
+        end
+        return
+    end
+
     frame:HookScript("OnShow", function(self)
         if InCombatLockdown and InCombatLockdown() then
             self:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -89,11 +115,6 @@ local function EnableWindowEscape(frame)
     frame:SetScript("OnEvent", function(self)
         self:UnregisterEvent("PLAYER_REGEN_ENABLED")
         if self:IsShown() then EnableWindowKeyboard(self) end
-    end)
-    frame:HookScript("OnHide", function(self)
-        if self == hidingForNavigation or self:IsShown() then return end
-        RemoveOpenWindow(self)
-        UpdateOpenWindows()
     end)
     frame:SetScript("OnKeyDown", function(self, key)
         if InCombatLockdown and InCombatLockdown() then return end

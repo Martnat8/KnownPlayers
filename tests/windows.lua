@@ -45,9 +45,11 @@ function frameMethods:HighlightText() self.selectedText = self:GetText() end
 function frameMethods:SetEnabled(enabled) self.enabled = enabled end
 function frameMethods:SetChecked(checked) self.checked = checked end
 function frameMethods:GetChecked() return self.checked end
+function frameMethods:SetSelectionText(callback) self.selectionText = callback end
 function frameMethods:GenerateMenu() end
 function frameMethods:Update() end
 function frameMethods:StopMovingOrSizing() end
+function frameMethods:GetStringHeight() return 12 end
 function frameMethods:CreateFontString()
     local label = CreateFrame("FontString")
     labels[#labels + 1] = label
@@ -61,12 +63,16 @@ function CreateFrame(kind, name, parent, template)
     if kind == "EditBox" then edits[#edits + 1] = frame end
     if kind == "Button" or kind == "CheckButton" then buttons[#buttons + 1] = frame end
     if kind == "CheckButton" then frame.Text = CreateFrame("FontString") end
-    if template == "BasicFrameTemplateWithInset" then frame.TitleText = CreateFrame("FontString") end
+    if template == "BasicFrameTemplateWithInset" then
+        frame.TitleText = CreateFrame("FontString")
+        frame.CloseButton = CreateFrame("Button", nil, frame)
+    end
     if template == "UIPanelInputScrollFrameTemplate" then frame.EditBox = CreateFrame("EditBox", nil, frame) end
     return frame
 end
 
 StaticPopupDialogs = {}
+UISpecialFrames = {}
 local refreshes = 0
 local ns = {
     HasRemovalUndo = function() return false end,
@@ -103,6 +109,21 @@ ns.OpenPlayerList("party", settingsPage)
 ns.CloseWindowsFromSettingsPage(settingsPage)
 assert(parent:IsShown() and not list:IsShown())
 
+local escapeFrame = assert(named[UISpecialFrames[1]])
+assert(#UISpecialFrames == 1 and escapeFrame:IsShown())
+ns.OpenPlayerList("party", settingsPage)
+list.classFilter.IsMenuOpen = function() return true end
+list.classFilter.CloseMenu = function(self) self.IsMenuOpen = function() return false end end
+escapeFrame:Hide()
+assert(list:IsShown() and not list.classFilter:IsMenuOpen())
+escapeFrame:Hide()
+assert(parent:IsShown() and not list:IsShown())
+ns.OpenPlayerList("party", settingsPage)
+list.CloseButton.scripts.OnClick(list.CloseButton)
+assert(parent:IsShown() and not list:IsShown())
+escapeFrame:Hide()
+assert(not parent:IsShown() and not escapeFrame:IsShown())
+
 -- Exercise the backup window's confirmation buttons and status through its frame scripts.
 time, date = os.time, os.date
 KnownPlayersDB = {players = {}, npcs = {["42"] = {name = "Synthetic NPC"}}, npcOverrides = {}}
@@ -136,6 +157,76 @@ local function HasLabel(text)
     end
     return false
 end
+
+-- All Players should explain empty results and keep History tied to the current row.
+assert(loadfile("KnownPlayers/Database.lua"))("KnownPlayers", ns)
+ns.OpenPlayerList("players", settingsPage)
+local allPlayers = assert(named.KnownPlayersAllPlayersWindow)
+local playerSearch = edits[#edits]
+assert(allPlayers.classFilter.selectionText() == "All classes")
+assert(HasLabel("No saved players yet"))
+
+local name = "Synthetic Long Player Display Name"
+local firstKey, secondKey = "synthetic-1", "synthetic-2"
+KnownPlayersDB.players = {
+    [firstKey] = {displayName = name, realm = "Synthetic Glade", categories = {trade = true}, lastSeen = 1},
+    [secondKey] = {displayName = name, realm = "Synthetic Vale", categories = {party = true}, lastSeen = 2},
+}
+allPlayers.Refresh()
+Click("None")
+assert(HasLabel("Select at least one reason"))
+Click("All")
+playerSearch:SetText("Unmatched Realm")
+assert(HasLabel("No matching players"))
+playerSearch:SetText("")
+
+local historyKey
+local openHistory = ns.OpenPlayerHistory
+ns.OpenPlayerHistory = function(key) historyKey = key end
+local history = Button("History")
+GameTooltip = {
+    SetOwner = function(self, owner) self.owner = owner end,
+    IsOwned = function(self, owner) return self.owner == owner end,
+    SetText = function(self, text) self.text = text end,
+    Show = Noop,
+    Hide = function(self) self.owner = nil end,
+}
+history.scripts.OnEnter(history)
+assert(GameTooltip.text == name .. "\nSynthetic Glade")
+Click("History")
+assert(historyKey == firstKey)
+
+local mostRecent = Button("Most recent first")
+mostRecent:SetChecked(true)
+Click("Most recent first")
+assert(GameTooltip.text == name .. "\nSynthetic Vale")
+Click("History")
+assert(historyKey == secondKey)
+playerSearch:SetText("Synthetic Glade")
+assert(HasLabel("2 players (1 shown)"))
+assert(GameTooltip.text == name .. "\nSynthetic Glade")
+Click("History")
+assert(historyKey == firstKey)
+history.scripts.OnLeave(history)
+assert(not GameTooltip:IsOwned(history))
+GameTooltip = nil
+ns.OpenPlayerHistory = openHistory
+allPlayers:Hide()
+
+local historyRecord = KnownPlayersDB.players[firstKey]
+ns.OpenPlayerHistory(firstKey)
+local editor = assert(named.KnownPlayersPlayerHistoryWindow)
+local note = edits[#edits - 1]
+note:SetText("Synthetic draft")
+KnownPlayersDB.players[firstKey] = nil
+Click("Save")
+assert(editor:IsShown() and note:GetText() == "Synthetic draft")
+assert(HasLabel("This player record is no longer available"))
+KnownPlayersDB.players[firstKey] = historyRecord
+Click("Save")
+assert(not editor:IsShown() and historyRecord.note == "Synthetic draft")
+KnownPlayersDB.players = {}
+
 local manual = assert(ns.CreateRestorePoint("manual", "Manual backup", {npcs = true}))
 local automatic = assert(ns.CreateRestorePoint("automatic", "Automatic backup", {npcs = true}))
 ns.OpenBackupWindow()

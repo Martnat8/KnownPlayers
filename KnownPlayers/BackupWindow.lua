@@ -191,7 +191,7 @@ local function BuildRestorePage(page)
         local point = ns.GetRestorePoint(selectedPoint)
         if point then ApplyAndReport(point, Selected(checks), "replace", true, status, RefreshPoint) end
     end)
-    Delete = Button(page, "Delete Restore Point", 152, 168, -224, function()
+    Delete = Button(page, "Delete Restore Point", 152, 364, -224, function()
         local kind = selectedPoint
         local point = ns.GetRestorePoint(kind)
         if not point then return end
@@ -260,7 +260,9 @@ end
 local function BuildImportPage(page)
     local status = Label(page, "", 18, -51)
     local summary = Label(page, "", 18, -82)
-    local edit, scroll = TextBox(page, -216, 150)
+    local guidance = Label(page,
+        "Merge combines selected history. Replace overwrites it. Selected settings apply either way.", 18, -172)
+    local edit, scroll = TextBox(page, -244, 122)
     local reveal = PayloadToggle(page, scroll, 148, -15)
     local paste = Button(page, "Paste Backup", 120, 18, -15, function()
         edit:SetFocus()
@@ -274,6 +276,7 @@ local function BuildImportPage(page)
         local description = snapshot and ns.DescribeBackup(snapshot, selection)
         summary:SetText(description and description ~= "" and (BackupDate(snapshot.created) .. "  ·  " .. description) or "")
         local hasHistory = selection.players or selection.npcs
+        guidance:SetShown(snapshot ~= nil and hasHistory == true)
         merge:SetText(hasHistory and "Merge" or "Import Settings")
         merge:SetEnabled(snapshot ~= nil and next(selection) ~= nil)
         replace:SetEnabled(snapshot ~= nil and hasHistory == true)
@@ -293,10 +296,10 @@ local function BuildImportPage(page)
         RefreshSelection()
     end
 
-    merge = Button(page, "Merge", 130, 18, -177, function()
+    merge = Button(page, "Merge", 130, 18, -208, function()
         if snapshot then ApplyAndReport(snapshot, Selected(checks), "merge", false, status, ResetImport) end
     end)
-    replace = Button(page, "Replace Selected", 133, 158, -177, function()
+    replace = Button(page, "Replace Selected", 133, 158, -208, function()
         if snapshot then ApplyAndReport(snapshot, Selected(checks), "replace", false, status, ResetImport) end
     end)
     edit:HookScript("OnTextChanged", function(self, userInput)

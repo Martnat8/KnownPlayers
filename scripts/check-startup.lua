@@ -24,6 +24,7 @@ local frames = {}
 local function Noop() end
 local widget = setmetatable({
     ClearAllPoints = Noop, SetupMenu = Noop, Update = Noop, RegisterForClicks = Noop, Disable = Noop,
+    EnableMouse = Noop,
 }, {__index = function(_, name)
     if name:match("^Set") then return Noop end
 end})
@@ -38,6 +39,10 @@ function widget:HookScript(script, handler)
     end
 end
 function widget:SetSize(width, height) self.width, self.height = width, height end
+function widget:SetPoint(point, _, _, x)
+    if point == "TOPLEFT" then self.leftOffset = x end
+end
+function widget:EnableMouseWheel(enabled) self.mouseWheelEnabled = enabled end
 function widget:SetWidth(width) self.width = width end
 function widget:SetHeight(height) self.height = height end
 function widget:GetWidth() return self.width or 0 end
@@ -60,6 +65,7 @@ widget.CreateFontString, widget.CreateTexture, widget.GetFontString = NewWidget,
 function CreateFrame(_, _, _, template)
     local frame = NewWidget()
     if template == "InterfaceOptionsCheckButtonTemplate" then frame.Text = NewWidget() end
+    if template == "UIPanelScrollFrameTemplate" then frame.ScrollBar = NewWidget() end
     frames[#frames + 1] = frame
     return frame
 end
@@ -92,3 +98,18 @@ for i = 1, #frames do
 end
 assert(settingsRegistered and tickerStarted and type(SlashCmdList.KNOWNPLAYERS) == "function",
     "KnownPlayers did not finish ADDON_LOADED startup")
+local centeredScroller = false
+for _, frame in ipairs(frames) do
+    if frame.scrollBarHideable then
+        assert(not frame.ScrollBar:IsShown() and frame.mouseWheelEnabled == false)
+        local leftOffset = frame.leftOffset
+        frame:OnScrollRangeChanged(0, 50)
+        assert(frame.mouseWheelEnabled)
+        assert(frame.leftOffset <= leftOffset)
+        centeredScroller = centeredScroller or frame.leftOffset < leftOffset
+        frame:OnScrollRangeChanged(0, 0)
+        assert(not frame.mouseWheelEnabled)
+        assert(frame.leftOffset == leftOffset)
+    end
+end
+assert(centeredScroller, "Appearance should make room for the scrollbar when content overflows")

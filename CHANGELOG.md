@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- Clarify All Players filters and empty results, align the table headings, separate the row action buttons, and show the full player name and realm on History hover.
+- Group All Players search, class, and favorites on one row above the reason filters.
+- Clarify retention settings, make NPC Manager and settings maintenance easier to find, and simplify the Appearance sliders and color controls.
+- Clarify backup choices, keep drafts visible when Player History cannot save, and improve list feedback, history tooltips, and About scrolling.
+- Hide settings scrollbars when the page fits and add more space around the Minimap section.
+- Center Appearance when the scrollbar is hidden and tighten the spacing above category colors.
+- Route the window close button and Escape through KnownPlayers window navigation.
+
 ## [0.5.2b7] - 2026-11-25
 
 - Select settings, player history, and saved NPCs by default when exporting a backup.

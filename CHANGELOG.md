@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Select settings, player history, and saved NPCs by default when exporting a backup.
+
 ## [0.5.2b6] - 2026-11-25
 
 - Hide the clipboard selection highlight when backup text is hidden.

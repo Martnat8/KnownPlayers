@@ -47,7 +47,7 @@ The addon stores character names, realms, identifiers, interaction categories, a
 
 **Keep history exports and SavedVariables private.** In **Backup & Restore → Export**, choose what to include, click **Prepare to Copy**, then press Ctrl+C and save the text to a file. To preview a backup, click **Paste Backup** on the **Import** tab and press Ctrl+V. **Show Backup Text** reveals the full text when needed.
 
-Settings-only exports are the default. Player exports include character identities, personal notes, and tags. Battle.net links stay in local restore points, and Blizzard's client-wide settings stay in WoW.
+Exports include settings, player history, and saved NPCs by default. Uncheck a section to leave it out. Player exports include character identities, personal notes, and tags. Battle.net links stay in local restore points, and Blizzard's client-wide settings stay in WoW.
 
 ### Read a backup as JSON
 

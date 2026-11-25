@@ -62,11 +62,11 @@ local function SectionChecks(parent, y, refresh)
     return checks
 end
 
-local function SetSections(checks, sections, all)
+local function SetSections(checks, sections)
     for key, check in pairs(checks) do
-        local available = sections and sections[key] ~= nil
-        check:SetEnabled(available == true)
-        check:SetChecked(available == true and (all or key == "settings"))
+        local available = sections ~= nil and sections[key] ~= nil
+        check:SetEnabled(available)
+        check:SetChecked(available)
     end
 end
 
@@ -166,7 +166,7 @@ local function BuildRestorePage(page)
             selectedPoint = ns.GetRestorePoint("manual") and "manual" or "automatic"
             point = ns.GetRestorePoint(selectedPoint)
         end
-        SetSections(checks, point and point.sections, true)
+        SetSections(checks, point and point.sections)
         dropdown:GenerateMenu()
         dropdown:Update()
         RefreshSelection()
@@ -251,7 +251,7 @@ local function BuildExportPage(page)
         status:SetText("Backup ready. Press Ctrl+C, then save it outside WoW.")
     end)
     page:SetScript("OnShow", function()
-        SetSections(checks, {settings = true, players = true, npcs = true}, false)
+        SetSections(checks, {settings = true, players = true, npcs = true})
         ChangeSelection()
     end)
     page:HookScript("OnHide", ClearExport)
@@ -305,7 +305,7 @@ local function BuildImportPage(page)
         local message
         snapshot = nil
         if text ~= "" then snapshot, message = ns.ReadBackup(text) end
-        SetSections(checks, snapshot and snapshot.sections, true)
+        SetSections(checks, snapshot and snapshot.sections)
         if snapshot and scroll:GetAlpha() == 0 then self:ClearFocus() end
         status:SetText(message or "")
         RefreshSelection()

@@ -166,17 +166,17 @@ C_EncodingUtil = {
 }
 local exportEdit, importEdit = edits[#edits - 1], edits[#edits]
 KnownPlayersSettings.trackBattleNetAssociations = true
+KnownPlayersDB.players["Synthetic-CAMWOW1"] = {note = "Synthetic note", categories = {manual = true}}
 Click("Export")
 assert(exportEdit.parent:GetAlpha() == 0 and Button("Show Backup Text").enabled == false)
-local exportNPCs = Button("Saved NPCs")
-exportNPCs:SetChecked(true)
-exportNPCs.scripts.OnClick(exportNPCs)
+assert(Button("Settings"):GetChecked() and Button("Player history"):GetChecked() and Button("Saved NPCs"):GetChecked())
 Click("Prepare to Copy")
+assert(serialized.sections.players.records["Synthetic-CAMWOW1"].note == "Synthetic note")
 local copied = "KnownPlayers:1:" .. payload
 assert(exportEdit.focused and exportEdit:GetText() == copied and exportEdit.selectedText == copied)
 assert(exportEdit.parent:GetAlpha() == 0)
 assert(select(4, exportEdit:GetHighlightColor()) == 0, "Masked export still renders a text selection")
-assert(HasLabel("Backup ready. Press Ctrl+C") and HasLabel("Settings, 1 saved NPC"))
+assert(HasLabel("Backup ready. Press Ctrl+C") and HasLabel("Settings, 1 player record, 1 saved NPC"))
 Click("Show Backup Text")
 assert(exportEdit.parent:GetAlpha() == 1 and exportEdit:GetText() == copied)
 assert(table.concat({exportEdit:GetHighlightColor()}, ",") == "0.8,0.7,0.6,0.5")
@@ -190,7 +190,7 @@ Click("Paste Backup")
 assert(importEdit.focused and importEdit.parent:GetAlpha() == 0)
 importEdit:SetText(copied, true)
 assert(not importEdit.focused and importEdit.parent:GetAlpha() == 0)
-assert(HasLabel("Settings, 1 saved NPC") and HasLabel("Enable: Known Battle.net Alts"))
+assert(HasLabel("Settings, 1 player record, 1 saved NPC") and HasLabel("Enable: Known Battle.net Alts"))
 assert(not KnownPlayersSettings.trackBattleNetAssociations and Button("Merge").enabled)
 Click("Show Backup Text")
 assert(importEdit.parent:GetAlpha() == 1 and importEdit:GetText() == copied)
@@ -207,10 +207,22 @@ assert(HasLabel("Could not read this backup") and Button("Replace Selected").ena
 assert(Button("Import Settings").enabled == false and KnownPlayersDB.npcs["42"])
 Click("Paste Backup")
 importEdit:SetText(copied, true)
-importSettings:SetChecked(false)
-importSettings.scripts.OnClick(importSettings)
+for _, label in ipairs({"Settings", "Player history"}) do
+    local checkbox = Button(label)
+    checkbox:SetChecked(false)
+    checkbox.scripts.OnClick(checkbox)
+end
 Click("Merge")
 assert(HasLabel("Import complete.") and importEdit:GetText() == "" and not importEdit.focused)
 assert(Button("Import Settings").enabled == false and not KnownPlayersSettings.trackBattleNetAssociations)
+
+Click("Export")
+for _, label in ipairs({"Player history", "Saved NPCs"}) do
+    local checkbox = Button(label)
+    checkbox:SetChecked(false)
+    checkbox.scripts.OnClick(checkbox)
+end
+Click("Prepare to Copy")
+assert(serialized.sections.settings and not serialized.sections.players and not serialized.sections.npcs)
 
 print("Player list and backup window behavior checks passed.")

@@ -42,10 +42,11 @@ BACKUP & RESTORE
 Create a dated manual restore point or use the latest automatic point saved
 before a reset, bulk clear, import or restore. Select settings, player history,
 or saved NPCs independently when restoring.
-Export selects settings by default. Choose what to include, click Prepare to
-Copy, then press Ctrl+C and save the text outside WoW. Keep exports with
-private player history to yourself. Battle.net links stay in local restore
-points. Blizzard's client-wide settings stay in WoW.
+Export selects settings, player history, and saved NPCs by default. Uncheck
+any section you want to leave out, click Prepare to Copy, then press Ctrl+C
+and save the text outside WoW. Keep exports with private player history to
+yourself. Battle.net links stay in local restore points. Blizzard's
+client-wide settings stay in WoW.
 Under Import, click Paste Backup and press Ctrl+V to see the preview. Merge
 adds missing player and NPC records and keeps existing personal notes. Replace
 prompts before overwriting the selected sections. Use Show Backup Text on

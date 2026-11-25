@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Hide backup text by default, prepare exports for Ctrl+C, and show the import preview as soon as a backup is pasted.
+- Add a local tool that converts portable backups to readable JSON for inspection.
+
 ## [0.5.2b4] - 2026-11-25
 
 - Discard pending Battle.net observations when tracking is disabled and block their promotion after opt-out.

@@ -45,7 +45,25 @@ The GitHub source archive contains repository files as well as the addon folder;
 
 The addon stores character names, realms, identifiers, interaction categories, and timestamps in WoW **SavedVariables** on your computer. It also saves available race, portrait, and class information for known characters and linked Battle.net alts. For linked Battle.net friends, it stores BattleTags and observed character associations locally to support alt recognition across sessions. Unlinked friend observations are session-only. The addon does **not** upload this information.
 
-**Keep history exports and SavedVariables private.** For a copy outside WoW, open **Backup & Restore → Export**, choose which sections to include, and save the generated text to a file. Settings-only exports are the default. Private player exports include character identities, personal notes, and tags. Battle.net links stay in local restore points, and Blizzard's client-wide settings stay in WoW.
+**Keep history exports and SavedVariables private.** In **Backup & Restore → Export**, choose what to include, click **Prepare to Copy**, then press Ctrl+C and save the text to a file. To preview a backup, click **Paste Backup** on the **Import** tab and press Ctrl+V. **Show Backup Text** reveals the full text when needed.
+
+Settings-only exports are the default. Player exports include character identities, personal notes, and tags. Battle.net links stay in local restore points, and Blizzard's client-wide settings stay in WoW.
+
+### Read a backup as JSON
+
+To inspect a backup, save the export text to a UTF-8 text file, then run this from the KnownPlayers repository with Node.js:
+
+```sh
+node scripts/backup-to-json.mjs backup.txt
+```
+
+This creates `backup.json` next to the input. You can pass a different output path as a second argument. On Windows PowerShell, you can also convert the current clipboard without saving a text file first:
+
+```powershell
+Get-Clipboard -Raw | node scripts/backup-to-json.mjs - backup.json
+```
+
+The converter runs locally and refuses to overwrite an existing file. Keep the original export for restoring in WoW and keep both files private.
 
 ## Limitations
 

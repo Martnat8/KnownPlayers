@@ -17,6 +17,9 @@ function frameMethods:HookScript(script, callback)
     end
 end
 function frameMethods:IsShown() return self.shown end
+function frameMethods:IsVisible()
+    return self.shown and (not self.parent or self.parent:IsVisible())
+end
 function frameMethods:IsMenuOpen() return false end
 function frameMethods:SetShown(shown)
     if self.shown == shown then return end
@@ -26,11 +29,17 @@ function frameMethods:SetShown(shown)
 end
 function frameMethods:Show() self:SetShown(true) end
 function frameMethods:Hide() self:SetShown(false) end
-function frameMethods:SetText(text)
+function frameMethods:SetText(text, userInput)
     self.text = text
-    if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end
+    self.selectedText = nil
+    if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self, userInput) end
 end
 function frameMethods:GetText() return self.text or "" end
+function frameMethods:SetAlpha(alpha) self.alpha = alpha end
+function frameMethods:GetAlpha() return self.alpha or 1 end
+function frameMethods:SetFocus() self.focused = true end
+function frameMethods:ClearFocus() self.focused = false end
+function frameMethods:HighlightText() self.selectedText = self:GetText() end
 function frameMethods:SetEnabled(enabled) self.enabled = enabled end
 function frameMethods:SetChecked(checked) self.checked = checked end
 function frameMethods:GetChecked() return self.checked end
@@ -44,14 +53,14 @@ function frameMethods:CreateFontString()
 end
 function frameMethods:CreateTexture() return CreateFrame("Texture") end
 
-function CreateFrame(kind, name, _, template)
-    local frame = setmetatable({shown = true, scripts = {}}, {__index = frameMethods})
+function CreateFrame(kind, name, parent, template)
+    local frame = setmetatable({shown = true, scripts = {}, parent = parent}, {__index = frameMethods})
     if name then named[name] = frame end
     if kind == "EditBox" then edits[#edits + 1] = frame end
     if kind == "Button" or kind == "CheckButton" then buttons[#buttons + 1] = frame end
     if kind == "CheckButton" then frame.Text = CreateFrame("FontString") end
     if template == "BasicFrameTemplateWithInset" then frame.TitleText = CreateFrame("FontString") end
-    if template == "UIPanelInputScrollFrameTemplate" then frame.EditBox = CreateFrame("EditBox") end
+    if template == "UIPanelInputScrollFrameTemplate" then frame.EditBox = CreateFrame("EditBox", nil, frame) end
     return frame
 end
 
@@ -108,7 +117,9 @@ local function Confirm()
 end
 local function Button(text)
     for _, button in ipairs(buttons) do
-        if button:GetText() == text or (button.Text and button.Text:GetText() == text) then return button end
+        if button:IsVisible() and (button:GetText() == text or (button.Text and button.Text:GetText() == text)) then
+            return button
+        end
     end
     error("Missing button " .. text)
 end
@@ -142,22 +153,59 @@ Click("Delete Restore Point")
 Confirm()
 assert(not ns.GetRestorePoint("automatic") and Button("Delete Restore Point").enabled == false)
 
+-- Run both transfer pages with the same payload, including the reveal fallback.
+local serialized
+local payload = string.rep("A", 4 * 1024 * 1024 - 256)
+C_EncodingUtil = {
+    SerializeCBOR = function(snapshot) serialized = snapshot; return payload end,
+    DeserializeCBOR = function(text) if text == payload then return serialized end end,
+    EncodeBase64 = function(text) return text end,
+    DecodeBase64 = function(text) return text end,
+}
+local exportEdit, importEdit = edits[#edits - 1], edits[#edits]
+KnownPlayersSettings.trackBattleNetAssociations = true
 Click("Export")
-ns.CanTransferBackups = function() return true end
-ns.ReadBackup = function()
-    return {version = 1, created = time(), sections = {settings = {trackBattleNetAssociations = true}}}
-end
+assert(exportEdit.parent:GetAlpha() == 0 and Button("Show Backup Text").enabled == false)
+local exportNPCs = Button("Saved NPCs")
+exportNPCs:SetChecked(true)
+exportNPCs.scripts.OnClick(exportNPCs)
+Click("Prepare to Copy")
+local copied = "KnownPlayers:1:" .. payload
+assert(exportEdit.focused and exportEdit:GetText() == copied and exportEdit.selectedText == copied)
+assert(exportEdit.parent:GetAlpha() == 0)
+assert(HasLabel("Backup ready. Press Ctrl+C") and HasLabel("Settings, 1 saved NPC"))
+Click("Show Backup Text")
+assert(exportEdit.parent:GetAlpha() == 1 and exportEdit:GetText() == copied)
+Click("Hide Backup Text")
+assert(exportEdit.parent:GetAlpha() == 0)
+
+KnownPlayersSettings.trackBattleNetAssociations = false
 Click("Import")
-edits[#edits]:SetText("Synthetic payload")
-Click("Preview")
-assert(HasLabel("Enable: Known Battle.net Alts"))
-local importSettings
--- The restore and export tabs also have Settings checkboxes. Use the import tab's.
-for _, button in ipairs(buttons) do
-    if button.Text and button.Text:GetText() == "Settings" then importSettings = button end
-end
+assert(exportEdit:GetText() == "" and not exportEdit.focused)
+Click("Paste Backup")
+assert(importEdit.focused and importEdit.parent:GetAlpha() == 0)
+importEdit:SetText(copied, true)
+assert(not importEdit.focused and importEdit.parent:GetAlpha() == 0)
+assert(HasLabel("Settings, 1 saved NPC") and HasLabel("Enable: Known Battle.net Alts"))
+assert(not KnownPlayersSettings.trackBattleNetAssociations and Button("Merge").enabled)
+Click("Show Backup Text")
+assert(importEdit.parent:GetAlpha() == 1 and importEdit:GetText() == copied)
+Click("Hide Backup Text")
+local importSettings = Button("Settings")
 importSettings:SetChecked(false)
 importSettings.scripts.OnClick(importSettings)
-assert(not HasLabel("Enable: Known Battle.net Alts") and Button("Import Settings").enabled == false)
+assert(not HasLabel("Enable: Known Battle.net Alts") and Button("Merge").enabled)
+Click("Paste Backup")
+assert(importEdit.selectedText == copied)
+importEdit:SetText(copied:sub(1, 50), true)
+assert(HasLabel("Could not read this backup") and Button("Replace Selected").enabled == false)
+assert(Button("Import Settings").enabled == false and KnownPlayersDB.npcs["42"])
+Click("Paste Backup")
+importEdit:SetText(copied, true)
+importSettings:SetChecked(false)
+importSettings.scripts.OnClick(importSettings)
+Click("Merge")
+assert(HasLabel("Import complete.") and importEdit:GetText() == "" and not importEdit.focused)
+assert(Button("Import Settings").enabled == false and not KnownPlayersSettings.trackBattleNetAssociations)
 
 print("Player list and backup window behavior checks passed.")

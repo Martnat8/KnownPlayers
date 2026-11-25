@@ -92,6 +92,19 @@ local function TextBox(parent, y, height)
     return edit, scroll
 end
 
+local function SetPayloadVisible(scroll, button, visible)
+    -- Keep the edit box shown so WoW can handle the clipboard shortcut.
+    scroll:SetAlpha(visible and 1 or 0)
+    scroll.EditBox:EnableMouse(visible)
+    button:SetText(visible and "Hide Backup Text" or "Show Backup Text")
+end
+
+local function PayloadToggle(page, scroll, x, y)
+    return Button(page, "Show Backup Text", 142, x, y, function(self)
+        SetPayloadVisible(scroll, self, scroll:GetAlpha() == 0)
+    end)
+end
+
 local function BackupDate(created)
     if type(created) == "number" then
         local ok, label = pcall(date, "%Y-%m-%d %H:%M", created)
@@ -185,47 +198,69 @@ local function BuildRestorePage(page)
 end
 
 local function BuildExportPage(page)
-    local status = Label(page, "", 18, -347)
-    local private = Label(page, "Player history includes character names, notes, and tags. Keep this export private.", 18, -95)
+    local summary = Label(page, "", 18, -92)
+    local status = Label(page, "", 18, -161)
+    local private = Label(page, "Player history includes character names, notes, and tags. Keep this export private.", 18, -123)
     private:SetTextColor(1, 0.78, 0.26)
-    local edit, scroll = TextBox(page, -136, 198)
+    local edit, scroll = TextBox(page, -197, 160)
+    local reveal = PayloadToggle(page, scroll, 163, -54)
     local output = ""
     edit:HookScript("OnTextChanged", function(self, userInput)
         if userInput then self:SetText(output); self:HighlightText() end
     end)
-    local generate, checks
+    local prepare, checks
+    local function ClearExport()
+        output = ""
+        edit:ClearFocus()
+        edit:SetText("")
+        reveal:SetEnabled(false)
+        SetPayloadVisible(scroll, reveal, false)
+        summary:SetText("")
+    end
     local function ChangeSelection()
         local selection = Selected(checks)
-        output = ""
-        edit:SetText("")
+        ClearExport()
         private:SetShown(selection.players == true)
         local available = ns.CanTransferBackups()
-        generate:SetEnabled(available and next(selection) ~= nil)
+        prepare:SetEnabled(available == true and next(selection) ~= nil)
         status:SetText(available and "" or "Export is unavailable on this WoW client.")
     end
     checks = SectionChecks(page, -15, ChangeSelection)
-    generate = Button(page, "Generate Export", 132, 18, -56, function()
-        local text, message = ns.ExportBackup(Selected(checks))
-        if not text then status:SetText(message); return end
+    prepare = Button(page, "Prepare to Copy", 135, 18, -54, function()
+        local selection = Selected(checks)
+        local text, message, snapshot = ns.ExportBackup(selection)
+        if not text then
+            ClearExport()
+            status:SetText(message)
+            return
+        end
         output = text
         edit:SetText(output)
+        reveal:SetEnabled(true)
+        summary:SetText(ns.DescribeBackup(snapshot, selection))
         scroll:SetVerticalScroll(0)
         edit:SetFocus()
         edit:HighlightText()
-        status:SetText("Press Ctrl+C to copy. Keep a copy outside WoW.")
+        status:SetText("Backup ready. Press Ctrl+C, then save it outside WoW.")
     end)
     page:SetScript("OnShow", function()
         SetSections(checks, {settings = true, players = true, npcs = true}, false)
         ChangeSelection()
     end)
+    page:HookScript("OnHide", ClearExport)
 end
 
 local function BuildImportPage(page)
-    local status = Label(page, "", 18, -352)
-    local summary = Label(page, "", 18, -203)
-    local edit = TextBox(page, -36, 125)
-    Label(page, "Paste a KnownPlayers export below.", 18, -13)
-    local snapshot, merge, replace, preview, checks
+    local status = Label(page, "", 18, -51)
+    local summary = Label(page, "", 18, -82)
+    local edit, scroll = TextBox(page, -216, 150)
+    local reveal = PayloadToggle(page, scroll, 148, -15)
+    local paste = Button(page, "Paste Backup", 120, 18, -15, function()
+        edit:SetFocus()
+        edit:HighlightText()
+        status:SetText("Press Ctrl+V to paste a KnownPlayers backup.")
+    end)
+    local snapshot, merge, replace, checks
 
     local function RefreshSelection()
         local selection = Selected(checks)
@@ -237,36 +272,39 @@ local function BuildImportPage(page)
         replace:SetEnabled(snapshot ~= nil and hasHistory == true)
     end
 
-    checks = SectionChecks(page, -266, RefreshSelection)
-    local function ClearPreview()
+    checks = SectionChecks(page, -139, RefreshSelection)
+    local function ResetImport()
         snapshot = nil
+        edit:ClearFocus()
+        edit:SetText("")
+        SetPayloadVisible(scroll, reveal, false)
         SetSections(checks, nil)
         local available = ns.CanTransferBackups()
-        preview:SetEnabled(available and edit:GetText() ~= "")
+        paste:SetEnabled(available == true)
+        reveal:SetEnabled(available == true)
         status:SetText(available and "" or "Import is unavailable on this WoW client.")
         RefreshSelection()
     end
-    local function FinishImport()
-        edit:SetText("")
-        ClearPreview()
-    end
 
-    preview = Button(page, "Preview", 92, 18, -174, function()
+    merge = Button(page, "Merge", 130, 18, -177, function()
+        if snapshot then ApplyAndReport(snapshot, Selected(checks), "merge", false, status, ResetImport) end
+    end)
+    replace = Button(page, "Replace Selected", 133, 158, -177, function()
+        if snapshot then ApplyAndReport(snapshot, Selected(checks), "replace", false, status, ResetImport) end
+    end)
+    edit:HookScript("OnTextChanged", function(self, userInput)
+        if not userInput then return end
+        local text = self:GetText()
         local message
-        snapshot, message = ns.ReadBackup(edit:GetText())
+        snapshot = nil
+        if text ~= "" then snapshot, message = ns.ReadBackup(text) end
         SetSections(checks, snapshot and snapshot.sections, true)
-        if snapshot then edit:ClearFocus() end
+        if snapshot and scroll:GetAlpha() == 0 then self:ClearFocus() end
         status:SetText(message or "")
         RefreshSelection()
     end)
-    merge = Button(page, "Merge", 130, 18, -297, function()
-        if snapshot then ApplyAndReport(snapshot, Selected(checks), "merge", false, status, FinishImport) end
-    end)
-    replace = Button(page, "Replace Selected", 133, 158, -297, function()
-        if snapshot then ApplyAndReport(snapshot, Selected(checks), "replace", false, status, FinishImport) end
-    end)
-    edit:HookScript("OnTextChanged", ClearPreview)
-    page:SetScript("OnShow", function() edit:SetText(""); ClearPreview() end)
+    page:SetScript("OnShow", ResetImport)
+    page:HookScript("OnHide", ResetImport)
 end
 
 local function CreateWindow()

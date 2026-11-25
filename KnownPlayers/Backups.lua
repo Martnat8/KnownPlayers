@@ -255,7 +255,7 @@ function ns.ExportBackup(selection)
     if not ok or type(encoded) ~= "string" then return nil, "Could not encode this backup." end
     local result = PREFIX .. FORMAT .. ":" .. encoded
     if #result > MAX_EXPORT_BYTES then return nil, "This export is too large. Export fewer sections at a time." end
-    return result
+    return result, nil, snapshot
 end
 
 function ns.ReadBackup(text)

@@ -4,7 +4,7 @@ KnownPlayers is a World of Warcraft **Forever** addon built around the idea that
 
 Maybe you trade with someone in town, exchange a few whispers, or group up for a dungeon. The next time you cross paths, you recognize their name. As you play, more and more of the people around you become familiar through your own actions. The names you see tell a little of the story of who you’ve met along the way.
 
-**Version:** 0.5.2b2
+**Version:** 0.5.2b3
 
 **Tested target:** WoW Forever, interface `16001` (client-specific; standard retail compatibility is not established).
 

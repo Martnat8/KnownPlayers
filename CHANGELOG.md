@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.2b3] - 2026-11-25
+
 - Preserve disputed GUID-less history when tracking or importing a player with a confirmed GUID.
 
 ## [0.5.2b2] - 2026-11-24

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.2b6] - 2026-11-25
+
 - Hide the clipboard selection highlight when backup text is hidden.
 
 ## [0.5.2b5] - 2026-11-25

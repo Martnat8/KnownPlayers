@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.2b8] - 2026-11-25
+
 - Clarify All Players filters and empty results, align the table headings, separate the row action buttons, and show the full player name and realm on History hover.
 - Group All Players search, class, and favorites on one row above the reason filters.
 - Clarify retention settings, make NPC Manager and settings maintenance easier to find, and simplify the Appearance sliders and color controls.

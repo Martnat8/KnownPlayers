@@ -84,6 +84,7 @@ local function TextBox(parent, y, height)
     scroll:SetSize(506, height)
     scroll.hideCharCount = true
     local edit = scroll.EditBox
+    scroll.backupHighlightColor = {edit:GetHighlightColor()}
     edit:SetWidth(488)
     edit:SetAutoFocus(false)
     edit:SetMaxLetters(0)
@@ -93,9 +94,15 @@ local function TextBox(parent, y, height)
 end
 
 local function SetPayloadVisible(scroll, button, visible)
-    -- Keep the edit box shown so WoW can handle the clipboard shortcut.
+    -- Keep the edit box shown for clipboard shortcuts and mask its native selection separately.
+    local edit = scroll.EditBox
     scroll:SetAlpha(visible and 1 or 0)
-    scroll.EditBox:EnableMouse(visible)
+    edit:EnableMouse(visible)
+    if visible then
+        edit:SetHighlightColor(unpack(scroll.backupHighlightColor))
+    else
+        edit:SetHighlightColor(0, 0, 0, 0)
+    end
     button:SetText(visible and "Hide Backup Text" or "Show Backup Text")
 end
 

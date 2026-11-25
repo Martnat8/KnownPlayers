@@ -37,6 +37,8 @@ end
 function frameMethods:GetText() return self.text or "" end
 function frameMethods:SetAlpha(alpha) self.alpha = alpha end
 function frameMethods:GetAlpha() return self.alpha or 1 end
+function frameMethods:SetHighlightColor(...) self.highlightColor = {...} end
+function frameMethods:GetHighlightColor() return unpack(self.highlightColor or {0.8, 0.7, 0.6, 0.5}) end
 function frameMethods:SetFocus() self.focused = true end
 function frameMethods:ClearFocus() self.focused = false end
 function frameMethods:HighlightText() self.selectedText = self:GetText() end
@@ -173,11 +175,13 @@ Click("Prepare to Copy")
 local copied = "KnownPlayers:1:" .. payload
 assert(exportEdit.focused and exportEdit:GetText() == copied and exportEdit.selectedText == copied)
 assert(exportEdit.parent:GetAlpha() == 0)
+assert(select(4, exportEdit:GetHighlightColor()) == 0, "Masked export still renders a text selection")
 assert(HasLabel("Backup ready. Press Ctrl+C") and HasLabel("Settings, 1 saved NPC"))
 Click("Show Backup Text")
 assert(exportEdit.parent:GetAlpha() == 1 and exportEdit:GetText() == copied)
+assert(table.concat({exportEdit:GetHighlightColor()}, ",") == "0.8,0.7,0.6,0.5")
 Click("Hide Backup Text")
-assert(exportEdit.parent:GetAlpha() == 0)
+assert(exportEdit.parent:GetAlpha() == 0 and select(4, exportEdit:GetHighlightColor()) == 0)
 
 KnownPlayersSettings.trackBattleNetAssociations = false
 Click("Import")
@@ -197,6 +201,7 @@ importSettings.scripts.OnClick(importSettings)
 assert(not HasLabel("Enable: Known Battle.net Alts") and Button("Merge").enabled)
 Click("Paste Backup")
 assert(importEdit.selectedText == copied)
+assert(select(4, importEdit:GetHighlightColor()) == 0)
 importEdit:SetText(copied:sub(1, 50), true)
 assert(HasLabel("Could not read this backup") and Button("Replace Selected").enabled == false)
 assert(Button("Import Settings").enabled == false and KnownPlayersDB.npcs["42"])

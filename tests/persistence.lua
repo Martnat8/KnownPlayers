@@ -169,6 +169,26 @@ assert(ns.GetPlayer(sharedKey).note == "Unassigned note" and ns.CountPlayers() =
 assert(not ns.GetPlayer(firstAlias).note and not ns.GetPlayer(guidKey).note)
 assert(not ns.PlayerHasCategory(ns.GetPlayer(firstAlias), "trade"))
 
+-- A confirmed whisper must not absorb a GUID-less row claimed by another alias.
+local disputedKey = "Disputed-Player-" .. REALM
+local confirmedKey, preferredKey = "guid:Player-Disputed-1", "Preferred-Player-" .. REALM
+ns, state = StartSession({players = {
+    [disputedKey] = {displayName = "Preferred Player", realm = REALM, note = "Disputed note",
+        categories = {trade = true}},
+    [confirmedKey] = {guid = "Player-Disputed-1", displayName = "Disputed Player", realm = REALM,
+        categories = {manual = true}},
+    [preferredKey] = {guid = "Player-Disputed-2", categories = {manual = true}},
+}})
+local disputed = ns.GetPlayer(disputedKey)
+assert(disputed and ns.CountPlayers() == 3)
+local confirmedEvent = {"Synthetic message", disputedKey, [12] = "Player-Disputed-1"}
+state:Fire("CHAT_MSG_WHISPER", unpack(confirmedEvent, 1, 12))
+local whisperOwner = ns.GetPlayer(confirmedKey)
+assert(ns.GetPlayer(disputedKey) == disputed and disputed.note == "Disputed note")
+assert(ns.PlayerHasCategory(disputed, "trade") and not ns.PlayerHasCategory(disputed, "whisper"))
+assert(ns.PlayerHasCategory(whisperOwner, "whisper") and not ns.PlayerHasCategory(whisperOwner, "trade"))
+assert(not whisperOwner.note and ns.CountPlayers() == 3)
+
 ns, state = StartSession(nil, {trackWhispers = true})
 local localMember = ns.RememberPlayer(MEMBER, "manual")
 state:Fire("CHAT_MSG_WHISPER", "Synthetic message", "Test-Member")

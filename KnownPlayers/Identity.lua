@@ -120,14 +120,20 @@ function ns.FindDirectKeyByGUID(guid)
     if ns.SafePlayerGUID(guid) then return GetLiveIndex():FindKeyByGUID(guid) end
 end
 
-function ns.HasConflictingPlayerGUID(name, guid, realm)
-    local index = GetLiveIndex()
-    local candidates = index.aliases[Alias(name, realm)]
-    for key in pairs(candidates or {}) do
+local function AliasHasOtherGUID(index, alias, guid)
+    local candidates = index.aliases[alias]
+    if not candidates then return false end
+    for key in pairs(candidates) do
         local existing = index.entries[key].guid
         if existing and existing ~= guid then return true end
     end
     return false
+end
+
+function ns.HasConflictingPlayerGUID(key, record, guid)
+    local index = GetLiveIndex()
+    local alias, preferred = ns.PlayerIdentityAliases(key, record)
+    return AliasHasOtherGUID(index, alias, guid) or AliasHasOtherGUID(index, preferred, guid)
 end
 
 function ns.FindDirectRecord(name, guid)

@@ -152,6 +152,25 @@ for _, alias in ipairs({firstKey, secondKey}) do
     assert(saved and not saved.favorite and not ns.PlayerHasCategory(saved, "trade"))
 end
 
+-- An incoming GUID cannot claim a staged GUID-less row with a disputed preferred name.
+local disputedKey = "Disputed-Backup-CAMWOW1"
+KnownPlayersDB.players[disputedKey] = {
+    displayName = "Second Player", realm = "CAMWOW1", note = "Disputed backup note", categories = {trade = true},
+}
+ns.InvalidateIdentityIndex()
+local disputedImport = {version = 1, created = NOW, sections = {players = {records = {
+    [disputedKey] = {guid = "Player-Backup-5", categories = {target = true}},
+}}}}
+applied, skipped = ns.ApplyBackup(disputedImport, {players = true}, "merge", false)
+assert(applied and skipped == 0)
+local unresolved = ns.GetPlayer(disputedKey)
+local imported = ns.GetPlayer("guid:Player-Backup-5")
+assert(unresolved and not unresolved.guid and unresolved.note == "Disputed backup note")
+assert(ns.PlayerHasCategory(unresolved, "trade") and not ns.PlayerHasCategory(unresolved, "target"))
+assert(imported and not imported.note and imported.displayName ~= "Second Player"
+    and not ns.PlayerHasCategory(imported, "trade"))
+assert(ns.PlayerHasCategory(imported, "target") and ns.FindDirectRecord(secondKey, "Player-Backup-4"))
+
 -- Reject a merge beyond the portable limit before changing history or checkpoints.
 local extraNPC = {version = 1, created = NOW, sections = {npcs = {
     records = {["10001"] = {name = "Extra NPC"}}, overrides = {},

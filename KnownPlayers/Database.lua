@@ -329,11 +329,13 @@ local function CollectAliasClaims(claims, players)
     end
 end
 
-local function HasConflictingAliasClaims(claims, key, record)
+local function HasConflictingAliasClaims(claims, key, record, guid)
     local alias, preferred = ns.PlayerIdentityAliases(key, record)
     local storedClaim, preferredClaim = claims[alias or key], claims[preferred]
+    local expected = guid or storedClaim or preferredClaim
     return storedClaim == false or preferredClaim == false
-        or (storedClaim ~= nil and preferredClaim ~= nil and storedClaim ~= preferredClaim)
+        or (storedClaim ~= nil and storedClaim ~= expected)
+        or (preferredClaim ~= nil and preferredClaim ~= expected)
 end
 
 function ns.MigratePlayerRecords()
@@ -522,8 +524,12 @@ function ns.MergeBackupPlayers(staged, incoming)
         local ambiguous
         if not destination and (guid or not conflictingClaim) then
             destination, ambiguous = index:FindKeyByName(name, guid, record.realm)
-            if conflictingClaim and destination and not ns.SafePlayerGUID(staged[destination].guid) then
-                destination = nil
+            if guid and destination then
+                local saved = staged[destination]
+                if not ns.SafePlayerGUID(saved.guid)
+                    and (conflictingClaim or HasConflictingAliasClaims(claims, destination, saved, guid)) then
+                    destination = nil
+                end
             end
         end
         if not guid and (conflictingClaim or ambiguous) then
@@ -593,6 +599,12 @@ function ns.RefreshPlayerAppearance(record, unit)
     end
 end
 
+local function CanClaimPlayer(key, record, guid)
+    local existing = ns.SafePlayerGUID(record.guid)
+    if existing then return existing == guid end
+    return not guid or not ns.HasConflictingPlayerGUID(key, record, guid)
+end
+
 -- Optional GUID lets another interaction recognize a character whose name
 -- spelling / realm format differs. Identical names without a GUID are not
 -- proof that two records belong to the same player.
@@ -615,20 +627,21 @@ function ns.RememberPlayer(name, category, seenAt, guid, realmHint, unit)
 
     local record = matchedKey and players[matchedKey] or nil
     local exact = players[name]
-    local conflictingGUID = guid and ((record and not record.guid) or (type(exact) == "table" and not exact.guid))
-        and ns.HasConflictingPlayerGUID(name, guid, realm)
-    if conflictingGUID and record and not record.guid then record, matchedKey = nil, nil end
+    local canClaimExact = type(exact) == "table" and CanClaimPlayer(name, exact, guid)
+    if guid and record then
+        local canClaimMatch = record == exact and canClaimExact
+            or record ~= exact and CanClaimPlayer(matchedKey, record, guid)
+        if not canClaimMatch then record, matchedKey = nil, nil end
+    end
     local merged
     if record and type(exact) == "table" and exact ~= record then
-        -- Merge only if no GUID conflicts, and the exact entry has either
-        -- the same GUID or no existing GUID of its own.
-        if exact.guid == guid or (not exact.guid and not conflictingGUID) then
+        if canClaimExact then
             MergeInto(record, exact)
             players[name] = nil
             merged = true
         end
     elseif not record and type(exact) == "table" then
-        if not (guid and ((exact.guid and exact.guid ~= guid) or conflictingGUID)) then
+        if not guid or canClaimExact then
             record = exact
             matchedKey = name
         end

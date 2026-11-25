@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.2b5] - 2026-11-25
+
 - Hide backup text by default, prepare exports for Ctrl+C, and show the import preview as soon as a backup is pasted.
 - Add a local tool that converts portable backups to readable JSON for inspection.
 

@@ -98,6 +98,24 @@ assert(KnownPlayersDB.bnetCharacters["Example#0000"])
 assert(KnownPlayersDB.npcOverrides["42"].mode == "hide")
 assert(ns.GetRestorePoint("automatic").sections.players.records[renamed].note == "Current note")
 
+-- Forget removes the live note and link while leaving local recovery copies intact.
+local tag = "Example#0000"
+assert(ns.ForgetPlayer(key))
+assert(not ns.GetPlayer(key) and not KnownPlayersDB.bnetCharacters[tag])
+assert(manual.sections.players.records[key].note == "Original note" and manual.sections.players.bnet[tag])
+KnownPlayersSettings.trackBattleNetAssociations = false
+assert(ns.ApplyBackup(manual, {players = true}, "replace", true))
+assert(not ns.CategoryTrackingEnabled("associated") and KnownPlayersDB.bnetCharacters[tag])
+KnownPlayersSettings.trackBattleNetAssociations = true
+local undoPoint = ns.GetRestorePoint("automatic")
+assert(not ns.DeleteRestorePoint("manual", undoPoint), "Deletion must confirm the same snapshot")
+assert(ns.DeleteRestorePoint("manual", manual))
+assert(not ns.GetRestorePoint("manual") and ns.GetRestorePoint("automatic") == undoPoint)
+manual = assert(ns.CreateRestorePoint("manual", "Manual backup"))
+assert(ns.DeleteRestorePoint("automatic", undoPoint))
+assert(not ns.GetRestorePoint("automatic") and ns.GetRestorePoint("manual") == manual)
+assert(ns.GetPlayer(key).note == "Original note" and KnownPlayersDB.bnetCharacters[tag])
+
 local original = KnownPlayersDB.players
 local automatic = ns.GetRestorePoint("automatic")
 assert(not ns.ReadBackup("KnownPlayers:2:Bad") and not ns.ReadBackup("return { data = true }"))
@@ -244,6 +262,74 @@ VerifyTrackingRollback(StaticPopupDialogs.KNOWNPLAYERS_RESET_SETTINGS.OnAccept)
 local enableParty = {version = 1, created = NOW, sections = {settings = {trackGroup = {party = true}}}}
 VerifyTrackingRollback(function() assert(ns.ApplyBackup(enableParty, {settings = true}, "merge", false)) end)
 VerifyTrackingRollback(function() assert(ns.ApplyBackup(enableParty, {settings = true}, "replace", true)) end)
+
+-- A partial import preserves omitted tracking fields. Explicit Battle.net enable
+-- scans the synthetic friend roster and captures those writes in the checkpoint.
+GetNumGroupMembers = function() return 0 end
+IsInGuild = function() return false end
+local friendKey, altKey, friendTag = "Backup-Anchor-CAMWOW1", "Backup-Alt-CAMWOW1", "Example#0010"
+local friend = {battleTag = friendTag, gameAccountInfo = {
+    clientProgram = "WoW", characterName = "Backup Anchor", realmName = "CAMWOW1", playerGuid = "Player-Backup-10",
+}}
+BNConnected = function() return true end
+BNGetNumFriends = function() return 1 end
+C_BattleNet = {
+    GetFriendAccountInfo = function() return friend end,
+    GetFriendNumGameAccounts = function() return 1 end,
+    GetFriendGameAccountInfo = function() return {
+        clientProgram = "WoW", characterName = "Backup Alt", realmName = "CAMWOW1", playerGuid = "Player-Backup-11",
+    } end,
+}
+assert(ns.ScanBattleNetFriends() == 1 and not KnownPlayersDB.bnetCharacters[friendTag])
+ns.ApplyKnownPlayersSettings({trackBattleNetAssociations = false})
+BNConnected = function() return false end
+ns.ApplyKnownPlayersSettings({trackBattleNetAssociations = true})
+ns.RememberPlayer(friendKey, "manual", NOW, "Player-Backup-10")
+assert(not KnownPlayersDB.bnetCharacters[friendTag], "Disabling tracking must discard pending observations immediately")
+BNConnected = function() return true end
+local partial = {version = 1, created = NOW, sections = {settings = {
+    showMinimapButton = false, trackGroup = {raid = false},
+}}}
+ns.ApplyKnownPlayersSettings({trackBattleNetAssociations = false, trackGuild = false, trackGroup = {party = false}})
+assert(ns.ApplyBackup(partial, {settings = true}, "merge", false))
+assert(not ns.CategoryTrackingEnabled("associated"), "Partial import enabled Battle.net tracking")
+assert(not ns.CategoryTrackingEnabled("guild") and not ns.CategoryTrackingEnabled("party")
+    and not ns.CategoryTrackingEnabled("raid") and not KnownPlayersSettings.showMinimapButton)
+assert(not KnownPlayersDB.bnetCharacters[friendTag] and not ns.GetRestorePoint("automatic").sections.players)
+assert(ns.DescribeBackup(partial, {settings = true}) == "Settings")
+partial.sections.settings.trackTrades = false
+assert(ns.DescribeBackup(partial, {settings = true}):find("Disable: Trade", 1, true))
+partial.sections.settings.trackBattleNetAssociations = true
+assert(ns.DescribeBackup(partial, {settings = true}):find("Enable: Known Battle.net Alts", 1, true))
+assert(ns.DescribeBackup(partial, {}) == "")
+assert(ns.ApplyBackup(partial, {settings = true}, "replace", false))
+assert(ns.IsAssociatedCharacter(altKey, "Player-Backup-11"))
+local beforeScan = ns.GetRestorePoint("automatic")
+assert(not beforeScan.sections.settings.trackBattleNetAssociations and beforeScan.sections.players.bnet
+    and not beforeScan.sections.players.bnet[friendTag])
+assert(ns.ApplyBackup(beforeScan, {settings = true, players = true}, "replace", true))
+assert(not ns.CategoryTrackingEnabled("associated") and not KnownPlayersDB.bnetCharacters[friendTag])
+assert(ns.GetPlayer(friendKey))
+
+-- A failed UI refresh must leave the restore committed and report a warning.
+KnownPlayersDB.npcs = {["42"] = {name = "Previous NPC"}}
+local refreshNameplates = ns.RefreshKnownNameplates
+ns.RefreshKnownNameplates = function() error("Synthetic nameplate refresh failure") end
+local refreshLists = ns.RefreshPlayerListWindows
+local refreshedLists = false
+ns.RefreshPlayerListWindows = function() refreshedLists = true end
+local restoredWithWarning, skippedWithWarning, warning = ns.ApplyBackup(extraNPC, {npcs = true}, "replace", false)
+assert(restoredWithWarning and skippedWithWarning == 0 and warning and refreshedLists)
+assert(KnownPlayersDB.npcs["10001"].name == "Extra NPC" and not KnownPlayersDB.npcs["42"])
+assert(ns.GetRestorePoint("automatic").sections.npcs.records["42"].name == "Previous NPC")
+local refreshMinimap = ns.RefreshMinimapButton
+ns.RefreshMinimapButton = function() error("Synthetic minimap refresh failure") end
+refreshedLists = false
+restoredWithWarning, skippedWithWarning, warning = ns.ApplyBackup(partial, {settings = true}, "merge", false)
+assert(restoredWithWarning and skippedWithWarning == 0 and warning and refreshedLists)
+assert(KnownPlayersSettings.trackBattleNetAssociations and ns.IsAssociatedCharacter(altKey, "Player-Backup-11"))
+ns.RefreshKnownNameplates, ns.RefreshPlayerListWindows, ns.RefreshMinimapButton =
+    refreshNameplates, refreshLists, refreshMinimap
 
 GetNumGroupMembers = function() return 0 end
 ns.ApplyKnownPlayersSettings({})

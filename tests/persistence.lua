@@ -242,6 +242,21 @@ state:Fire("BN_FRIEND_LIST_SIZE_CHANGED")
 assert(#ns.GetAssociatedCharacters() == 0 and next(KnownPlayersDB.bnetCharacters) == nil)
 assert(ns.GetPlayer(MEMBER))
 
+-- An encounter can promote a pending observation without scanning the roster again.
+ns, state = StartSession()
+state.friends = {friend}
+state:Fire("BN_FRIEND_LIST_SIZE_CHANGED")
+assert(next(KnownPlayersDB.bnetCharacters) == nil)
+KnownPlayersSettings.trackBattleNetAssociations = false
+ns.RememberPlayer(MEMBER, "manual", NOW, "Player-Test-1")
+assert(next(KnownPlayersDB.bnetCharacters) == nil, "Encounter persisted Battle.net data after opt-out")
+
+KnownPlayersSettings.trackBattleNetAssociations = true
+ns.PromotePendingBattleNetObservations()
+assert(next(KnownPlayersDB.bnetCharacters) == nil, "Opt-out left pending Battle.net data")
+state:Fire("BN_FRIEND_LIST_SIZE_CHANGED")
+assert(ns.IsAssociatedCharacter("Test-Alt-" .. REALM, "Player-Test-2"))
+
 -- Two linked groups can report the same name while each GUID remains valid.
 ns, state = StartSession()
 local altKey = "Shared-Alt-" .. REALM

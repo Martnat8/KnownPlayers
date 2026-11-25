@@ -6,6 +6,10 @@ local MAX_EXPORT_BYTES = 4 * 1024 * 1024
 local MAX_PLAYERS = 25000
 local MAX_NPCS = 10000
 local ALL_SECTIONS = {settings = true, players = true, npcs = true}
+local TRACKING_CATEGORIES = {ns.AssociatedCategory}
+for _, category in ipairs(ns.PlayerCategories) do
+    TRACKING_CATEGORIES[#TRACKING_CATEGORIES + 1] = category
+end
 
 local function Invalid()
     error("The backup contains invalid KnownPlayers data.", 0)
@@ -104,7 +108,7 @@ end
 local function Settings(value)
     local fields = {
         categoryRetention = function(durations) return Map(durations, Name, Duration, 64) end,
-        trackGroup = Flags, trackBattleNetAssociations = Boolean, showMinimapButton = Boolean,
+        trackGroup = Flags, showMinimapButton = Boolean,
         knownOnlyNameplates = Boolean, filterNPCNameplates = Boolean,
         nameDisplayMode = NameMode, npcNameDisplayMode = NameMode,
         playerHealthBarMode = HealthMode, npcHealthBarMode = HealthMode,
@@ -113,7 +117,7 @@ local function Settings(value)
         nameplateColorOrder = Order, npcNameplateColorOrder = Order,
         npcServiceCategories = Flags,
     }
-    for _, category in ipairs(ns.PlayerCategories) do
+    for _, category in ipairs(TRACKING_CATEGORIES) do
         if category.tracking then fields[category.tracking] = Boolean end
     end
     return Fields(value, fields)
@@ -222,6 +226,13 @@ function ns.GetRestorePoint(kind)
     return snapshot
 end
 
+function ns.DeleteRestorePoint(kind, expected)
+    local point = ns.GetRestorePoint(kind)
+    if not point or point ~= expected then return false end
+    KnownPlayersDB.restorePoints[kind] = nil
+    return true
+end
+
 function ns.BackupBeforeChange(reason, selection)
     local point, message = ns.CreateRestorePoint("automatic", reason, selection)
     if not point then print("|cff33ff99KnownPlayers:|r Could not create a restore point. " .. message) end
@@ -268,6 +279,38 @@ local function CountLabel(records, singular, plural)
     return count .. " " .. (count == 1 and singular or plural)
 end
 
+local function VisitTrackingOptions(settings, visit)
+    for _, category in ipairs(TRACKING_CATEGORIES) do
+        local fields = settings
+        if category.group then
+            fields = type(settings.trackGroup) == "table" and settings.trackGroup or nil
+        end
+        visit(category, fields, category.group or category.tracking)
+    end
+end
+
+local function PreserveOmittedTracking(settings)
+    settings.trackGroup = settings.trackGroup or {}
+    VisitTrackingOptions(settings, function(category, fields, key)
+        if fields[key] == nil then fields[key] = ns.CategoryTrackingEnabled(category.key) end
+    end)
+end
+
+local function DescribeTrackingChanges(settings)
+    local enabled, disabled = {}, {}
+    VisitTrackingOptions(settings, function(category, fields, key)
+        local value = fields and fields[key]
+        if type(value) == "boolean" and value ~= ns.CategoryTrackingEnabled(category.key) then
+            local changes = value and enabled or disabled
+            changes[#changes + 1] = category.label
+        end
+    end)
+    local lines = {}
+    if #enabled > 0 then lines[#lines + 1] = "Enable: " .. table.concat(enabled, ", ") end
+    if #disabled > 0 then lines[#lines + 1] = "Disable: " .. table.concat(disabled, ", ") end
+    return lines
+end
+
 function ns.DescribeBackup(snapshot, selection)
     local sections, items = snapshot.sections, {}
     if selection.settings and sections.settings then items[#items + 1] = "Settings" end
@@ -279,7 +322,13 @@ function ns.DescribeBackup(snapshot, selection)
         items[#items + 1] = CountLabel(sections.npcs.records, "saved NPC", "saved NPCs")
         items[#items + 1] = CountLabel(sections.npcs.overrides, "NPC override", "NPC overrides")
     end
-    return table.concat(items, ", ")
+    local summary = table.concat(items, ", ")
+    if selection.settings and type(sections.settings) == "table" then
+        for _, change in ipairs(DescribeTrackingChanges(sections.settings)) do
+            summary = summary .. "\n" .. change
+        end
+    end
+    return summary
 end
 
 local function MergeNPCs(staged, incoming)
@@ -348,6 +397,7 @@ function ns.ApplyBackup(snapshot, selection, mode, localBackup)
     if mode ~= "merge" and mode ~= "replace" then return nil, "Choose how to restore this backup." end
     local ok, plan, skipped = pcall(PlanRestore, snapshot, selection, mode, localBackup)
     if not ok then return nil, plan end
+    if plan.settings then PreserveOmittedTracking(plan.settings) end
     local scans = plan.settings and ns.GetInitialTrackingScans(plan.settings) or {}
     local checkpoint = {settings = plan.settings ~= nil, players = plan.players ~= nil or #scans > 0,
         npcs = plan.npcs ~= nil}
@@ -365,12 +415,23 @@ function ns.ApplyBackup(snapshot, selection, mode, localBackup)
         KnownPlayersDB.npcs = plan.npcs.records
         KnownPlayersDB.npcOverrides = plan.npcs.overrides
     end
-    if plan.players or plan.npcs then ns.ClearRemovalUndo() end
-    if plan.settings then
-        ns.ApplyKnownPlayersSettings(plan.settings, scans)
-    else
-        ns.RefreshKnownNameplates()
-        ns.RefreshPlayerListWindows()
+    local refreshFailed = false
+    local function Refresh(callback)
+        if callback then
+            local refreshed, err = pcall(callback)
+            if not refreshed then
+                refreshFailed = true
+                if geterrorhandler then pcall(function() geterrorhandler()(err) end) end
+            end
+        end
     end
-    return true, skipped
+
+    if plan.players or plan.npcs then Refresh(ns.ClearRemovalUndo) end
+    if plan.settings then
+        ns.ApplyKnownPlayersSettings(plan.settings, scans, Refresh)
+    else
+        Refresh(ns.RefreshKnownNameplates)
+        Refresh(ns.RefreshPlayerListWindows)
+    end
+    return true, skipped, refreshFailed
 end

@@ -8,12 +8,24 @@ local SECTIONS = {
 }
 local POINT_TYPES = {"manual", "automatic"}
 local CONFIRM_RESTORE = "KNOWNPLAYERS_RESTORE_BACKUP"
+local CONFIRM_DELETE = "KNOWNPLAYERS_DELETE_RESTORE_POINT"
 
 StaticPopupDialogs[CONFIRM_RESTORE] = {
     text = "Replace the selected data?\n\n%s\n\nA restore point will be saved first.",
     button1 = "Replace",
     button2 = CANCEL,
     OnAccept = function(_, apply) apply() end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+StaticPopupDialogs[CONFIRM_DELETE] = {
+    text = "Permanently delete this local restore point?\n\n%s",
+    button1 = "Delete",
+    button2 = CANCEL,
+    OnAccept = function(_, delete) delete() end,
     timeout = 0,
     whileDead = true,
     hideOnEscape = true,
@@ -95,11 +107,12 @@ end
 
 local function ApplyAndReport(snapshot, selection, mode, localBackup, status, onDone)
     local function Apply()
-        local ok, result = ns.ApplyBackup(snapshot, selection, mode, localBackup)
+        local ok, result, refreshFailed = ns.ApplyBackup(snapshot, selection, mode, localBackup)
         if not ok then status:SetText(result); return end
-        if onDone then onDone() end
+        if onDone and not pcall(onDone) then refreshFailed = true end
         local message = localBackup and "Backup restored." or "Import complete."
         if result > 0 then message = message .. " Skipped " .. result .. " ambiguous or conflicting player records." end
+        if refreshFailed then message = message .. " Some views could not refresh. Reopen the affected windows or reload the UI." end
         status:SetText(message)
     end
     if mode == "replace" then
@@ -110,24 +123,29 @@ local function ApplyAndReport(snapshot, selection, mode, localBackup, status, on
 end
 
 local function BuildRestorePage(page)
-    Label(page, "Keep one manual restore point and the latest automatic restore point.", 18, -15)
-    local status = Label(page, "", 18, -244)
+    Label(page, "Forget removes active player history. Manual and automatic restore points can still contain copies.", 18, -15)
+    local status = Label(page, "", 18, -266)
     local summary = Label(page, "", 18, -127)
     local selectedPoint = "manual"
     local dropdown = CreateFrame("DropdownButton", nil, page, "WowStyle1DropdownTemplate")
     dropdown:SetPoint("TOPLEFT", 18, -90)
     dropdown:SetSize(498, 25)
-    local Apply, checks
+    local Apply, Delete, checks
     local function RefreshSelection()
         local point = ns.GetRestorePoint(selectedPoint)
         local selection = Selected(checks)
         summary:SetText(point and ns.DescribeBackup(point, selection) or "Create a backup to use as a restore point.")
         Apply:SetEnabled(point ~= nil and next(selection) ~= nil)
+        Delete:SetEnabled(point ~= nil)
     end
-    checks = SectionChecks(page, -159, RefreshSelection)
+    checks = SectionChecks(page, -183, RefreshSelection)
 
     local function RefreshPoint()
         local point = ns.GetRestorePoint(selectedPoint)
+        if not point then
+            selectedPoint = ns.GetRestorePoint("manual") and "manual" or "automatic"
+            point = ns.GetRestorePoint(selectedPoint)
+        end
         SetSections(checks, point and point.sections, true)
         dropdown:GenerateMenu()
         dropdown:Update()
@@ -149,16 +167,21 @@ local function BuildRestorePage(page)
         if point then selectedPoint = "manual"; RefreshPoint() end
         status:SetText(point and "Manual backup created." or message)
     end)
-    Apply = Button(page, "Restore Selected", 140, 18, -202, function()
+    Apply = Button(page, "Restore Selected", 140, 18, -224, function()
         local point = ns.GetRestorePoint(selectedPoint)
         if point then ApplyAndReport(point, Selected(checks), "replace", true, status, RefreshPoint) end
     end)
-    page:SetScript("OnShow", function()
-        if not ns.GetRestorePoint(selectedPoint) then
-            selectedPoint = ns.GetRestorePoint("automatic") and "automatic" or "manual"
-        end
-        RefreshPoint()
+    Delete = Button(page, "Delete Restore Point", 152, 168, -224, function()
+        local kind = selectedPoint
+        local point = ns.GetRestorePoint(kind)
+        if not point then return end
+        StaticPopup_Show(CONFIRM_DELETE, PointLabel(point), nil, function()
+            local deleted = ns.DeleteRestorePoint(kind, point)
+            RefreshPoint()
+            status:SetText(deleted and "Restore point deleted." or "The restore point changed before it could be deleted.")
+        end)
     end)
+    page:SetScript("OnShow", RefreshPoint)
 end
 
 local function BuildExportPage(page)
@@ -206,17 +229,18 @@ local function BuildImportPage(page)
 
     local function RefreshSelection()
         local selection = Selected(checks)
+        local description = snapshot and ns.DescribeBackup(snapshot, selection)
+        summary:SetText(description and description ~= "" and (BackupDate(snapshot.created) .. "  ·  " .. description) or "")
         local hasHistory = selection.players or selection.npcs
         merge:SetText(hasHistory and "Merge" or "Import Settings")
         merge:SetEnabled(snapshot ~= nil and next(selection) ~= nil)
         replace:SetEnabled(snapshot ~= nil and hasHistory == true)
     end
 
-    checks = SectionChecks(page, -254, RefreshSelection)
+    checks = SectionChecks(page, -266, RefreshSelection)
     local function ClearPreview()
         snapshot = nil
         SetSections(checks, nil)
-        summary:SetText("")
         local available = ns.CanTransferBackups()
         preview:SetEnabled(available and edit:GetText() ~= "")
         status:SetText(available and "" or "Import is unavailable on this WoW client.")
@@ -231,10 +255,7 @@ local function BuildImportPage(page)
         local message
         snapshot, message = ns.ReadBackup(edit:GetText())
         SetSections(checks, snapshot and snapshot.sections, true)
-        if snapshot then
-            edit:ClearFocus()
-            summary:SetText(BackupDate(snapshot.created) .. "  ·  " .. ns.DescribeBackup(snapshot, Selected(checks)))
-        end
+        if snapshot then edit:ClearFocus() end
         status:SetText(message or "")
         RefreshSelection()
     end)

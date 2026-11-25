@@ -26,6 +26,10 @@ function ns.InvalidateBattleNetIndex()
     associationDirty = true
 end
 
+function ns.ClearPendingBattleNetObservations()
+    pending = {}
+end
+
 local function DirectRecord(key, observed)
     return ns.FindDirectRecord and ns.FindDirectRecord(key, observed and observed.guid) or nil
 end
@@ -64,14 +68,14 @@ local function MergeObservations(destination, source)
 end
 
 -- Existing saved groups that do not connect to any known player are removed
--- from disk. They are still available transiently in this play session so
--- linking a character later can promote the associated observations.
+-- from disk. While tracking is enabled, they remain available in this session
+-- so linking a character later can promote the associated observations.
 function ns.PruneUnlinkedBattleNetData()
     if type(KnownPlayersDB) ~= "table" then return end
     local groups = KnownPlayersDB.bnetCharacters or {}
     for tag, members in pairs(groups) do
         if type(members) ~= "table" or not HasDirectAnchor(members, ns.HasStoredPlayerCategory) then
-            if type(members) == "table" then
+            if type(members) == "table" and ns.CategoryTrackingEnabled("associated") then
                 pending[tag] = pending[tag] or {}
                 MergeObservations(pending[tag], members)
             end
@@ -82,6 +86,10 @@ function ns.PruneUnlinkedBattleNetData()
 end
 
 function ns.PromotePendingBattleNetObservations()
+    if not ns.CategoryTrackingEnabled("associated") then
+        ns.ClearPendingBattleNetObservations()
+        return
+    end
     if not KnownPlayersDB then return end
     local stored = KnownPlayersDB.bnetCharacters or {}
     KnownPlayersDB.bnetCharacters = stored
@@ -136,8 +144,7 @@ local function ReadFriendCount()
 end
 
 function ns.ScanBattleNetFriends(rosterUpdated)
-    if not KnownPlayersDB or not KnownPlayersSettings
-        or not KnownPlayersSettings.trackBattleNetAssociations
+    if not KnownPlayersDB or not ns.CategoryTrackingEnabled("associated")
         or type(BNGetNumFriends) ~= "function"
         or type(C_BattleNet) ~= "table"
         or type(C_BattleNet.GetFriendAccountInfo) ~= "function" then return 0 end

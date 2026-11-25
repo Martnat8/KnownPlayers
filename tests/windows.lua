@@ -1,5 +1,5 @@
 -- Exercise list opening and Escape through the same frame scripts WoW calls.
-local named, edits, labels = {}, {}, {}
+local named, edits, labels, buttons = {}, {}, {}, {}
 local function Noop() end
 local frameMethods = setmetatable({}, {__index = function(_, key)
     if key:match("^Set") or key:match("^Register") or key == "EnableMouse" or key == "EnableKeyboard"
@@ -31,6 +31,12 @@ function frameMethods:SetText(text)
     if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end
 end
 function frameMethods:GetText() return self.text or "" end
+function frameMethods:SetEnabled(enabled) self.enabled = enabled end
+function frameMethods:SetChecked(checked) self.checked = checked end
+function frameMethods:GetChecked() return self.checked end
+function frameMethods:GenerateMenu() end
+function frameMethods:Update() end
+function frameMethods:StopMovingOrSizing() end
 function frameMethods:CreateFontString()
     local label = CreateFrame("FontString")
     labels[#labels + 1] = label
@@ -38,10 +44,14 @@ function frameMethods:CreateFontString()
 end
 function frameMethods:CreateTexture() return CreateFrame("Texture") end
 
-function CreateFrame(kind, name)
+function CreateFrame(kind, name, _, template)
     local frame = setmetatable({shown = true, scripts = {}}, {__index = frameMethods})
     if name then named[name] = frame end
     if kind == "EditBox" then edits[#edits + 1] = frame end
+    if kind == "Button" or kind == "CheckButton" then buttons[#buttons + 1] = frame end
+    if kind == "CheckButton" then frame.Text = CreateFrame("FontString") end
+    if template == "BasicFrameTemplateWithInset" then frame.TitleText = CreateFrame("FontString") end
+    if template == "UIPanelInputScrollFrameTemplate" then frame.EditBox = CreateFrame("EditBox") end
     return frame
 end
 
@@ -65,9 +75,9 @@ assert(refreshes == 1 and list:IsShown())
 ns.OpenPlayerList("party", settingsPage)
 assert(refreshes == 2)
 edits[1]:SetText(" sample-player ")
-assert(labels[2]:GetText() == "1 players (1 shown)")
+assert(labels[1]:GetText() == "1 players (1 shown)")
 edits[1]:SetText("other-player")
-assert(labels[2]:GetText() == "1 players (0 shown)")
+assert(labels[1]:GetText() == "1 players (0 shown)")
 
 local parent = CreateFrame("Frame")
 parent.hideOtherWindows = true
@@ -82,4 +92,72 @@ ns.OpenPlayerList("party", settingsPage)
 ns.CloseWindowsFromSettingsPage(settingsPage)
 assert(parent:IsShown() and not list:IsShown())
 
-print("Player list refresh, name search, Escape, and settings ownership checks passed.")
+-- Exercise the backup window's confirmation buttons and status through its frame scripts.
+time, date = os.time, os.date
+KnownPlayersDB = {players = {}, npcs = {["42"] = {name = "Synthetic NPC"}}, npcOverrides = {}}
+KnownPlayersSettings = {trackBattleNetAssociations = false}
+for _, module in ipairs({"Backups", "BackupWindow"}) do
+    assert(loadfile("KnownPlayers/" .. module .. ".lua"))("KnownPlayers", ns)
+end
+local popup, popupAction
+function StaticPopup_Show(dialog, _, _, action)
+    popup, popupAction = dialog, action
+end
+local function Confirm()
+    StaticPopupDialogs[popup].OnAccept(nil, popupAction)
+end
+local function Button(text)
+    for _, button in ipairs(buttons) do
+        if button:GetText() == text or (button.Text and button.Text:GetText() == text) then return button end
+    end
+    error("Missing button " .. text)
+end
+local function Click(text)
+    local button = Button(text)
+    assert(button.enabled ~= false)
+    button.scripts.OnClick(button)
+end
+local function HasLabel(text)
+    for _, label in ipairs(labels) do
+        if label:GetText():find(text, 1, true) then return true end
+    end
+    return false
+end
+local manual = assert(ns.CreateRestorePoint("manual", "Manual backup", {npcs = true}))
+local automatic = assert(ns.CreateRestorePoint("automatic", "Automatic backup", {npcs = true}))
+ns.OpenBackupWindow()
+Click("Delete Restore Point")
+assert(ns.GetRestorePoint("manual") == manual)
+Confirm()
+assert(not ns.GetRestorePoint("manual") and ns.GetRestorePoint("automatic") == automatic)
+Click("Restore Selected")
+ns.ClearRemovalUndo = function() end
+ns.RefreshKnownNameplates = function() error("Synthetic refresh failure") end
+ns.RefreshPlayerListWindows = function() end
+KnownPlayersDB.npcs = {["43"] = {name = "Previous NPC"}}
+Confirm()
+assert(KnownPlayersDB.npcs["42"] and ns.GetRestorePoint("automatic").sections.npcs.records["43"])
+assert(HasLabel("Backup restored. Some views could not refresh."))
+Click("Delete Restore Point")
+Confirm()
+assert(not ns.GetRestorePoint("automatic") and Button("Delete Restore Point").enabled == false)
+
+Click("Export")
+ns.CanTransferBackups = function() return true end
+ns.ReadBackup = function()
+    return {version = 1, created = time(), sections = {settings = {trackBattleNetAssociations = true}}}
+end
+Click("Import")
+edits[#edits]:SetText("Synthetic payload")
+Click("Preview")
+assert(HasLabel("Enable: Known Battle.net Alts"))
+local importSettings
+-- The restore and export tabs also have Settings checkboxes. Use the import tab's.
+for _, button in ipairs(buttons) do
+    if button.Text and button.Text:GetText() == "Settings" then importSettings = button end
+end
+importSettings:SetChecked(false)
+importSettings.scripts.OnClick(importSettings)
+assert(not HasLabel("Enable: Known Battle.net Alts") and Button("Import Settings").enabled == false)
+
+print("Player list and backup window behavior checks passed.")

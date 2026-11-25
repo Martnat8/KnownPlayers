@@ -45,8 +45,13 @@ function ns.GetInitialTrackingScans(settings)
     return scans
 end
 
-function ns.ApplyKnownPlayersSettings(settings, initialScans)
+local function RefreshImmediately(callback)
+    if callback then callback() end
+end
+
+function ns.ApplyKnownPlayersSettings(settings, initialScans, refresh)
     initialScans = initialScans or ns.GetInitialTrackingScans(settings)
+    refresh = refresh or RefreshImmediately
     -- The CVar backups describe this client and travel with its live settings.
     local previous = KnownPlayersSettings or {}
     previous.knownOnlyNameplates = false
@@ -57,15 +62,16 @@ function ns.ApplyKnownPlayersSettings(settings, initialScans)
     settings.npcCVarBackup = previous.npcCVarBackup
     KnownPlayersSettings = settings
     ns.InitializeDatabase()
+    if not ns.CategoryTrackingEnabled("associated") then ns.ClearPendingBattleNetObservations() end
     if ns.InitializeNameplateColors then ns.InitializeNameplateColors() end
-    RefreshSettingsControls()
-    ns.RefreshMinimapButton()
     if ns.InvalidateBattleNetIndex then ns.InvalidateBattleNetIndex() end
     for _, key in ipairs(initialScans) do RunInitialTrackingScan(key) end
     if ns.SyncNativeOverheadNames then ns.SyncNativeOverheadNames() end
     if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
-    if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
-    if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
+    refresh(RefreshSettingsControls)
+    refresh(ns.RefreshMinimapButton)
+    refresh(ns.RefreshKnownNameplates)
+    refresh(ns.RefreshPlayerListWindows)
 end
 
 StaticPopupDialogs["KNOWNPLAYERS_RESET_SETTINGS"] = {
@@ -223,7 +229,11 @@ local function SetCategoryTracking(key, checked)
     else
         KnownPlayersSettings[category.tracking] = checked
     end
-    if checked then RunInitialTrackingScan(key) end
+    if checked then
+        RunInitialTrackingScan(key)
+    elseif key == "associated" then
+        ns.ClearPendingBattleNetObservations()
+    end
     if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
 end
 

@@ -68,12 +68,15 @@ local function RestoreAll()
     for frame in pairs(changedFrames) do RestoreFrame(frame) end
 end
 
-local function MakeTransparent(frame)
-    if IsProtected(frame) then return end
-    if InCombatLockdown and InCombatLockdown() then return end
+local function MakeTransparent(frame, allowCombat)
+    if IsProtected(frame) or IsCombatRestricted(frame) then return false end
+    if not allowCombat and InCombatLockdown and InCombatLockdown() then return false end
     local alpha = ReadAppearanceValue(frame.GetAlpha, frame)
-    if type(alpha) ~= "number" or alpha == 0 then return end
-    if pcall(frame.SetAlpha, frame, 0) then changedFrames[frame] = alpha end
+    if type(alpha) ~= "number" then return false end
+    if alpha == 0 then return true end
+    if not pcall(frame.SetAlpha, frame, 0) then return false end
+    changedFrames[frame] = alpha
+    return true
 end
 
 -- With health bars visible, use the same custom text layer to support
@@ -218,6 +221,8 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, displayCol
     end
     if not name then return false end
     if firstName then name = name:match("^(%S+)") or name end
+    local mode = isNPC and NPCHealthBarMode() or PlayerHealthBarMode()
+    if not keepHealthBar and not MakeTransparent(frame, mode == "never") then return false end
     -- The UnitFrame can move between outer plates. Keep the text outside the
     -- faded UnitFrame and allocate it once per outer plate.
     local labels = nameLabels[plate]
@@ -276,12 +281,10 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, displayCol
         label:SetPoint("CENTER", frame.name, "CENTER", 0, 0)
     end
     if keepHealthBar then
-        local mode = isNPC and NPCHealthBarMode() or PlayerHealthBarMode()
         RestoreFrame(frame, mode == "combat")
         SuppressNativeName(frame)
     else
         RestoreNativeNameAlpha(frame)
-        MakeTransparent(frame)
     end
     labels.replacesNativeName = keepHealthBar
     UpdateNameLabelAppearance(plate, labels)
@@ -459,16 +462,15 @@ function ns.RefreshKnownNameplates()
     end
 
     local inCombat = InCombatLockdown and InCombatLockdown()
-    if inCombat and playerMode ~= "combat" and npcMode ~= "combat" then return end
+    if inCombat and playerMode == "always" and npcMode == "always" then return end
     for unit, plate in pairs(platesByUnit) do
         local frame = plate.UnitFrame
-        local accessible = not IsProtected(frame)
-            and not (inCombat and frame.IsProtected and frame:IsProtected())
+        local accessible = not IsProtected(frame) and not IsCombatRestricted(frame)
         local exists = accessible and UnitExists(unit)
         local player = exists and UnitIsPlayer(unit)
         local minion = exists and not player and ns.IsPlayerMinion(unit)
-        local allowCombat = exists and (player and playerMode == "combat"
-            or not player and not minion and npcMode == "combat")
+        local allowCombat = exists and (player and playerMode ~= "always"
+            or not player and not minion and npcMode ~= "always")
         if exists and (not inCombat or allowCombat) then
             if not plateUnits[unit] then plateUnits[unit] = {plate = plate, frame = frame} end
             HookPlateHover(plate, frame)
@@ -483,7 +485,7 @@ function ns.RefreshKnownNameplates()
                     if not ShowNameOnly(plate, frame, unit, false, false, CategoryColorForUnit(unit)) then
                         -- Fail open if the name cannot be displayed.
                         HideNameLabels(plate, frame)
-                        RestoreFrame(frame)
+                        RestoreFrame(frame, allowCombat)
                     end
                 else
                     -- Keep the normal health bar, but render the same custom
@@ -530,7 +532,7 @@ function ns.RefreshKnownNameplates()
                     end
                 else
                     HideNameLabels(plate, frame)
-                    RestoreFrame(frame)
+                    RestoreFrame(frame, npcMode == "never")
                 end
             else
                 HideNameLabels(plate, frame)

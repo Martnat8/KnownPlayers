@@ -284,6 +284,36 @@ for _, protected in ipairs({false, true}) do
     recycledFrame.protected = false
 end
 
+-- Never applies to new and recycled plates during combat when WoW permits alpha writes.
+KnownPlayersSettings.playerHealthBarMode, KnownPlayersSettings.npcHealthBarMode = "never", "never"
+combat = true
+local combatPlayer, combatNPC, protectedNPC, rejectedNPC = Plate(), Plate(), Plate(), Plate()
+local playerFrame, npcFrame, protectedFrame, rejectedFrame = UnitFrame(), UnitFrame(), UnitFrame(), UnitFrame()
+protectedFrame.protected = true
+local setRejectedAlpha = rejectedFrame.SetAlpha
+function rejectedFrame:SetAlpha(alpha)
+    if combat then error("synthetic client alpha rejection") end
+    setRejectedAlpha(self, alpha)
+end
+Bind(combatPlayer, playerFrame, "nameplate9", {name = "Familiar Player", player = true})
+Bind(combatNPC, npcFrame, "nameplate10", one)
+Bind(protectedNPC, protectedFrame, "nameplate11", one)
+Bind(rejectedNPC, rejectedFrame, "nameplate12", one)
+plates = {combatPlayer, combatNPC, protectedNPC, rejectedNPC}
+Event("NAME_PLATE_UNIT_ADDED", "nameplate9")
+assert(playerFrame.alpha == 0 and combatPlayer.labels[1].shown, "Never missed a new player plate during combat")
+assert(npcFrame.alpha == 0 and combatNPC.labels[1].shown, "Never missed a new NPC plate during combat")
+assert(protectedFrame.alpha == 1 and not protectedNPC.labels[1])
+assert(rejectedFrame.alpha == 1 and not rejectedNPC.labels[1])
+Event("NAME_PLATE_UNIT_REMOVED", "nameplate10")
+assert(npcFrame.alpha == 1 and not combatNPC.labels[1].shown)
+Bind(combatNPC, npcFrame, "nameplate13", two)
+Event("NAME_PLATE_UNIT_ADDED", "nameplate13")
+assert(npcFrame.alpha == 0 and combatNPC.labels[1].shown and combatNPC.labels[1].text == two.name)
+combat = false
+Event("PLAYER_REGEN_ENABLED")
+assert(protectedFrame.alpha == 0 and rejectedFrame.alpha == 0)
+
 -- Reset settings while WoW refuses CVar writes. Retry the saved values afterward.
 local cvars = {UnitNameFriendlyPlayerName = "1", UnitNameNPC = "1"}
 local reject = false

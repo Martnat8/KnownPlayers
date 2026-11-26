@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Apply the Never health-bar setting to player and NPC nameplates that WoW allows the addon to update during combat.
+
 ## [0.5.2] - 2026-11-26
 
 - Added a small easter egg.

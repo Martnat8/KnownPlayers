@@ -38,18 +38,19 @@ function ns.PlayerCategoryTime(record, category, stamp)
 end
 
 -- Keep older interaction history available in SavedVariables. Only currently
--- supported categories count as known players or supply Battle.net anchors.
-function ns.HasPlayerCategory(record)
+-- supported categories count as known players.
+function ns.HasPlayerCategory(record, excludedCategory)
     if type(record) ~= "table" or type(record.categories) ~= "table" then return false end
     if GuildMembership(record) then return true end
     for category, present in pairs(record.categories) do
-        if present and category ~= "guild" and ns.IsPlayerCategory(category) then return true end
+        if present and category ~= "guild" and category ~= excludedCategory
+            and ns.IsPlayerCategory(category) then return true end
     end
     return false
 end
 
-function ns.HasStoredPlayerCategory(record)
-    return ns.HasPlayerCategory(record) or (type(record) == "table"
+function ns.HasStoredPlayerCategory(record, excludedCategory)
+    return ns.HasPlayerCategory(record, excludedCategory) or (type(record) == "table"
         and type(record.guildMemberships) == "table" and next(record.guildMemberships) ~= nil)
 end
 
@@ -136,6 +137,7 @@ local RETENTION_DEFAULTS = {
     target = { hours = 6 },
     inspect = { days = 30 },
     manual = { days = 30, enabled = false },
+    avoid = { days = 30, enabled = false },
     npc = { days = 30 },
 }
 
@@ -156,6 +158,7 @@ local DEFAULT_SETTINGS = {
     trackTargets = true,
     trackInspects = true,
     trackManual = true,
+    trackAvoid = true,
     filterNPCNameplates = false,
     npcServiceCategories = {
         vendor = true, trainer = true, banker = true, auctioneer = true,
@@ -605,6 +608,18 @@ local function CanClaimPlayer(key, record, guid)
     return not guid or not ns.HasConflictingPlayerGUID(key, record, guid)
 end
 
+local function MarkPlayerCategory(record, category, timestamp)
+    if type(record.categoryLastSeen) ~= "table" then record.categoryLastSeen = {} end
+    if type(record.categoryFirstSeen) ~= "table" then record.categoryFirstSeen = {} end
+    if not record.categories[category] then
+        record.categoryFirstSeen[category] = timestamp
+    elseif type(record.categoryFirstSeen[category]) ~= "number" then
+        record.categoryFirstSeen[category] = record.categoryLastSeen[category] or timestamp
+    end
+    record.categories[category] = true
+    record.categoryLastSeen[category] = timestamp
+end
+
 -- Optional GUID lets another interaction recognize a character whose name
 -- spelling / realm format differs. Identical names without a GUID are not
 -- proof that two records belong to the same player.
@@ -659,8 +674,6 @@ function ns.RememberPlayer(name, category, seenAt, guid, realmHint, unit)
     if type(record.categories) ~= "table" then record.categories = {} end
     local timestamp = seenAt or time()
     local addedCategory = not ns.PlayerHasCategory(record, category)
-    if type(record.categoryLastSeen) ~= "table" then record.categoryLastSeen = {} end
-    if type(record.categoryFirstSeen) ~= "table" then record.categoryFirstSeen = {} end
     if category == "guild" then
         record.guildMemberships = record.guildMemberships or {}
         local memberships = record.guildMemberships
@@ -669,14 +682,7 @@ function ns.RememberPlayer(name, category, seenAt, guid, realmHint, unit)
         membership.lastSeen = timestamp
         memberships[activeGuild], memberships.legacy = membership, nil
     elseif type(category) == "string" and category ~= "" then
-        if not record.categories[category] then
-            -- A newly joined category starts its own known-since timer.
-            record.categoryFirstSeen[category] = timestamp
-        elseif type(record.categoryFirstSeen[category]) ~= "number" then
-            record.categoryFirstSeen[category] = record.categoryLastSeen[category] or timestamp
-        end
-        record.categories[category] = true
-        record.categoryLastSeen[category] = timestamp
+        MarkPlayerCategory(record, category, timestamp)
     end
     record.lastSeen = timestamp
     -- Prefer the name supplied by the current API; don't replace a useful
@@ -703,8 +709,10 @@ end
 local function RestorePlayer(key, saved, originalRecord)
     local players = KnownPlayersDB.players
     local guid = ns.SafePlayerGUID(saved.guid)
-    local match = guid and ns.FindDirectKeyByGUID and ns.FindDirectKeyByGUID(guid)
-    if not match and ns.FindDirectKeyByName then
+    local match = originalRecord and players[key] == originalRecord and key
+        or guid and ns.FindDirectKeyByGUID and ns.FindDirectKeyByGUID(guid)
+    -- A manual Avoid mark must not move to another record by name alone.
+    if not match and ns.FindDirectKeyByName and (guid or not ns.PlayerHasCategory(saved, "avoid")) then
         match = ns.FindDirectKeyByName(key, guid)
     end
     if match then
@@ -877,6 +885,19 @@ function ns.RemovePlayerCategory(key, category, undoable)
     if saved then
         ns.OfferRemovalUndo(function() return RestorePlayer(key, saved, record) end)
     end
+    return true
+end
+
+function ns.SetPlayerAvoided(key, record, avoided)
+    if KnownPlayersDB.players[key] ~= record or not ns.HasPlayerCategory(record)
+        or ns.PlayerHasCategory(record, "avoid") == avoided then return false end
+    if avoided then
+        MarkPlayerCategory(record, "avoid", time())
+    else
+        ns.RemovePlayerCategory(key, "avoid", true)
+    end
+    if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+    if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows(true) end
     return true
 end
 

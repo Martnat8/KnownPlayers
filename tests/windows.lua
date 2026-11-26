@@ -43,6 +43,8 @@ function frameMethods:SetFocus() self.focused = true end
 function frameMethods:ClearFocus() self.focused = false end
 function frameMethods:HighlightText() self.selectedText = self:GetText() end
 function frameMethods:SetEnabled(enabled) self.enabled = enabled end
+function frameMethods:SetPoint(...) self.point = {...} end
+function frameMethods:SetTexture(texture) self.texturePath = texture end
 function frameMethods:SetChecked(checked) self.checked = checked end
 function frameMethods:GetChecked() return self.checked end
 function frameMethods:SetSelectionText(callback) self.selectionText = callback end
@@ -74,11 +76,17 @@ end
 StaticPopupDialogs = {}
 UISpecialFrames = {}
 local refreshes = 0
+local appearance = {categories = {}}
 local ns = {
     HasRemovalUndo = function() return false end,
+    PlayerHasCategory = function(record, key) return record.categories[key] == true end,
+    SetPlayerAvoided = function(key, record, avoided)
+        assert(key == "Sample-Player-CAMWOW1" and record == appearance)
+        record.categories.avoid = avoided
+    end,
     GetCategoryPlayers = function()
         refreshes = refreshes + 1
-        return {{key = "Sample-Player-CAMWOW1", name = "Sample Player", realm = "CAMWOW1", appearance = {}}}
+        return {{key = "Sample-Player-CAMWOW1", name = "Sample Player", realm = "CAMWOW1", appearance = appearance}}
     end,
 }
 for _, module in ipairs({"Safety", "Categories", "Windows", "PlayerList"}) do
@@ -89,8 +97,17 @@ local settingsPage = {}
 ns.OpenPlayerList("party", settingsPage)
 local list = assert(named.KnownPlayersPartyListWindow)
 assert(refreshes == 1 and list:IsShown())
+local avoidAction
+for _, button in ipairs(buttons) do
+    if button.tooltip == "Add to Avoid" then avoidAction = button; break end
+end
+assert(avoidAction and avoidAction.point[2] == avoidAction.parent.favoriteButton)
+assert(avoidAction.icon.texturePath == "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01")
+assert(avoidAction.parent.removeButton.point[2] == avoidAction)
+avoidAction.scripts.OnClick()
+assert(appearance.categories.avoid)
 ns.OpenPlayerList("party", settingsPage)
-assert(refreshes == 2)
+assert(refreshes == 2 and avoidAction.tooltip == "Remove from Avoid")
 edits[1]:SetText(" sample-player ")
 assert(labels[1]:GetText() == "1 players (1 shown)")
 edits[1]:SetText("other-player")

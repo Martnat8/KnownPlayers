@@ -115,7 +115,7 @@ local function Settings(value)
         showGuildInNamesOnly = Boolean, showNPCTitle = Boolean,
         nameplateCategoryColors = Colors, npcNameplateCategoryColors = Colors,
         nameplateColorOrder = Order, npcNameplateColorOrder = Order,
-        npcServiceCategories = Flags,
+        npcServiceCategories = Flags, npcNameplatePaletteVersion = Stamp,
     }
     for _, category in ipairs(TRACKING_CATEGORIES) do
         if category.tracking then fields[category.tracking] = Boolean end

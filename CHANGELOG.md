@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Add an Avoid player list with red nameplates and a skull toggle between Favorite and Remove.
+- Use a separate default nameplate palette for NPCs and preserve customized NPC colors during the upgrade.
+
 ## [0.5.2b8] - 2026-11-25
 
 - Clarify All Players filters and empty results, align the table headings, separate the row action buttons, and show the full player name and realm on History hover.

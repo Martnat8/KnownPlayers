@@ -59,7 +59,7 @@ local function StartSession(saved, settings)
         RefreshKnownNameplates = function() end, RefreshPlayerListWindows = function() end,
         CountNPCs = function() return 0 end,
     }
-    for _, module in ipairs({"Safety", "Categories", "Database", "Identity", "PlayerMenu", "Tracking", "BattleNet", "Core"}) do
+    for _, module in ipairs({"Safety", "Categories", "Database", "Identity", "Colors", "PlayerMenu", "Tracking", "BattleNet", "Core"}) do
         assert(loadfile("KnownPlayers/" .. module .. ".lua"))("KnownPlayers", ns)
     end
     state:Fire("ADDON_LOADED", "KnownPlayers")
@@ -139,6 +139,32 @@ state.MENU_UNIT_TARGET(nil, menu, {unit = "target"})
 assert(buttons["Forget Player"])
 buttons["Forget Player"]()
 assert(ns.GetPlayer(target) == nil and ns.GetPlayer(MEMBER))
+
+-- A manual Avoid mark applies to one record and takes the default color priority.
+assert(ns.SetPlayerAvoided("guid:Player-Test-2", current, true))
+assert(ns.GetNameplateCategory(MEMBER, "Player-Test-2") == "avoid")
+assert(ns.GetNameplateCategory(MEMBER, "Player-Test-1") == "manual")
+local red = ns.GetNameplateCategoryColor("avoid")
+assert(red[1] == 1 and red[2] < 0.3 and red[3] < 0.3)
+assert(ns.SetPlayerAvoided("guid:Player-Test-2", current, false))
+assert(ns.PlayerHasCategory(current, "target") and ns.GetNameplateCategory(MEMBER, "Player-Test-2") == "target")
+assert(ns.UndoLastRemoval() and ns.PlayerHasCategory(current, "avoid"))
+state.MENU_UNIT_TARGET(nil, menu, {unit = "target"})
+buttons["Add to Avoid"]()
+assert(ns.GetNameplateCategory(target) == "avoid" and #ns.GetCategoryPlayers("avoid") == 2)
+state.MENU_UNIT_TARGET(nil, menu, {unit = "target"})
+buttons["Remove from Avoid"]()
+assert(not ns.GetPlayer(target))
+assert(ns.UndoLastRemoval() and ns.GetNameplateCategory(target) == "avoid")
+
+-- Undo must not transfer a GUID-less Avoid mark to a same-name character.
+local competingKey = "guid:Player-Avoid-2"
+local competingTarget = {displayName = "Other-Target", realm = REALM,
+    guid = "Player-Avoid-2", categories = {target = true}}
+KnownPlayersDB.players[competingKey] = competingTarget
+ns.InvalidateIdentityIndex()
+assert(ns.ForgetPlayer(target, true) and ns.UndoLastRemoval())
+assert(ns.PlayerHasCategory(ns.GetPlayer(target), "avoid") and not ns.PlayerHasCategory(competingTarget, "avoid"))
 
 -- Preserve GUID-less history through startup and later GUID-confirmed tracking.
 local sharedKey = "Shared-Player-" .. REALM
@@ -241,6 +267,15 @@ assert(#ns.GetAssociatedCharacters() == 1)
 state:Fire("BN_FRIEND_LIST_SIZE_CHANGED")
 assert(#ns.GetAssociatedCharacters() == 0 and next(KnownPlayersDB.bnetCharacters) == nil)
 assert(ns.GetPlayer(MEMBER))
+
+-- An Avoid-only player still displays directly but cannot make their alts known.
+ns, state = StartSession()
+state.friends = {friend}
+ns.RememberPlayer(MEMBER, "avoid", NOW, "Player-Test-1")
+state:Fire("BN_FRIEND_LIST_SIZE_CHANGED")
+assert(ns.IsKnownOrAssociated(MEMBER, "Player-Test-1"))
+assert(not ns.IsAssociatedCharacter("Test-Alt-" .. REALM, "Player-Test-2"))
+assert(next(KnownPlayersDB.bnetCharacters) == nil)
 
 -- An encounter can promote a pending observation without scanning the roster again.
 ns, state = StartSession()

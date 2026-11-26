@@ -62,6 +62,17 @@ local function AddPlayerMenu(menuTag, rootDescription, contextData)
     local savedKey, savedRecord = FindSavedKey(key, guid)
     rootDescription:CreateDivider()
     rootDescription:CreateTitle("KnownPlayers")
+    local avoided = ns.PlayerHasCategory(savedRecord, "avoid")
+    rootDescription:CreateButton(avoided and "Remove from Avoid" or "Add to Avoid", function()
+        if savedKey then
+            ns.SetPlayerAvoided(savedKey, savedRecord, not avoided)
+        else
+            local currentUnit = CurrentUnit()
+            if (guid or currentUnit) and ns.RememberPlayer(key, "avoid", nil, guid, realm, currentUnit) then
+                Refresh()
+            end
+        end
+    end)
     if savedKey then
         rootDescription:CreateButton("Why do I know this player?", function()
             if ns.GetPlayer(savedKey) == savedRecord then ns.OpenPlayerHistory(savedKey, CurrentUnit()) end

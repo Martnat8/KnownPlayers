@@ -34,10 +34,10 @@ local function DirectRecord(key, observed)
     return ns.FindDirectRecord and ns.FindDirectRecord(key, observed and observed.guid) or nil
 end
 
-local function HasDirectAnchor(members, hasCategory)
+local function HasDirectAnchor(members)
     if type(members) ~= "table" then return false end
     for key, entry in pairs(members) do
-        if type(entry) == "table" and hasCategory(DirectRecord(key, entry)) then
+        if type(entry) == "table" and ns.HasStoredPlayerCategory(DirectRecord(key, entry), "avoid") then
             return true
         end
     end
@@ -74,7 +74,7 @@ function ns.PruneUnlinkedBattleNetData()
     if type(KnownPlayersDB) ~= "table" then return end
     local groups = KnownPlayersDB.bnetCharacters or {}
     for tag, members in pairs(groups) do
-        if type(members) ~= "table" or not HasDirectAnchor(members, ns.HasStoredPlayerCategory) then
+        if type(members) ~= "table" or not HasDirectAnchor(members) then
             if type(members) == "table" and ns.CategoryTrackingEnabled("associated") then
                 pending[tag] = pending[tag] or {}
                 MergeObservations(pending[tag], members)
@@ -96,7 +96,7 @@ function ns.PromotePendingBattleNetObservations()
     local changed = false
     for tag, members in pairs(pending) do
         local group = stored[tag]
-        if HasDirectAnchor(members, ns.HasStoredPlayerCategory) or HasDirectAnchor(group, ns.HasStoredPlayerCategory) then
+        if HasDirectAnchor(members) or HasDirectAnchor(group) then
             group = type(group) == "table" and group or {}
             MergeObservations(group, members)
             stored[tag] = group
@@ -192,10 +192,11 @@ function ns.ScanBattleNetFriends(rosterUpdated)
     return processed, removed
 end
 
-local function HasEnabledCategory(record)
+local function HasEnabledCategory(record, excludedCategory)
     if not record then return false end
     for _, category in ipairs(ns.PlayerCategories) do
-        if ns.PlayerHasCategory(record, category.key) and ns.CategoryTrackingEnabled(category.key) then return true end
+        if category.key ~= excludedCategory and ns.PlayerHasCategory(record, category.key)
+            and ns.CategoryTrackingEnabled(category.key) then return true end
     end
     return false
 end
@@ -230,7 +231,7 @@ local function BuildAssociationIndex()
             for key, observed in pairs(group) do
                 if type(observed) == "table" then
                     local record = DirectRecord(key, observed)
-                    if ns.HasPlayerCategory(record) then direct[#direct+1] = record end
+                    if ns.HasPlayerCategory(record, "avoid") then direct[#direct+1] = record end
                 end
             end
             if #direct > 0 then
@@ -262,7 +263,7 @@ end
 local function EnabledAnchor(group)
     if not group then return false end
     for _, record in ipairs(group.direct) do
-        if HasEnabledCategory(record) then return true end
+        if HasEnabledCategory(record, "avoid") then return true end
     end
     return false
 end
@@ -294,7 +295,7 @@ function ns.GetAssociatedCharacters()
             local directKey = type(observed) == "table" and (ns.FindDirectKeyByGUID(observed.guid)
                 or ns.FindDirectKeyByName(key, observed.guid))
             local direct = directKey and ns.GetPlayer(directKey)
-            if HasEnabledCategory(direct) then
+            if HasEnabledCategory(direct, "avoid") then
                 anchor = direct.displayName or observed.name or directKey
                 anchorKey = directKey
                 break

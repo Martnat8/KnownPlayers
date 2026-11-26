@@ -354,11 +354,35 @@ assert(table.concat(scans, ", ") == "group, guild request, guild scan, Battle.ne
 KnownPlayersSettings = {
     namesOnlyNameplates = true, npcNamesOnlyNameplates = true,
     nameplateColorOrder = {"trade", "manual"}, npcNameplateColorOrder = {"trainer", "vendor"},
+    npcNameplateCategoryColors = {vendor = {0.94, 0.81, 0.34}, trainer = {0.33, 0.44, 0.55}},
 }
 ns.InitializeDatabase()
 ns.InitializeNameplateColors()
 assert(KnownPlayersSettings.playerHealthBarMode == "never" and KnownPlayersSettings.npcHealthBarMode == "never")
-assert(table.concat(KnownPlayersSettings.nameplateColorOrder, ",", 1, 2) == "trade,manual")
+assert(table.concat(KnownPlayersSettings.nameplateColorOrder, ",", 1, 3) == "avoid,trade,manual")
 assert(table.concat(ns.GetNPCNameplateColorOrder(), ",", 1, 2) == "trainer,vendor")
+local vendorColor, trainerColor = ns.GetNPCNameplateCategoryColor("vendor"), ns.GetNPCNameplateCategoryColor("trainer")
+assert(vendorColor[1] == 0xC7 / 255 and vendorColor[2] == 0xF0 / 255 and vendorColor[3] == 0)
+assert(trainerColor[1] == 0.33 and trainerColor[2] == 0.44 and trainerColor[3] == 0.55)
+assert(ns.GetNameplateCategoryColor("trade")[1] == 1 and ns.GetNameplateCategoryColor("trade")[2] == 0.82)
+
+-- A player can still choose the old shade after migration and restore it from a backup.
+KnownPlayersSettings.npcNameplateCategoryColors.vendor = {0.94, 0.81, 0.34}
+local paletteBackup = assert(ns.ReadBackup(assert(ns.ExportBackup({settings = true}))))
+assert(ns.ApplyBackup(paletteBackup, {settings = true}, "merge", false))
+assert(ns.GetNPCNameplateCategoryColor("vendor")[1] == 0.94)
+
+local avoidedKey = "Synthetic-Avoid-CAMWOW1"
+KnownPlayersDB = nil
+ns.InitializeDatabase()
+ns.InvalidateIdentityIndex()
+local avoided = ns.RememberPlayer(avoidedKey, "avoid", NOW, "Player-Avoid-1")
+avoided.note = "Synthetic Avoid note"
+local avoidBackup = assert(ns.ReadBackup(assert(ns.ExportBackup({players = true, settings = true}))))
+assert(avoidBackup.sections.players.records[avoidedKey].categories.avoid)
+assert(avoidBackup.sections.settings.trackAvoid)
+assert(ns.SetPlayerAvoided(avoidedKey, avoided, false) and not ns.GetPlayer(avoidedKey))
+assert(ns.ApplyBackup(avoidBackup, {players = true}, "merge", false))
+assert(ns.PlayerHasCategory(ns.GetPlayer(avoidedKey), "avoid") and ns.GetPlayer(avoidedKey).note == "Synthetic Avoid note")
 
 io.write("Backup and restore checkpoints, portable sections, merge conflicts, and invalid imports passed.\n")

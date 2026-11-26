@@ -16,6 +16,7 @@ Maybe you trade with someone in town, exchange a few whispers, or group up for a
 - Optionally open a tabbed settings window with adjustable height from a minimap button that MinimapButtonButton can collect.
 - See why a player is known, search private notes and tags, and sort by recent interactions.
 - Pin favorite players and NPCs to protect them from inactivity expiration, or undo the most recent individual removal within 30 seconds.
+- Use the skull button in player lists or **Add to Avoid** in a player portrait menu. Find the Avoid list under **Player Nameplates**. Its default name color is red.
 - Create an in-game restore point or export settings, player history, and saved NPCs through Backup & Restore.
 - Set optional, category-specific inactivity expiration (guild membership is exempt).
 - Hide unknown player nameplates; choose health bars, name format, and guild name display.

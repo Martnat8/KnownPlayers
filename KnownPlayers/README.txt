@@ -53,10 +53,10 @@ prompts before overwriting the selected sections. Use Show Backup Text on
 either tab if you need to see the full text.
 
 RETENTION
-On a fresh install or Reset Settings, Manually Added, Raid, Party, Trade,
+On a fresh install or Reset Settings, Avoid, Manually Added, Raid, Party, Trade,
 and Whisper are set to Forever. Inspect defaults to 30 days and Target to
 six hours. Guild membership and linked alts follow their underlying guild
-or Battle.net relationship. Manually Added starts at the top of the priority list.
+or Battle.net relationship. Avoid starts at the top of the player color priority.
 Each character sees their current guild's roster. Switching characters preserves
 the other guilds' saved records. A guild departure preserves personal notes and
 tags for the next time you recognize that player through another interaction.
@@ -67,10 +67,12 @@ its last interaction. Known for goes back to its first recorded interaction.
 
 PLAYER DATA
 One player record can contain multiple reasons: Trade, Party, Raid, Guild,
-Whisper, Target, Inspect and Manually Added. Removing a reason
+Whisper, Target, Inspect, Manually Added, and Avoid. Removing a reason
 preserves the remaining reasons. NPC records are kept separately by creature
 ID. Battle.net associations are based on friends' observed characters and
-require a directly known character to anchor recognition.
+require a directly known character with a reason other than Avoid to anchor
+recognition. Toggle Avoid with the skull button next to Favorite or use
+Add to Avoid on a player portrait. Open the Avoid list from Player Nameplates.
 
 NPC CATEGORIES & COLORS
 Automatic NPC service recognition uses the separately installed QuestieDB

@@ -9,6 +9,7 @@ ns.PlayerCategories = {
     {key = "target", label = "Target", tracking = "trackTargets"},
     {key = "inspect", label = "Inspect", tracking = "trackInspects"},
     {key = "manual", label = "Manually Added", tracking = "trackManual"},
+    {key = "avoid", label = "Avoid", tracking = "trackAvoid"},
 }
 
 local categories = {}

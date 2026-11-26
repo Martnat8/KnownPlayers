@@ -110,7 +110,7 @@ local function AddControlTooltip(control, text)
     control:SetScript("OnEnter", function(self)
         if not GameTooltip then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(text)
+        GameTooltip:SetText(type(text) == "function" and text() or text)
         GameTooltip:Show()
     end)
     local function HideTooltip(self)
@@ -120,12 +120,12 @@ local function AddControlTooltip(control, text)
     control:SetScript("OnHide", HideTooltip)
 end
 
-local function ColorButton(parent, category, click)
+local function ColorButton(parent, getCategory, click)
     local button = Button(parent, "", TRACKING_CONTROLS.color, click)
     local swatch = button:CreateTexture(nil, "OVERLAY")
     swatch:SetSize(14, 14)
     swatch:SetPoint("CENTER")
-    AddControlTooltip(button, "Edit color for " .. category)
+    AddControlTooltip(button, function() return "Edit color for " .. getCategory() end)
     return button, swatch
 end
 
@@ -695,6 +695,25 @@ local function BuildHomePage(parent)
     return page
 end
 
+local function AddAvoidTrackingLabel(row)
+    local label = row.tracking.Text
+    local button = CreateFrame("Button", nil, row)
+    button:SetPoint("CENTER", label, "CENTER")
+    row.avoidLabelButton = button
+    local firstClick, clicks
+    button:SetScript("OnClick", function()
+        local now = GetTime()
+        if not firstClick or now - firstClick > 2 then firstClick, clicks = now, 0 end
+        clicks = clicks + 1
+        if clicks == 6 then
+            firstClick, clicks = nil, 0
+            KnownPlayersSettings.useAlternateAvoidName = not KnownPlayersSettings.useAlternateAvoidName
+            RefreshSettingsControls()
+            if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows(true) end
+        end
+    end)
+end
+
 local function AddPriorityTable(body, top, options)
     local orderKey = options.orderKey
     local priorityX = options.player and TRACKING_CONTROLS.priorityX or 225
@@ -715,6 +734,11 @@ local function AddPriorityTable(body, top, options)
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", body, "TOPLEFT", TABLE_LEFT, y)
             row.tracking:SetChecked(options.enabled(key))
+            if row.avoidLabelButton then
+                local label = row.tracking.Text
+                label:SetText(options.getLabel(key))
+                row.avoidLabelButton:SetSize(label:GetStringWidth(), label:GetStringHeight())
+            end
             row.up:SetEnabled(index > 1)
             row.down:SetEnabled(index < #order)
             y = y - row:GetHeight()
@@ -740,9 +764,10 @@ local function AddPriorityTable(body, top, options)
         local row = CreateFrame("Frame", nil, body)
         row:SetSize(CONTENT_WIDTH - TABLE_LEFT - CONTENT_RIGHT_PADDING, options.rowHeight or ROW_HEIGHT)
         rows[key] = row
-        row.tracking = Checkbox(row, 0, -1, options.labels[key], options.enabled(key), function(checked)
+        row.tracking = Checkbox(row, 0, -1, options.getLabel(key), options.enabled(key), function(checked)
             options.setEnabled(key, checked)
         end)
+        if options.player and key == "avoid" then AddAvoidTrackingLabel(row) end
         row.up = PriorityButton(row, "top", function() Move(key, -1) end)
         row.up:SetPoint("TOPLEFT", row, "TOPLEFT", priorityX, -1)
         row.down = PriorityButton(row, "bottom", function() Move(key, 1) end)
@@ -762,13 +787,10 @@ local function AddPriorityTable(body, top, options)
     RegisterSettingsRefresher(Layout)
 end
 
-local PLAYER_LABELS = {associated = ns.AssociatedCategory.label}
-for _, category in ipairs(ns.PlayerCategories) do PLAYER_LABELS[category.key] = category.label end
-
-local function NPCLabels()
+local function NPCLabelLookup()
     local labels = {}
     for _, category in ipairs(ns.GetNPCServiceCategories()) do labels[category.key] = category.label end
-    return labels
+    return function(key) return labels[key] end
 end
 
 local function BuildPlayerPage(parent)
@@ -778,7 +800,7 @@ local function BuildPlayerPage(parent)
         player = true,
         page = page,
         orderKey = "nameplateColorOrder",
-        labels = PLAYER_LABELS,
+        getLabel = ns.GetPlayerCategoryLabel,
         enabled = ns.CategoryTrackingEnabled,
         setEnabled = SetCategoryTracking,
     })
@@ -829,7 +851,7 @@ local function BuildNPCPage(parent)
     AddPriorityTable(body, -82, {
         orderKey = "npcNameplateColorOrder",
         rowHeight = 28,
-        labels = NPCLabels(),
+        getLabel = NPCLabelLookup(),
         enabled = function(key) return KnownPlayersSettings.npcServiceCategories[key] == true end,
         setEnabled = function(key, checked)
             KnownPlayersSettings.npcServiceCategories[key] = checked
@@ -921,7 +943,7 @@ local function AddNameplateSliders(page, body, anchor)
     return row, height
 end
 
-local function AddColorTable(box, title, orderKey, labels, getColor, colorKey)
+local function AddColorTable(box, title, orderKey, getLabel, getColor, colorKey)
     Label(box, title, 10, -11, "GameFontNormal")
     local rows = {}
 
@@ -930,6 +952,7 @@ local function AddColorTable(box, title, orderKey, labels, getColor, colorKey)
             local row = rows[key]
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", box, "TOPLEFT", 8, -32 - (index - 1) * ROW_HEIGHT)
+            row.label:SetText(getLabel(key))
             local rgb = getColor(key)
             row.swatch:SetColorTexture(rgb[1], rgb[2], rgb[3], 1)
         end
@@ -965,12 +988,13 @@ local function AddColorTable(box, title, orderKey, labels, getColor, colorKey)
         local row = CreateFrame("Frame", nil, box)
         row:SetSize(box:GetWidth() - 16, ROW_HEIGHT)
         rows[key] = row
-        local label = Label(row, labels[key], 0, -7, "GameFontHighlightSmall")
+        local label = Label(row, getLabel(key), 0, -7, "GameFontHighlightSmall")
+        row.label = label
         label:SetWidth(row:GetWidth() - TRACKING_CONTROLS.color - 6)
         label:SetMaxLines(1)
         label:SetJustifyH("LEFT")
         local button
-        button, row.swatch = ColorButton(row, labels[key], function() PickColor(key) end)
+        button, row.swatch = ColorButton(row, function() return getLabel(key) end, function() PickColor(key) end)
         button:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, -1)
     end
     Refresh()
@@ -1004,9 +1028,9 @@ local function BuildAppearancePage(parent)
     local colorGap = 9
     local playerColors, npcColors = AddAppearanceBoxes(body, last, "BOTTOMLEFT", 0, -colorGap, colorHeight)
     AddColorTable(playerColors, "Player category colors", "nameplateColorOrder",
-        PLAYER_LABELS, ns.GetNameplateCategoryColor, "nameplateCategoryColors")
+        ns.GetPlayerCategoryLabel, ns.GetNameplateCategoryColor, "nameplateCategoryColors")
     AddColorTable(npcColors, "NPC category colors", "npcNameplateColorOrder",
-        NPCLabels(), ns.GetNPCNameplateCategoryColor, "npcNameplateCategoryColors")
+        NPCLabelLookup(), ns.GetNPCNameplateCategoryColor, "npcNameplateCategoryColors")
     body:SetHeight(-sliderTop + heading:GetStringHeight() + sliderHeight + colorGap + colorHeight + 20)
     page.fitHeightContent = body
     return page

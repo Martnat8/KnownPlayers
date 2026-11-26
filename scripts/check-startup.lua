@@ -48,6 +48,7 @@ function widget:SetHeight(height) self.height = height end
 function widget:GetWidth() return self.width or 0 end
 function widget:GetHeight() return self.height or 0 end
 function widget:GetStringHeight() return 12 end
+function widget:GetStringWidth() return 40 end
 function widget:GetFrameLevel() return 0 end
 function widget:IsShown() return self.shown end
 function widget:SetShown(shown)

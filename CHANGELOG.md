@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Added a small easter egg.
+
 ## [0.5.2b10] - 2026-11-26
 
 - Add a session-only title easter egg when rapidly clicking the Avoid list heading.

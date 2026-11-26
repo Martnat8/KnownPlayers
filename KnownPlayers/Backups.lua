@@ -112,7 +112,7 @@ local function Settings(value)
         knownOnlyNameplates = Boolean, filterNPCNameplates = Boolean,
         nameDisplayMode = NameMode, npcNameDisplayMode = NameMode,
         playerHealthBarMode = HealthMode, npcHealthBarMode = HealthMode,
-        showGuildInNamesOnly = Boolean, showNPCTitle = Boolean,
+        showGuildInNamesOnly = Boolean, showNPCTitle = Boolean, useAlternateAvoidName = Boolean,
         nameplateCategoryColors = Colors, npcNameplateCategoryColors = Colors,
         nameplateColorOrder = Order, npcNameplateColorOrder = Order,
         npcServiceCategories = Flags, npcNameplatePaletteVersion = Stamp,
@@ -302,7 +302,7 @@ local function DescribeTrackingChanges(settings)
         local value = fields and fields[key]
         if type(value) == "boolean" and value ~= ns.CategoryTrackingEnabled(category.key) then
             local changes = value and enabled or disabled
-            changes[#changes + 1] = category.label
+            changes[#changes + 1] = ns.GetPlayerCategoryLabel(category.key)
         end
     end)
     local lines = {}
@@ -397,7 +397,12 @@ function ns.ApplyBackup(snapshot, selection, mode, localBackup)
     if mode ~= "merge" and mode ~= "replace" then return nil, "Choose how to restore this backup." end
     local ok, plan, skipped = pcall(PlanRestore, snapshot, selection, mode, localBackup)
     if not ok then return nil, plan end
-    if plan.settings then PreserveOmittedTracking(plan.settings) end
+    if plan.settings then
+        PreserveOmittedTracking(plan.settings)
+        if plan.settings.useAlternateAvoidName == nil then
+            plan.settings.useAlternateAvoidName = KnownPlayersSettings.useAlternateAvoidName
+        end
+    end
     local scans = plan.settings and ns.GetInitialTrackingScans(plan.settings) or {}
     local checkpoint = {settings = plan.settings ~= nil, players = plan.players ~= nil or #scans > 0,
         npcs = plan.npcs ~= nil}

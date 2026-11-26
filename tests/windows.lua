@@ -43,7 +43,12 @@ function frameMethods:SetFocus() self.focused = true end
 function frameMethods:ClearFocus() self.focused = false end
 function frameMethods:HighlightText() self.selectedText = self:GetText() end
 function frameMethods:SetEnabled(enabled) self.enabled = enabled end
+function frameMethods:SetSize(_, height) self.height = height end
+function frameMethods:SetHeight(height) self.height = height end
+function frameMethods:GetHeight() return self.height or 0 end
+function frameMethods:EnableMouseWheel() end
 function frameMethods:SetPoint(...) self.point = {...} end
+function frameMethods:ClearAllPoints() self.point = nil end
 function frameMethods:SetTexture(texture) self.texturePath = texture end
 function frameMethods:SetChecked(checked) self.checked = checked end
 function frameMethods:GetChecked() return self.checked end
@@ -255,6 +260,7 @@ assert(not ns.GetRestorePoint("manual") and ns.GetRestorePoint("automatic") == a
 Click("Restore Selected")
 ns.ClearRemovalUndo = function() end
 ns.RefreshKnownNameplates = function() error("Synthetic refresh failure") end
+local refreshLists = ns.RefreshPlayerListWindows
 ns.RefreshPlayerListWindows = function() end
 KnownPlayersDB.npcs = {["43"] = {name = "Previous NPC"}}
 Confirm()
@@ -336,27 +342,60 @@ assert(serialized.sections.settings and not serialized.sections.players and not 
 
 local now = 10
 GetTime = function() return now end
-ns.OpenPlayerList("avoid")
-local avoidList = assert(named.KnownPlayersAvoidListWindow)
-local titleButton
-for _, button in ipairs(buttons) do
-    if button.point and button.point[2] == avoidList.TitleText then titleButton = button; break end
+assert(loadfile("KnownPlayers/Settings.lua"))("KnownPlayers", ns)
+ns.GetCategoryRetention = function() return nil end
+ns.RefreshKnownNameplates = nil
+ns.RefreshPlayerListWindows = refreshLists
+KnownPlayersSettings.nameplateColorOrder = {"avoid"}
+KnownPlayersSettings.trackAvoid = true
+
+-- Build the actual Player Nameplates page without constructing the other tabs.
+local function Upvalue(callback, name)
+    local index = 1
+    while true do
+        local key, value = debug.getupvalue(callback, index)
+        assert(key, "Could not find " .. name)
+        if key == name then return value end
+        index = index + 1
+    end
 end
-assert(titleButton and avoidList.TitleText:GetText() == "KnownPlayers - Avoid")
+local tabs = Upvalue(ns.CreateSettingsPanel, "CreateSettingsTabs")
+local pages = Upvalue(tabs, "SETTINGS_PAGES")
+local buildPlayerPage
+for _, page in ipairs(pages) do
+    if page.title == "Player Nameplates" then buildPlayerPage = page.build; break end
+end
+assert(buildPlayerPage)(CreateFrame("Frame"))
+local avoidCheckbox = Button("Avoid")
+local labelButton
+for _, button in ipairs(buttons) do
+    if button.point and button.point[2] == avoidCheckbox.Text then labelButton = button; break end
+end
+assert(labelButton and avoidCheckbox:GetChecked())
 for _ = 1, 6 do
-    titleButton.scripts.OnClick(titleButton)
+    labelButton.scripts.OnClick(labelButton)
     now = now + 3
 end
-assert(avoidList.TitleText:GetText() == "KnownPlayers - Avoid")
+assert(avoidCheckbox.Text:GetText() == "Avoid")
 for _ = 1, 5 do
-    titleButton.scripts.OnClick(titleButton)
+    labelButton.scripts.OnClick(labelButton)
     now = now + 0.25
 end
-assert(avoidList.TitleText:GetText() == "KnownPlayers - Avoid")
-titleButton.scripts.OnClick(titleButton)
-assert(avoidList.TitleText:GetText() == "KnownPlayers - Shitbags" and not titleButton:IsShown())
-avoidList:Hide()
+assert(avoidCheckbox.Text:GetText() == "Avoid")
+labelButton.scripts.OnClick(labelButton)
+assert(avoidCheckbox.Text:GetText() == "Shitbags" and labelButton:IsShown())
+assert(KnownPlayersSettings.trackAvoid and KnownPlayersSettings.useAlternateAvoidName)
+avoidCheckbox:SetChecked(false)
+avoidCheckbox.scripts.OnClick(avoidCheckbox)
+assert(not KnownPlayersSettings.trackAvoid)
 ns.OpenPlayerList("avoid")
-assert(avoidList.TitleText:GetText() == "KnownPlayers - Shitbags" and ns.PlayerCategoryByKey.avoid.label == "Avoid")
+local avoidList = named.KnownPlayersAvoidListWindow
+assert(avoidList.TitleText:GetText() == "KnownPlayers - Shitbags")
+for _ = 1, 6 do
+    labelButton.scripts.OnClick(labelButton)
+    now = now + 0.25
+end
+assert(avoidCheckbox.Text:GetText() == "Avoid" and avoidList.TitleText:GetText() == "KnownPlayers - Avoid")
+assert(not KnownPlayersSettings.trackAvoid and not KnownPlayersSettings.useAlternateAvoidName)
 
 print("Player list and backup window behavior checks passed.")

@@ -159,6 +159,7 @@ local DEFAULT_SETTINGS = {
     trackInspects = true,
     trackManual = true,
     trackAvoid = true,
+    useAlternateAvoidName = false,
     filterNPCNameplates = false,
     npcServiceCategories = {
         vendor = true, trainer = true, banker = true, auctioneer = true,

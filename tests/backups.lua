@@ -385,4 +385,13 @@ assert(ns.SetPlayerAvoided(avoidedKey, avoided, false) and not ns.GetPlayer(avoi
 assert(ns.ApplyBackup(avoidBackup, {players = true}, "merge", false))
 assert(ns.PlayerHasCategory(ns.GetPlayer(avoidedKey), "avoid") and ns.GetPlayer(avoidedKey).note == "Synthetic Avoid note")
 
+KnownPlayersSettings.useAlternateAvoidName = true
+local renamedListBackup = assert(ns.ReadBackup(assert(ns.ExportBackup({settings = true}))))
+KnownPlayersSettings.useAlternateAvoidName = false
+assert(ns.ApplyBackup(renamedListBackup, {settings = true}, "merge", false))
+assert(ns.GetPlayerCategoryLabel("avoid") == "Shitbags")
+local olderSettings = {version = 1, created = NOW, sections = {settings = {showMinimapButton = false}}}
+assert(ns.ApplyBackup(olderSettings, {settings = true}, "merge", false))
+assert(ns.GetPlayerCategoryLabel("avoid") == "Shitbags" and ns.PlayerHasCategory(ns.GetPlayer(avoidedKey), "avoid"))
+
 io.write("Backup and restore checkpoints, portable sections, merge conflicts, and invalid imports passed.\n")

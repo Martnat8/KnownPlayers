@@ -63,7 +63,8 @@ local function AddPlayerMenu(menuTag, rootDescription, contextData)
     rootDescription:CreateDivider()
     rootDescription:CreateTitle("KnownPlayers")
     local avoided = ns.PlayerHasCategory(savedRecord, "avoid")
-    rootDescription:CreateButton(avoided and "Remove from Avoid" or "Add to Avoid", function()
+    local avoidLabel = ns.GetPlayerCategoryLabel("avoid")
+    rootDescription:CreateButton((avoided and "Remove from " or "Add to ") .. avoidLabel, function()
         if savedKey then
             ns.SetPlayerAvoided(savedKey, savedRecord, not avoided)
         else

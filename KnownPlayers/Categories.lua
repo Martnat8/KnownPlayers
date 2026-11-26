@@ -17,6 +17,14 @@ for _, category in ipairs(ns.PlayerCategories) do categories[category.key] = cat
 ns.PlayerCategoryByKey = categories
 ns.AssociatedCategory = {key = "associated", label = "Known Battle.net Alts", tracking = "trackBattleNetAssociations"}
 
+function ns.GetPlayerCategoryLabel(key)
+    if key == "avoid" and KnownPlayersSettings and KnownPlayersSettings.useAlternateAvoidName then
+        return "Shitbags"
+    end
+    local category = key == "associated" and ns.AssociatedCategory or categories[key]
+    return category and category.label
+end
+
 function ns.IsPlayerCategory(key)
     return categories[key] ~= nil
 end

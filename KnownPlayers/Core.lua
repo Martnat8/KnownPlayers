@@ -145,7 +145,10 @@ local function HandleSlashCommand(message)
             if shown >= 10 then break end
             local categories = {}
             for _, category in ipairs(ns.PlayerCategories) do
-                if ns.PlayerHasCategory(record, category.key) then categories[#categories + 1] = category.key end
+                if ns.PlayerHasCategory(record, category.key) then
+                    categories[#categories + 1] = category.key == "avoid"
+                        and ns.GetPlayerCategoryLabel(category.key) or category.key
+                end
             end
             if #categories > 0 then
                 table.sort(categories)

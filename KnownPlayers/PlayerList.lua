@@ -288,7 +288,7 @@ local function UpdateAvoidButton(button, entry)
     local avoided = ns.PlayerHasCategory(entry.appearance, "avoid")
     button.icon:SetDesaturated(not avoided)
     button.icon:SetAlpha(avoided and 1 or 0.65)
-    button.tooltip = avoided and "Remove from Avoid" or "Add to Avoid"
+    button.tooltip = (avoided and "Remove from " or "Add to ") .. ns.GetPlayerCategoryLabel("avoid")
     if GameTooltip and GameTooltip:IsOwned(button) then ShowIconTooltip(button) end
     button:SetScript("OnClick", function()
         ns.SetPlayerAvoided(entry.key, entry.appearance, not avoided)
@@ -349,25 +349,6 @@ local function CreateCategoryWindow(category, index)
         title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
         title:SetPoint("TOP", frame, "TOP", 0, -8)
     end
-    title:SetText("KnownPlayers - " .. category.label)
-    if category.key == "avoid" then
-        local titleButton = CreateFrame("Button", nil, frame)
-        titleButton:SetPoint("CENTER", title, "CENTER")
-        titleButton:SetSize(title:GetStringWidth(), title:GetStringHeight())
-        titleButton:RegisterForDrag("LeftButton")
-        titleButton:SetScript("OnDragStart", function() frame:StartMoving() end)
-        titleButton:SetScript("OnDragStop", function() frame:StopMovingOrSizing() end)
-        local firstClick, clicks
-        titleButton:SetScript("OnClick", function(self)
-            local now = GetTime()
-            if not firstClick or now - firstClick > 2 then firstClick, clicks = now, 0 end
-            clicks = clicks + 1
-            if clicks == 6 then
-                title:SetText("KnownPlayers - Shitbags")
-                self:Hide()
-            end
-        end)
-    end
 
     local count = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     count:SetPoint("TOPLEFT", frame, "TOPLEFT", 22, -40)
@@ -398,7 +379,7 @@ local function CreateCategoryWindow(category, index)
     clear:SetPoint("RIGHT", frame.undoButton, "LEFT", -10, 0)
     clear:SetText("Clear List")
     clear:SetScript("OnClick", function()
-        StaticPopup_Show(popupKey, category.label, nil, category.key)
+        StaticPopup_Show(popupKey, ns.GetPlayerCategoryLabel(category.key), nil, category.key)
     end)
 
     local scroller = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
@@ -439,7 +420,7 @@ local function CreateCategoryWindow(category, index)
         item.nameText = name
         item.knownSinceText = knownSince
         item.historyButton = history
-        AddPlayerRowActions(item, "Remove from the " .. category.label .. " list")
+        AddPlayerRowActions(item)
         rows[index] = item
         return item
     end
@@ -448,6 +429,8 @@ local function CreateCategoryWindow(category, index)
     empty:SetPoint("TOPLEFT", content, "TOPLEFT", 6, -8)
 
     Refresh = function(keepScroll)
+        local label = ns.GetPlayerCategoryLabel(category.key)
+        title:SetText("KnownPlayers - " .. label)
         local all = ns.GetCategoryPlayers(category.key)
         local classFilter = ReadClassFilter(all)
         local term, nameTerm = PlayerSearchTerms(search)
@@ -475,6 +458,7 @@ local function CreateCategoryWindow(category, index)
             item.knownSinceText:SetText(FormatKnownDuration(entry.firstSeen))
             UpdateFavoriteButton(item.favoriteButton, entry)
             UpdateAvoidButton(item.avoidButton, entry)
+            item.removeButton.tooltip = "Remove from the " .. label .. " list"
             UpdateHistoryTooltip(item.historyButton, PlayerIdentityText(entry))
             item.historyButton:SetScript("OnClick", function() ns.OpenPlayerHistory(entry.key, nil, frame.settingsPage) end)
             item.removeButton:SetScript("OnClick", function()
@@ -601,6 +585,18 @@ local function CreatePlayerHistoryWindow()
         tags:ClearFocus()
     end)
 
+    function frame.RefreshHistory()
+        local history = {}
+        for _, category in ipairs(CATEGORIES) do
+            if ns.PlayerHasCategory(record, category.key) then
+                local stamp = ns.PlayerCategoryTime(record, category.key, "lastSeen")
+                history[#history + 1] = ns.GetPlayerCategoryLabel(category.key) .. " (" .. InteractionAge(stamp) .. ")"
+            end
+        end
+        reasons:SetText(table.concat(history, "\n"))
+        frame:SetHeight(math.max(478, 380 + reasons:GetStringHeight()))
+    end
+
     function frame.Open(playerKey, player, settingsPage)
         key, record = playerKey, player
         name:SetText(ns.GetDisplayName(key, record))
@@ -608,15 +604,7 @@ local function CreatePlayerHistoryWindow()
         local _, classLabel, classAtlas = GetRowClass(record)
         appearance:SetText("Race: " .. AppearanceText(ns.SafeString(record.race) or "Unknown", GetRaceAtlas(record))
             .. "    Class: " .. AppearanceText(ns.SafeString(record.class) or classLabel or "Unknown", classAtlas))
-        local history = {}
-        for _, category in ipairs(CATEGORIES) do
-            if ns.PlayerHasCategory(record, category.key) then
-                local stamp = ns.PlayerCategoryTime(record, category.key, "lastSeen")
-                history[#history + 1] = category.label .. " (" .. InteractionAge(stamp) .. ")"
-            end
-        end
-        reasons:SetText(table.concat(history, "\n"))
-        frame:SetHeight(math.max(478, 380 + reasons:GetStringHeight()))
+        frame.RefreshHistory()
         saveStatus:SetText("")
         noteScroll:SetVerticalScroll(0)
         note:SetText(ns.SafeString(record.note) or "")
@@ -689,7 +677,7 @@ local function CreatePlayersWindow()
         local row = math.floor((index - 1) / 3)
         local check = CreateFrame("CheckButton", nil, frame, "InterfaceOptionsCheckButtonTemplate")
         check:SetPoint("TOPLEFT", frame, "TOPLEFT", 22 + 220 * column, -140 - 29 * row)
-        check.Text:SetText(category.label)
+        check.Text:SetText(ns.GetPlayerCategoryLabel(category.key))
         check:SetChecked(true)
         check:SetScript("OnClick", function(self)
             filterEnabled[category.key] = self:GetChecked() and true or false
@@ -746,7 +734,7 @@ local function CreatePlayersWindow()
         local result = {}
         for _, category in ipairs(CATEGORIES) do
             if ns.PlayerHasCategory(record, category.key) then
-                result[#result + 1] = category.label
+                result[#result + 1] = ns.GetPlayerCategoryLabel(category.key)
             end
         end
         return result
@@ -798,6 +786,9 @@ local function CreatePlayersWindow()
     local empty = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     empty:SetPoint("TOPLEFT", 6, -8)
     Refresh = function(keepScroll)
+        for index, category in ipairs(CATEGORIES) do
+            checkboxes[index].Text:SetText(ns.GetPlayerCategoryLabel(category.key))
+        end
         local all = {}
         for key, record in pairs(KnownPlayersDB.players or {}) do
             if ns.HasPlayerCategory(record) then
@@ -1243,7 +1234,10 @@ RefreshAllWindows = function(keepScroll)
     for _, frame in pairs(windows) do
         if frame:IsShown() then frame.Refresh(keepScroll) end
     end
-    if historyWindow and historyWindow:IsShown() then historyWindow.RefreshFavorite() end
+    if historyWindow and historyWindow:IsShown() then
+        historyWindow.RefreshFavorite()
+        historyWindow.RefreshHistory()
+    end
 end
 
 function ns.RefreshPlayerListWindows(keepScroll)

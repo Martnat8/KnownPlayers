@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: KnownPlayers
 ## Notes: Recognize familiar players, manage nameplates, and keep searchable player history.
-## Version: 0.5.3b2
+## Version: 0.5.3b3
 ## OptionalDeps: QuestieDB
 ## SavedVariables: KnownPlayersDB, KnownPlayersSettings
 

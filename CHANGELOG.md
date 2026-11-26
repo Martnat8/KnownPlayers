@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Move NPC interaction icons beside the NPC name when KnownPlayers hides its health bar.
+
 ## [0.5.3b3] - 2026-11-26
 
 - Refresh About and player information with current guidance on tracking, list actions, nameplates, and backups.

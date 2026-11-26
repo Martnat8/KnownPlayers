@@ -146,6 +146,8 @@ local function HideNameLabels(plate, frame)
         labels.subtitle:Hide()
         labels.subtitle:ClearAllPoints()
     end
+    if labels.interactionIcon then labels.interactionIcon:Hide() end
+    labels.interactionIconReady = nil
     labels.unit, labels.frame = nil, nil
     activeNameLabels[plate] = nil
 end
@@ -185,6 +187,36 @@ local function ApplyLabelAppearance(label, scale, textScale, alpha)
     if math.abs(label:GetAlpha() - alpha) > 0.001 then label:SetAlpha(alpha) end
 end
 
+local function UpdateInteractionIcon(plate, labels, visible, scale, alpha)
+    local icon = labels.interactionIcon
+    local frame = labels.frame
+    local softTarget = visible and labels.isNPC and not labels.replacesNativeName
+        and not combatFades[frame] and frame.SoftTargetFrame
+    local native = softTarget and not IsProtected(softTarget) and softTarget.Icon
+    -- The native texture can be shown even while its UnitFrame has zero alpha.
+    if IsProtected(native) or ReadAppearanceValue(native.IsShown, native) ~= true
+        or type(SetUnitCursorTexture) ~= "function" then
+        if icon then icon:Hide() end
+        labels.interactionIconReady = nil
+        return
+    end
+
+    if not icon then
+        icon = plate:CreateTexture(nil, "OVERLAY")
+        icon:SetPoint("RIGHT", labels.name, "LEFT", -4, 0)
+        labels.interactionIcon = icon
+    end
+    if labels.interactionIconReady == nil then
+        labels.interactionIconReady = ReadAppearanceValue(SetUnitCursorTexture, icon, labels.unit, nil, nil, true) == true
+    end
+    if labels.interactionIconScale ~= scale then
+        icon:SetSize(20 * scale, 20 * scale)
+        labels.interactionIconScale = scale
+    end
+    if icon:GetAlpha() ~= alpha then icon:SetAlpha(alpha) end
+    icon:SetShown(labels.interactionIconReady)
+end
+
 local function UpdateNameLabelAppearance(plate, labels, delta)
     local frame = labels.frame
     local current = not IsProtected(plate) and plate.UnitFrame == frame
@@ -221,7 +253,10 @@ local function UpdateNameLabelAppearance(plate, labels, delta)
     end
     labels.name:SetShown(visible == true)
     if labels.subtitle then labels.subtitle:SetShown(visible == true and labels.hasSubtitle) end
-    if not visible then return end
+    if not visible then
+        UpdateInteractionIcon(plate, labels, false)
+        return
+    end
 
     -- The outer plate supplies the distance fade and scale. Match any extra
     -- scale or opacity that Blizzard applies to the UnitFrame or its name.
@@ -235,6 +270,7 @@ local function UpdateNameLabelAppearance(plate, labels, delta)
     local alpha = frameAlpha * nameAlpha
     ApplyLabelAppearance(labels.name, scale, textScale, alpha)
     if labels.hasSubtitle then ApplyLabelAppearance(labels.subtitle, scale, textScale, alpha) end
+    UpdateInteractionIcon(plate, labels, true, scale, alpha)
 end
 
 local function GetNameSubtitle(unit, isNPC)
@@ -341,6 +377,7 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, displayCol
     end
     labels.replacesNativeName = keepHealthBar
     labels.isNPC = isNPC
+    labels.interactionIconReady = nil
     UpdateNameLabelAppearance(plate, labels)
     return true
 end
@@ -667,6 +704,9 @@ frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 frame:RegisterEvent("NAME_PLATE_UNIT_BEHIND_CAMERA_CHANGED")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
+frame:RegisterEvent("PLAYER_SOFT_INTERACT_CHANGED")
+frame:RegisterEvent("PLAYER_SOFT_FRIEND_CHANGED")
+frame:RegisterEvent("PLAYER_SOFT_ENEMY_CHANGED")
 frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 frame:RegisterEvent("PLAYER_REGEN_DISABLED")
 frame:RegisterEvent("PLAYER_LOGOUT")
@@ -691,6 +731,13 @@ frame:SetScript("OnEvent", function(_, event, unit, isBehindCamera)
         -- If the native names are turned back on in WoW's settings, keep the
         -- active filter consistent. Do not change unrelated CVars.
         ns.OnNameplateCVarUpdate(unit)
+        return
+    end
+    if event == "PLAYER_SOFT_INTERACT_CHANGED" or event == "PLAYER_SOFT_FRIEND_CHANGED"
+        or event == "PLAYER_SOFT_ENEMY_CHANGED" then
+        -- The native driver also handles these events. Read its texture state
+        -- on the next display update, after its event handler has run.
+        for _, labels in pairs(activeNameLabels) do labels.interactionIconReady = nil end
         return
     end
     if event == "NAME_PLATE_UNIT_BEHIND_CAMERA_CHANGED" then

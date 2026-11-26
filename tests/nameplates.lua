@@ -17,6 +17,10 @@ function UnitFullName(unit) return UnitName(unit), "Example" end
 function UnitCanAttack(_, unit) return units[unit].attackable == true end
 function UnitGUID(unit) return units[unit] and units[unit].guid end
 function GetGuildInfo(unit) return units[unit].subtitle end
+function SetUnitCursorTexture(texture, unit)
+    texture.cursor = units[unit] and units[unit].cursor
+    return texture.cursor ~= nil
+end
 C_TooltipInfo = {GetUnit = function(unit)
     return {lines = {{leftText = UnitName(unit)}, {leftText = units[unit].subtitle}}}
 end}
@@ -55,7 +59,10 @@ local function Label()
     function label:IsShown() return self.shown end
     function label:IsVisible() return self.shown end
     function label:SetShown(shown) self.shown = shown end
-    function label:SetPoint(position, anchor) self.point, self.anchor = position, anchor end
+    function label:SetPoint(position, anchor, relativePoint, x, y)
+        self.point, self.anchor, self.relativePoint, self.x, self.y = position, anchor, relativePoint, x, y
+    end
+    function label:SetSize(width, height) self.width, self.textureHeight = width, height end
     function label:ClearAllPoints() self.point, self.anchor = nil, nil end
     function label:SetTextColor(...) self.color = {...} end
     function label:GetTextColor() return unpack(self.color) end
@@ -78,6 +85,11 @@ local function Plate()
         label.owner = self
         self.labels[#self.labels + 1] = label
         return label
+    end
+    function plate:CreateTexture()
+        assert(not self.interactionIcon, "interaction texture should be reused")
+        self.interactionIcon = Label()
+        return self.interactionIcon
     end
     return plate
 end
@@ -110,8 +122,11 @@ KnownPlayersSettings = {npcHealthBarMode = "never", npcNameDisplayMode = "first"
 local pooled = UnitFrame()
 pooled.alpha, pooled.name.alpha = 0.8, 0.5
 pooled.name.height = 18
+local nativeIcon = Label()
+pooled.SoftTargetFrame = {Icon = nativeIcon}
 local first, second = Plate(), Plate()
-local one = {name = "First Auctioneer", npc = true, category = "auctioneer", classified = true, subtitle = "Auctioneer"}
+local one = {name = "First Auctioneer", npc = true, category = "auctioneer", classified = true,
+    subtitle = "Auctioneer", cursor = "loot"}
 local two = {name = "Second Banker", npc = true, category = "banker", classified = true}
 Bind(first, pooled, "nameplate1", one)
 plates = {first}
@@ -121,12 +136,28 @@ assert(firstName.text == "First" and firstTitle.text == "<Auctioneer>")
 assert(firstName.shown and firstTitle.shown and firstName.smoothScaling and firstTitle.smoothScaling)
 assert(firstName.owner == first and firstName.anchor == pooled.name)
 assert(pooled.alpha == 0)
+local interactionIcon = assert(first.interactionIcon, "hidden health bar lost the NPC's interaction icon")
+assert(interactionIcon.shown and interactionIcon.cursor == "loot" and nativeIcon.shown)
+assert(interactionIcon.anchor == firstName and interactionIcon.point == "RIGHT"
+    and interactionIcon.relativePoint == "LEFT" and interactionIcon.x < 0 and interactionIcon.y == 0)
+nativeIcon:Hide()
+Tick()
+assert(not interactionIcon.shown)
+nativeIcon:SetShown(true)
+Tick()
+assert(interactionIcon.shown and interactionIcon.cursor == "loot")
+one.cursor = "talk"
+Event("PLAYER_SOFT_INTERACT_CHANGED")
+Tick()
+assert(interactionIcon.shown and interactionIcon.cursor == "talk")
 Approx(firstName.size, 18, "native font height")
 Approx(firstTitle.size, 15.3, "title font height")
 Approx(firstName.alpha, 0.4, "native local fade while bar is suppressed")
 first.engineScale, pooled.name.engineScale, pooled.name.textScale = 0.7, 0.56, 0.9
 Tick()
 Approx(firstName.scale, 0.8, "effective scale updated during the display frame")
+Approx(interactionIcon.width, 16, "interaction icon follows the nameplate scale")
+Approx(interactionIcon.alpha, firstName.alpha, "interaction icon follows the name opacity")
 Approx(firstTitle.scale, 0.8, "title scale updated during the display frame")
 Approx(firstTitle.textScale, 0.9, "text scale updated during the display frame")
 pooled.name.engineScale = inaccessible
@@ -135,12 +166,12 @@ Approx(firstName.scale, 1, "unreadable scale falls back safely")
 pooled.name.engineScale = 0.56
 behind.nameplate1 = true
 Event("NAME_PLATE_UNIT_BEHIND_CAMERA_CHANGED", "nameplate1", true)
-assert(not firstName.shown and not firstTitle.shown and pooled.alpha == 0)
+assert(not firstName.shown and not firstTitle.shown and not interactionIcon.shown and pooled.alpha == 0)
 ns.RefreshKnownNameplates()
 assert(not firstName.shown)
 behind.nameplate1 = false
 Event("NAME_PLATE_UNIT_BEHIND_CAMERA_CHANGED", "nameplate1", false)
-assert(firstName.shown and firstTitle.shown)
+assert(firstName.shown and firstTitle.shown and interactionIcon.shown)
 pooled.shown = false
 Tick()
 assert(not firstName.shown)
@@ -148,19 +179,21 @@ pooled.shown = true
 
 -- A removal notification can arrive before the client clears the binding.
 Event("NAME_PLATE_UNIT_REMOVED", "nameplate1")
-assert(not firstName.shown and not firstTitle.shown and firstName.anchor == nil)
+assert(not firstName.shown and not firstTitle.shown and firstName.anchor == nil and not interactionIcon.shown)
 Approx(pooled.alpha, 0.8, "native frame restored on removal")
 first.unitToken, first.UnitFrame = nil, nil
+nativeIcon:Hide()
 Bind(second, pooled, "nameplate2", two)
 plates = {second}
 Event("NAME_PLATE_UNIT_ADDED", "nameplate2")
 local secondName = second.labels[1]
 assert(secondName.owner == second and secondName.shown and secondName.text == "Second")
-assert(not firstName.shown and #second.labels == 1)
+assert(not firstName.shown and #second.labels == 1 and not second.interactionIcon)
 
 -- Moving straight to a new outer plate without remove also restores and rebinds.
 second.unitToken, second.UnitFrame = nil, nil
 Bind(first, pooled, "nameplate3", one)
+nativeIcon:SetShown(true)
 plates = {first}
 Tick()
 assert(not secondName.shown)
@@ -173,6 +206,7 @@ KnownPlayersSettings.npcHealthBarMode = "always"
 KnownPlayersSettings.npcNameDisplayMode = "full"
 ns.RefreshKnownNameplates()
 assert(firstName.shown and firstName.text == one.name and pooled.name.alpha == 0)
+assert(not interactionIcon.shown and nativeIcon.shown, "native icon stays in place with bars visible")
 assert(firstTitle.anchor == pooled.healthBar)
 Approx(pooled.alpha, 0.8, "health bar still at native opacity")
 pooled.alpha = 0.6
@@ -332,12 +366,15 @@ Approx(combatNPC.labels[1].alpha, 0.9, "NPC label follows the post-combat fade")
 -- In Combat eases the bars out without fading the names or leaking alpha on reuse.
 KnownPlayersSettings.playerHealthBarMode, KnownPlayersSettings.npcHealthBarMode = "combat", "combat"
 npcFrame.protected = false
+npcFrame.SoftTargetFrame = {Icon = Label()}
+two.cursor = "loot"
 plates = {combatPlayer, combatNPC}
 units.nameplate9.subtitle = "Example Guild"
 combat = true
 Event("PLAYER_REGEN_DISABLED")
 Approx(playerFrame.alpha, 0.65, "player bar visible at the start of combat")
 Approx(npcFrame.alpha, 0.9, "NPC bar visible at the start of combat")
+assert(not combatNPC.interactionIcon, "visible bars keep the native interaction icon")
 assert(playerFrame.name.alpha == 0 and combatPlayer.labels[2].shown)
 playerFrame.name.alpha = 0.8
 Tick()
@@ -359,11 +396,14 @@ Approx(playerFrame.alpha, 0.325, "player bar halfway through the fade")
 Approx(npcFrame.alpha, 0.45, "NPC bar halfway through the fade")
 Approx(combatPlayer.labels[1].alpha, 0.65, "player name stays visible through the fade")
 Approx(combatNPC.labels[1].alpha, 0.9, "NPC name stays visible through the fade")
+assert(not combatNPC.interactionIcon, "the interaction icon stays native while the bar fades")
 Tick(0.125)
 assert(playerFrame.alpha == 0 and npcFrame.alpha == 0)
+assert(combatNPC.interactionIcon.shown and combatNPC.interactionIcon.cursor == "loot")
 
 combat = true
 Event("PLAYER_REGEN_DISABLED")
+assert(not combatNPC.interactionIcon.shown, "combat restores the native interaction icon with the bar")
 combat = false
 Event("PLAYER_REGEN_ENABLED")
 Tick(0.125)

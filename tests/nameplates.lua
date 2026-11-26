@@ -521,4 +521,77 @@ for _, config in ipairs({
     Event("PLAYER_REGEN_ENABLED")
     assert(cvars[first] == "0" and cvars[second] == "1" and not KnownPlayersSettings[backupKey])
 end
-print("Nameplate lifecycle, filtering, scaling, and settings restoration checks passed.")
+-- The default method keeps hidden players available for recognition.
+do
+    local selected, nearby = Plate(), Plate()
+    local selectedFrame, nearbyFrame = UnitFrame(), UnitFrame()
+    local unfamiliar = {name = "Unfamiliar Player", player = true, friendly = true}
+    local familiar = {name = "Familiar Player", player = true, friendly = true}
+    Bind(selected, selectedFrame, "nameplateTest", unfamiliar)
+    Bind(nearby, nearbyFrame, "nameplateNearby", unfamiliar)
+    plates = {selected, nearby}
+    function UnitIsFriend(_, unit) return units[unit].friendly == true end
+    KnownPlayersSettings.knownOnlyNameplates = true
+    ns.FillKnownPlayersSettingsDefaults(KnownPlayersSettings)
+    KnownPlayersSettings.playerHealthBarMode, KnownPlayersSettings.npcHealthBarMode = "always", "always"
+
+    local messages, originalPrint = {}, print
+    print = function(message) messages[#messages + 1] = message end
+    function selected:Show() self.shown = true end
+    function nearby:Show() self.shown = true end
+    ns.RefreshKnownNameplates()
+    assert(not selected.shown and not nearby.shown and selectedFrame.alpha == 0 and nearbyFrame.alpha == 0)
+    KnownPlayersSettings.playerNameplateFilterMethod = "alpha"
+    ns.RefreshKnownNameplates()
+    assert(selected.shown and nearby.shown and selectedFrame.alpha == 0 and nearbyFrame.alpha == 0)
+
+    KnownPlayersSettings.playerNameplateFilterMethod = "hide"
+    ns.RefreshKnownNameplates()
+    assert(not selected.shown and not nearby.shown)
+    ns.SetKnownOnlyNameplates(false)
+    assert(selected.shown and nearby.shown and selectedFrame.alpha == 1 and nearbyFrame.alpha == 1)
+    ns.SetKnownOnlyNameplates(true)
+    assert(not selected.shown and not nearby.shown)
+
+    local originalIsKnown = ns.IsKnownOrAssociated
+    ns.IsKnownOrAssociated = function() return true end
+    ns.RefreshKnownNameplates()
+    assert(selected.shown and nearby.shown and selectedFrame.alpha == 1 and nearbyFrame.alpha == 1)
+    ns.IsKnownOrAssociated = originalIsKnown
+    ns.RefreshKnownNameplates()
+    assert(not selected.shown and not nearby.shown)
+
+    combat = true
+    Event("PLAYER_REGEN_DISABLED")
+    assert(selected.shown and selectedFrame.alpha == 0)
+    combat = false
+    Event("PLAYER_REGEN_ENABLED")
+    assert(not selected.shown)
+
+    selected.unitToken, units.nameplateTest = nil, nil
+    plates = {nearby}
+    Event("NAME_PLATE_UNIT_REMOVED", "nameplateTest")
+    ns.RefreshKnownNameplates()
+    assert(not selected.shown, "an unbound frame must stay under the client's control")
+    Bind(selected, selectedFrame, "nameplateReused", familiar)
+    plates = {selected, nearby}
+    Event("NAME_PLATE_UNIT_ADDED", "nameplateReused")
+    assert(selected.shown and selectedFrame.alpha == 1, "a recognized player must not inherit the outer hide")
+
+    Bind(selected, selectedFrame, "nameplateReused", unfamiliar)
+    local hide = selected.Hide
+    selected.Hide = function() error("Restricted mock frame") end
+    ns.RefreshKnownNameplates()
+    assert(selected.shown and selectedFrame.alpha == 0)
+
+    plates = {selected} -- Simulate a client dropping a still-bound hidden plate from enumeration.
+    ns.RefreshKnownNameplates()
+    assert(nearby.shown and messages[#messages]:find("Using transparency for this session", 1, true))
+    assert(KnownPlayersSettings.playerNameplateFilterMethod == "hide")
+    selected.Hide = hide
+    ns.RefreshKnownNameplates()
+    assert(selected.shown and selectedFrame.alpha == 0, "session fallback must prevent subsequent outer hides")
+    print = originalPrint
+end
+
+print("Nameplate lifecycle, filtering methods, scaling, and settings restoration checks passed.")

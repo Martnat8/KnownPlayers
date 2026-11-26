@@ -146,6 +146,7 @@ local DEFAULT_SETTINGS = {
     trackBattleNetAssociations = true,
     showMinimapButton = true,
     knownOnlyNameplates = false,
+    playerNameplateFilterMethod = "hide",
     namesOnlyNameplates = false, -- Legacy preference, retained for upgrades.
     nameDisplayMode = "full",
     showGuildInNamesOnly = false,
@@ -209,6 +210,9 @@ function ns.InitializeDatabase()
         KnownPlayersSettings = {}
     end
     ns.FillKnownPlayersSettingsDefaults(KnownPlayersSettings)
+    if KnownPlayersSettings.playerNameplateFilterMethod ~= "alpha" then
+        KnownPlayersSettings.playerNameplateFilterMethod = DEFAULT_SETTINGS.playerNameplateFilterMethod
+    end
     -- Preserve the existing Show Health Bar preference on upgrade. A fresh
     -- install defaults to Always, while legacy Names Only maps to Never.
     if KnownPlayersSettings.playerHealthBarMode ~= "always"

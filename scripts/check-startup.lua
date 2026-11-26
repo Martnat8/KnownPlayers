@@ -23,7 +23,7 @@ end
 local frames = {}
 local function Noop() end
 local widget = setmetatable({
-    ClearAllPoints = Noop, SetupMenu = Noop, Update = Noop, RegisterForClicks = Noop, Disable = Noop,
+    ClearAllPoints = Noop, Update = Noop, RegisterForClicks = Noop, Disable = Noop,
     EnableMouse = Noop,
 }, {__index = function(_, name)
     if name:match("^Set") then return Noop end
@@ -31,6 +31,8 @@ end})
 function widget:RegisterEvent(event) self.events[event] = true end
 function widget:UnregisterEvent(event) self.events[event] = nil end
 function widget:SetScript(script, handler) self[script] = handler end
+function widget:SetupMenu(callback) self.menuSetup = callback end
+function widget:SetSelectionText(callback) self.selectionText = callback end
 function widget:HookScript(script, handler)
     local previous = rawget(self, script)
     self[script] = function(...)
@@ -114,3 +116,21 @@ for _, frame in ipairs(frames) do
     end
 end
 assert(centeredScroller, "Appearance should make room for the scrollbar when content overflows")
+
+local filterMethodDropdown
+for _, frame in ipairs(frames) do
+    if frame.selectionText and frame.selectionText() == "Hide nameplate frame" then
+        filterMethodDropdown = frame
+        break
+    end
+end
+assert(filterMethodDropdown, "The player filtering dropdown must show the default")
+local filterChoices = {}
+filterMethodDropdown.menuSetup(filterMethodDropdown, {CreateRadio = function(_, label, selected, choose, value)
+    filterChoices[label] = {selected = selected, choose = choose, value = value}
+end})
+local alpha = assert(filterChoices["Transparency only"])
+assert(not alpha.selected(alpha.value))
+alpha.choose(alpha.value)
+assert(KnownPlayersSettings.playerNameplateFilterMethod == "alpha" and alpha.selected(alpha.value))
+assert(filterMethodDropdown.selectionText() == "Transparency only")

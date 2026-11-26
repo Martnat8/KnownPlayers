@@ -295,6 +295,21 @@ local function Dropdown(parent, x, y, width)
     return dropdown
 end
 
+local function AddChoiceDropdown(body, x, y, width, title, choices, get, set)
+    Label(body, title, x + 3, y + 19, "GameFontNormalSmall")
+    local dropdown = Dropdown(body, x, y, width)
+    local function IsSelected(value) return get() == value end
+    dropdown:SetSelectionText(function()
+        for _, choice in ipairs(choices) do
+            if IsSelected(choice[1]) then return choice[2] end
+        end
+    end)
+    dropdown:SetupMenu(function(_, menu)
+        for _, choice in ipairs(choices) do menu:CreateRadio(choice[2], IsSelected, set, choice[1]) end
+    end)
+    RegisterSettingsRefresher(function() dropdown:Update() end)
+end
+
 local function AddRetentionDropdown(row, key, x, relayout)
     if not ns.GetCategoryRetention(key) then
         local status = CreateFrame("Frame", nil, row)
@@ -606,6 +621,8 @@ local function NeedsFriendlyNPCPlates()
     return false
 end
 
+local PLAYER_FILTER_METHODS = {{"hide", "Hide nameplate frame"}, {"alpha", "Transparency only"}}
+
 local function BuildHomePage(parent)
     local page, content = NewScrollingPage(parent)
     local about = Button(page, "About", 80, function() ShowAbout(page) end)
@@ -619,7 +636,12 @@ local function BuildHomePage(parent)
     local playerFilter = Checkbox(content, 17, -92, "Enable player nameplate filtering",
         KnownPlayersSettings.knownOnlyNameplates, ns.SetKnownOnlyNameplates,
         function() return KnownPlayersSettings.knownOnlyNameplates end)
-    local npcFilter = Checkbox(content, 17, -121, "Enable NPC nameplate filtering",
+    AddChoiceDropdown(content, 39, -144, 188, "Player filtering method", PLAYER_FILTER_METHODS,
+        function() return KnownPlayersSettings.playerNameplateFilterMethod end, function(method)
+            KnownPlayersSettings.playerNameplateFilterMethod = method
+            ns.RefreshKnownNameplates()
+        end)
+    local npcFilter = Checkbox(content, 17, -177, "Enable NPC nameplate filtering",
         KnownPlayersSettings.filterNPCNameplates, function(checked)
             KnownPlayersSettings.filterNPCNameplates = checked
             ns.SyncNPCNameplateCVars()
@@ -671,7 +693,7 @@ local function BuildHomePage(parent)
             messages[#messages + 1] = "WoW is still showing some overhead names outside the filter. Check WoW’s Names settings."
         end
         local minimapY = layoutSetup({player = players, npc = npcPlates, always = players or npcPlates},
-            messages, -154) - 26
+            messages, -210) - 26
         local maintenanceY = minimapY - 68
         PlaceAt(minimapHeading, content, 18, minimapY)
         PlaceAt(minimap, content, 17, minimapY - 20)
@@ -869,21 +891,6 @@ local function BuildNPCPage(parent)
         end,
     })
     return page
-end
-
-local function AddChoiceDropdown(body, x, y, width, title, choices, get, set)
-    Label(body, title, x + 3, y + 19, "GameFontNormalSmall")
-    local dropdown = Dropdown(body, x, y, width)
-    local function IsSelected(value) return get() == value end
-    dropdown:SetSelectionText(function()
-        for _, choice in ipairs(choices) do
-            if IsSelected(choice[1]) then return choice[2] end
-        end
-    end)
-    dropdown:SetupMenu(function(_, menu)
-        for _, choice in ipairs(choices) do menu:CreateRadio(choice[2], IsSelected, set, choice[1]) end
-    end)
-    RegisterSettingsRefresher(function() dropdown:Update() end)
 end
 
 local NAME_CHOICES = {{"full", "Full name"}, {"first", "First name"}}

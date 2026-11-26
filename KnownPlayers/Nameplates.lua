@@ -12,6 +12,8 @@ local originalVertexColors = setmetatable({}, { __mode = "k" })
 local originalNativeNameAlpha = setmetatable({}, { __mode = "k" })
 local hoverHooked = setmetatable({}, { __mode = "k" })
 local elapsed = 0
+local outerPlateHidingUnavailable = false
+local hiddenOuterPlates = setmetatable({}, { __mode = "k" })
 local function PlayerHealthBarMode()
     return KnownPlayersSettings and KnownPlayersSettings.playerHealthBarMode or "always"
 end
@@ -507,6 +509,47 @@ local function IsRecognized(unit)
     return ns.IsKnownOrAssociated(key, guid)
 end
 
+local function RestoreOuterPlate(plate)
+    if IsProtected(plate) or IsCombatRestricted(plate) then return end
+    if ReadAppearanceValue(plate.IsShown, plate) ~= true then pcall(plate.Show, plate) end
+    if ReadAppearanceValue(plate.IsShown, plate) == true then hiddenOuterPlates[plate] = nil end
+end
+
+local function HideOuterPlate(plate, unit)
+    if ReadAppearanceValue(UnitIsFriend, "player", unit) ~= true
+        or ReadAppearanceValue(plate.IsShown, plate) ~= true
+        or type(plate.Hide) ~= "function" or type(plate.Show) ~= "function" then
+        return
+    end
+    pcall(plate.Hide, plate)
+    if ReadAppearanceValue(plate.IsShown, plate) == false then hiddenOuterPlates[plate] = unit end
+end
+
+local function UpdateHiddenOuterPlates(platesByUnit, useOuterFrames)
+    for plate, originalUnit in pairs(hiddenOuterPlates) do
+        local unit = not IsProtected(plate) and ns.SafeString(plate.unitToken)
+        if unit and UnitExists(unit) then
+            if platesByUnit[unit] == plate then
+                if not useOuterFrames or IsProtected(plate.UnitFrame)
+                    or ReadAppearanceValue(UnitIsPlayer, unit) ~= true
+                    or ReadAppearanceValue(UnitIsFriend, "player", unit) ~= true
+                    or ns.CompareUnits(unit, "player") ~= false or IsRecognized(unit) then
+                    RestoreOuterPlate(plate)
+                end
+            elseif unit == originalUnit and not platesByUnit[unit] then
+                -- Losing the plate from enumeration would break normal recognition.
+                if useOuterFrames and ReadAppearanceValue(plate.IsShown, plate) == false then
+                    useOuterFrames = false
+                    outerPlateHidingUnavailable = true
+                    Print("Using transparency for this session because WoW stopped listing a hidden nameplate.")
+                end
+                RestoreOuterPlate(plate)
+            end
+        end
+    end
+    return useOuterFrames
+end
+
 local function IsRecognizedMinion(unit)
     if type(UnitOwnerGUID) ~= "function" then return true end
     local ok, guid = pcall(UnitOwnerGUID, unit)
@@ -548,6 +591,10 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
         local unit = not IsProtected(plate) and ns.SafeString(plate.unitToken)
         if unit then platesByUnit[unit] = plate end
     end
+    local inCombat = InCombatLockdown and InCombatLockdown()
+    local useOuterFrames = knownOnly and KnownPlayersSettings.playerNameplateFilterMethod == "hide"
+        and not outerPlateHidingUnavailable and not inCombat
+    useOuterFrames = UpdateHiddenOuterPlates(platesByUnit, useOuterFrames)
     -- Clear stale bindings before rendering any newly assigned pooled frame.
     -- This also catches plates that disappear between the add/remove events.
     for unit, binding in pairs(plateUnits) do
@@ -557,7 +604,6 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
         end
     end
 
-    local inCombat = InCombatLockdown and InCombatLockdown()
     if inCombat and playerMode == "always" and npcMode == "always" and not next(activeNameLabels) then return end
     local showFriendlyMinions = ns.GetFriendlyMinionVisibility()
     for unit, plate in pairs(platesByUnit) do
@@ -580,7 +626,7 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
                 if not visible then
                     HideNameLabels(plate, frame)
                     RestoreNameColor(frame)
-                    MakeTransparent(frame)
+                    if MakeTransparent(frame) and useOuterFrames then HideOuterPlate(plate, unit) end
                 elseif namesOnly then
                     RestoreNameColor(frame)
                     if not ShowNameOnly(plate, frame, unit, false, "player", CategoryColorForUnit(unit), fadeOnCombatEnd) then
@@ -736,6 +782,10 @@ frame:SetScript("OnEvent", function(_, event, unit, isBehindCamera)
         return
     end
     if event == "PLAYER_LOGOUT" then
+        for plate in pairs(hiddenOuterPlates) do
+            local token = not IsProtected(plate) and ns.SafeString(plate.unitToken)
+            if token and UnitExists(token) then RestoreOuterPlate(plate) end
+        end
         ns.ShutdownNameplateCVars()
         for token, binding in pairs(plateUnits) do ReleasePlate(token, binding) end
         RestoreAll()

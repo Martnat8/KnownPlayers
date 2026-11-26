@@ -105,11 +105,17 @@ local function HealthMode(value)
     return value
 end
 
+local function PlayerFilterMethod(value)
+    if value ~= "hide" and value ~= "alpha" then Invalid() end
+    return value
+end
+
 local function Settings(value)
     local fields = {
         categoryRetention = function(durations) return Map(durations, Name, Duration, 64) end,
         trackGroup = Flags, showMinimapButton = Boolean,
         knownOnlyNameplates = Boolean, filterNPCNameplates = Boolean,
+        playerNameplateFilterMethod = PlayerFilterMethod,
         nameDisplayMode = NameMode, npcNameDisplayMode = NameMode,
         playerHealthBarMode = HealthMode, npcHealthBarMode = HealthMode,
         showGuildInNamesOnly = Boolean, showNPCTitle = Boolean, useAlternateAvoidName = Boolean,

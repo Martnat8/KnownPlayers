@@ -2,6 +2,8 @@ local addonName, ns = ...
 
 -- Alpha-zero leaves the UnitFrame available for click-targeting where allowed.
 local changedFrames = setmetatable({}, { __mode = "k" })
+local combatFades = setmetatable({}, { __mode = "k" })
+local COMBAT_FADE_SECONDS = 0.25
 local plateUnits = {} -- unit token -> outer plate and its current pooled UnitFrame
 local nameLabels = setmetatable({}, { __mode = "k" }) -- owned by the outer plate
 local activeNameLabels = {}
@@ -55,12 +57,13 @@ local function RestoreFrame(frame, allowCombat)
     -- Keep the saved alpha for a later retry if the client rejects the call.
     if InCombatLockdown and InCombatLockdown() and not allowCombat then return false end
     local current = ReadAppearanceValue(frame.GetAlpha, frame)
-    if type(current) == "number" and current ~= 0 then
-        changedFrames[frame] = nil
+    local fade = combatFades[frame]
+    if type(current) == "number" and current ~= 0 and (not fade or current ~= fade.alpha) then
+        changedFrames[frame], combatFades[frame] = nil, nil
         return false -- Blizzard already set the alpha for this plate.
     end
     local ok = pcall(frame.SetAlpha, frame, alpha)
-    if ok then changedFrames[frame] = nil end
+    if ok then changedFrames[frame], combatFades[frame] = nil, nil end
     return ok
 end
 
@@ -73,10 +76,20 @@ local function MakeTransparent(frame, allowCombat)
     if not allowCombat and InCombatLockdown and InCombatLockdown() then return false end
     local alpha = ReadAppearanceValue(frame.GetAlpha, frame)
     if type(alpha) ~= "number" then return false end
-    if alpha == 0 then return true end
-    if not pcall(frame.SetAlpha, frame, 0) then return false end
-    changedFrames[frame] = alpha
+    if alpha ~= 0 then
+        if not pcall(frame.SetAlpha, frame, 0) then return false end
+        if not combatFades[frame] then changedFrames[frame] = alpha end
+    end
+    combatFades[frame] = nil
     return true
+end
+
+local function StartCombatFade(frame)
+    if IsProtected(frame) or IsCombatRestricted(frame) then return end
+    local alpha = ReadAppearanceValue(frame.GetAlpha, frame)
+    if type(alpha) ~= "number" or alpha <= 0 then return end
+    changedFrames[frame] = alpha
+    combatFades[frame] = { elapsed = 0, alpha = alpha }
 end
 
 -- With health bars visible, use the same custom text layer to support
@@ -84,7 +97,7 @@ end
 -- the health bar and clickable frame remain untouched.
 local function RestoreNativeNameAlpha(frame)
     local name = not IsProtected(frame) and not IsCombatRestricted(frame) and frame.name
-    if not name then return end
+    if IsProtected(name) or IsCombatRestricted(name) then return end
     local alpha = originalNativeNameAlpha[name]
     if alpha == nil then return end
     local current = ReadAppearanceValue(name.GetAlpha, name)
@@ -94,11 +107,15 @@ local function RestoreNativeNameAlpha(frame)
 end
 
 local function SuppressNativeName(frame)
-    local name = frame and frame.name
-    if not name or type(name.SetAlpha) ~= "function" then return end
+    if IsProtected(frame) then return false end
+    local name = frame.name
+    if IsProtected(name) or type(name.SetAlpha) ~= "function" then return false end
     local alpha = ReadAppearanceValue(name.GetAlpha, name)
-    if type(alpha) ~= "number" or alpha == 0 then return end
-    if pcall(name.SetAlpha, name, 0) then originalNativeNameAlpha[name] = alpha end
+    if type(alpha) ~= "number" then return false end
+    if alpha == 0 then return true end
+    if IsCombatRestricted(frame) or IsCombatRestricted(name) or not pcall(name.SetAlpha, name, 0) then return false end
+    originalNativeNameAlpha[name] = alpha
+    return true
 end
 
 -- NPCs have optional role/title text rather than player guild memberships.
@@ -168,17 +185,36 @@ local function ApplyLabelAppearance(label, scale, textScale, alpha)
     if math.abs(label:GetAlpha() - alpha) > 0.001 then label:SetAlpha(alpha) end
 end
 
-local function UpdateNameLabelAppearance(plate, labels, recheckHealthBar)
+local function UpdateNameLabelAppearance(plate, labels, delta)
     local frame = labels.frame
     local current = not IsProtected(plate) and plate.UnitFrame == frame
         and ns.SafeString(plate.unitToken) == labels.unit and not IsProtected(frame)
     local native = current and frame.name
     local visible = native and not labels.behindCamera
         and ReadAppearanceValue(frame.IsVisible, frame) ~= false
-    if visible and recheckHealthBar and not labels.replacesNativeName then
+    if visible and delta and (labels.replacesNativeName or combatFades[frame]) and not SuppressNativeName(frame) then
+        RestoreFrame(frame, true)
+        HideNameLabels(plate, frame)
+        return
+    end
+    if current and delta and not labels.replacesNativeName then
         local mode = labels.isNPC and NPCHealthBarMode() or PlayerHealthBarMode()
+        local fade = combatFades[frame]
+        if fade and mode == "combat" and not HealthBarVisible(mode) then
+            fade.elapsed = math.min(COMBAT_FADE_SECONDS, fade.elapsed + delta)
+            local alpha = changedFrames[frame] * (1 - fade.elapsed / COMBAT_FADE_SECONDS)
+            if IsCombatRestricted(frame) or not pcall(frame.SetAlpha, frame, alpha) then
+                RestoreFrame(frame, true)
+                HideNameLabels(plate, frame)
+                return
+            end
+            fade.alpha = ReadAppearanceValue(frame.GetAlpha, frame) or alpha
+            if fade.elapsed == COMBAT_FADE_SECONDS then
+                combatFades[frame] = nil
+                RestoreNativeNameAlpha(frame)
+            end
         -- Blizzard can change the native alpha without rebinding the plate.
-        if mode == "never" and not MakeTransparent(frame, true) then
+        elseif visible and not HealthBarVisible(mode) and not MakeTransparent(frame, mode == "never") then
             HideNameLabels(plate, frame)
             return
         end
@@ -209,7 +245,7 @@ local function GetNameSubtitle(unit, isNPC)
     end
 end
 
-local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, displayColor)
+local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, displayColor, fadeOnCombatEnd)
     if not frame.name then return false end
     local firstName = isNPC and KnownPlayersSettings.npcNameDisplayMode == "first"
         or not isNPC and KnownPlayersSettings.nameDisplayMode == "first"
@@ -230,7 +266,22 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, displayCol
     if not name then return false end
     if firstName then name = name:match("^(%S+)") or name end
     local mode = isNPC and NPCHealthBarMode() or PlayerHealthBarMode()
-    if not keepHealthBar and not MakeTransparent(frame, mode == "never") then return false end
+    if not keepHealthBar then
+        if fadeOnCombatEnd and mode == "combat" and not combatFades[frame] then StartCombatFade(frame) end
+        if not (mode == "combat" and combatFades[frame]) and not MakeTransparent(frame, mode == "never") then
+            return false
+        end
+    else
+        RestoreFrame(frame, mode == "combat")
+    end
+    if keepHealthBar or combatFades[frame] then
+        if not SuppressNativeName(frame) then
+            RestoreFrame(frame, true)
+            return false
+        end
+    else
+        RestoreNativeNameAlpha(frame)
+    end
     -- The UnitFrame can move between outer plates. Keep the text outside the
     -- faded UnitFrame and allocate it once per outer plate.
     local labels = nameLabels[plate]
@@ -287,12 +338,6 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, displayCol
         subtitleLabel:SetTextColor(displayColor[1], displayColor[2], displayColor[3], 1)
     else
         label:SetPoint("CENTER", frame.name, "CENTER", 0, 0)
-    end
-    if keepHealthBar then
-        RestoreFrame(frame, mode == "combat")
-        SuppressNativeName(frame)
-    else
-        RestoreNativeNameAlpha(frame)
     end
     labels.replacesNativeName = keepHealthBar
     labels.isNPC = isNPC
@@ -448,7 +493,7 @@ local function ReleasePlate(unit, binding)
     plateUnits[unit] = nil
 end
 
-function ns.RefreshKnownNameplates()
+function ns.RefreshKnownNameplates(fadeOnCombatEnd)
     if not KnownPlayersSettings then return end
     local knownOnly = KnownPlayersSettings.knownOnlyNameplates
     local playerMode, npcMode = PlayerHealthBarMode(), NPCHealthBarMode()
@@ -491,7 +536,7 @@ function ns.RefreshKnownNameplates()
                     MakeTransparent(frame)
                 elseif namesOnly then
                     RestoreNameColor(frame)
-                    if not ShowNameOnly(plate, frame, unit, false, false, CategoryColorForUnit(unit)) then
+                    if not ShowNameOnly(plate, frame, unit, false, false, CategoryColorForUnit(unit), fadeOnCombatEnd) then
                         -- Fail open if the name cannot be displayed.
                         HideNameLabels(plate, frame)
                         RestoreFrame(frame, allowCombat)
@@ -532,7 +577,7 @@ function ns.RefreshKnownNameplates()
                     MakeTransparent(frame)
                 elseif npcID and (category or override == "show") then
                     local color = category and ns.GetNPCNameplateCategoryColor(category)
-                    if not ShowNameOnly(plate, frame, unit, npcShowBar, true, color) then
+                    if not ShowNameOnly(plate, frame, unit, npcShowBar, true, color, fadeOnCombatEnd) then
                         -- Standard text uses Blizzard's own label. Only name
                         -- color changes; original font and layout remain native.
                         HideNameLabels(plate, frame)
@@ -665,7 +710,7 @@ frame:SetScript("OnEvent", function(_, event, unit, isBehindCamera)
             ns.SyncNativeOverheadNames()
             ns.SyncNPCNameplateCVars()
         end
-        ns.RefreshKnownNameplates()
+        ns.RefreshKnownNameplates(event == "PLAYER_REGEN_ENABLED")
         return
     end
     if event == "PLAYER_ENTERING_WORLD" then
@@ -683,7 +728,7 @@ frame:SetScript("OnEvent", function(_, event, unit, isBehindCamera)
 end)
 frame:SetScript("OnUpdate", function(_, delta)
     if not KnownPlayersSettings then return end
-    for plate, labels in pairs(activeNameLabels) do UpdateNameLabelAppearance(plate, labels, true) end
+    for plate, labels in pairs(activeNameLabels) do UpdateNameLabelAppearance(plate, labels, delta) end
     nativeNameCheckElapsed = nativeNameCheckElapsed + delta
     if nativeNameCheckElapsed >= 5 then
         nativeNameCheckElapsed = 0

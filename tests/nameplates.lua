@@ -103,7 +103,7 @@ assert(loadfile("KnownPlayers/Database.lua"))("KnownPlayers", ns)
 assert(loadfile("KnownPlayers/NameplateCVars.lua"))("KnownPlayers", ns)
 assert(loadfile("KnownPlayers/Nameplates.lua"))("KnownPlayers", ns)
 local function Event(event, ...) assert(registered[event], "unregistered event: " .. event); scripts.OnEvent(nil, event, ...) end
-local function Tick() scripts.OnUpdate(nil, 0.016) end
+local function Tick(delta) scripts.OnUpdate(nil, delta or 0.016) end
 
 KnownPlayersSettings = {npcHealthBarMode = "never", npcNameDisplayMode = "first",
     showNPCTitle = true, playerHealthBarMode = "never", knownOnlyNameplates = true}
@@ -328,6 +328,52 @@ Tick()
 assert(playerFrame.alpha == 0 and npcFrame.alpha == 0, "Never missed a native alpha reset after combat ended")
 Approx(combatPlayer.labels[1].alpha, 0.65, "player label follows the post-combat fade")
 Approx(combatNPC.labels[1].alpha, 0.9, "NPC label follows the post-combat fade")
+
+-- In Combat eases the bars out without fading the names or leaking alpha on reuse.
+KnownPlayersSettings.playerHealthBarMode, KnownPlayersSettings.npcHealthBarMode = "combat", "combat"
+npcFrame.protected = false
+plates = {combatPlayer, combatNPC}
+units.nameplate9.subtitle = "Example Guild"
+combat = true
+Event("PLAYER_REGEN_DISABLED")
+Approx(playerFrame.alpha, 0.65, "player bar visible at the start of combat")
+Approx(npcFrame.alpha, 0.9, "NPC bar visible at the start of combat")
+assert(playerFrame.name.alpha == 0 and combatPlayer.labels[2].shown)
+playerFrame.name.alpha = 0.8
+Tick()
+assert(playerFrame.name.alpha == 0 and combatPlayer.labels[2].shown, "Native name returned over the guild line")
+assert(combatPlayer.labels[2].text == "<Example Guild>")
+playerFrame.name.protected, playerFrame.name.alpha = true, 0.8
+Tick()
+assert(playerFrame.name.alpha == 0.8 and not combatPlayer.labels[2].shown)
+playerFrame.name.protected = false
+Event("NAME_PLATE_UNIT_ADDED", "nameplate9")
+assert(playerFrame.name.alpha == 0 and combatPlayer.labels[2].shown)
+combat = false
+Event("PLAYER_REGEN_ENABLED")
+Approx(playerFrame.alpha, 0.65, "bar does not jump to transparent on combat exit")
+playerFrame.name.alpha = 1
+Tick(0.125)
+assert(playerFrame.name.alpha == 0 and combatPlayer.labels[2].shown)
+Approx(playerFrame.alpha, 0.325, "player bar halfway through the fade")
+Approx(npcFrame.alpha, 0.45, "NPC bar halfway through the fade")
+Approx(combatPlayer.labels[1].alpha, 0.65, "player name stays visible through the fade")
+Approx(combatNPC.labels[1].alpha, 0.9, "NPC name stays visible through the fade")
+Tick(0.125)
+assert(playerFrame.alpha == 0 and npcFrame.alpha == 0)
+
+combat = true
+Event("PLAYER_REGEN_DISABLED")
+combat = false
+Event("PLAYER_REGEN_ENABLED")
+Tick(0.125)
+Event("NAME_PLATE_UNIT_REMOVED", "nameplate13")
+Approx(npcFrame.alpha, 0.9, "releasing a fading plate restores native alpha")
+assert(not combatNPC.labels[1].shown)
+combat = true
+Event("PLAYER_REGEN_DISABLED")
+Approx(playerFrame.alpha, 0.65, "reentering combat cancels the fade")
+combat = false
 
 -- Reset settings while WoW refuses CVar writes. Retry the saved values afterward.
 local cvars = {UnitNameFriendlyPlayerName = "1", UnitNameNPC = "1"}

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Fade out health bars over a quarter second after combat when set to In Combat, keeping the names visible.
+- Keep Blizzard's native name from redrawing over the guild line while KnownPlayers shows a replacement name.
+
 ## [0.5.3b1] - 2026-11-26
 
 - Reapply Never on the next display update if WoW brings back a hidden health bar, including just after combat ends.

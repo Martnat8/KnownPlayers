@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-26
+
 - Added a small easter egg.
 
 ## [0.5.2b10] - 2026-11-26

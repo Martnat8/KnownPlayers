@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Add a session-only title easter egg when rapidly clicking the Avoid list heading.
+
 ## [0.5.2b9] - 2026-11-26
 
 - Add an Avoid player list with red nameplates and a skull toggle between Favorite and Remove.

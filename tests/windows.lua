@@ -52,6 +52,7 @@ function frameMethods:GenerateMenu() end
 function frameMethods:Update() end
 function frameMethods:StopMovingOrSizing() end
 function frameMethods:GetStringHeight() return 12 end
+function frameMethods:GetStringWidth() return #self:GetText() * 7 end
 function frameMethods:CreateFontString()
     local label = CreateFrame("FontString")
     labels[#labels + 1] = label
@@ -332,5 +333,30 @@ for _, label in ipairs({"Player history", "Saved NPCs"}) do
 end
 Click("Prepare to Copy")
 assert(serialized.sections.settings and not serialized.sections.players and not serialized.sections.npcs)
+
+local now = 10
+GetTime = function() return now end
+ns.OpenPlayerList("avoid")
+local avoidList = assert(named.KnownPlayersAvoidListWindow)
+local titleButton
+for _, button in ipairs(buttons) do
+    if button.point and button.point[2] == avoidList.TitleText then titleButton = button; break end
+end
+assert(titleButton and avoidList.TitleText:GetText() == "KnownPlayers - Avoid")
+for _ = 1, 6 do
+    titleButton.scripts.OnClick(titleButton)
+    now = now + 3
+end
+assert(avoidList.TitleText:GetText() == "KnownPlayers - Avoid")
+for _ = 1, 5 do
+    titleButton.scripts.OnClick(titleButton)
+    now = now + 0.25
+end
+assert(avoidList.TitleText:GetText() == "KnownPlayers - Avoid")
+titleButton.scripts.OnClick(titleButton)
+assert(avoidList.TitleText:GetText() == "KnownPlayers - Shitbags" and not titleButton:IsShown())
+avoidList:Hide()
+ns.OpenPlayerList("avoid")
+assert(avoidList.TitleText:GetText() == "KnownPlayers - Shitbags" and ns.PlayerCategoryByKey.avoid.label == "Avoid")
 
 print("Player list and backup window behavior checks passed.")

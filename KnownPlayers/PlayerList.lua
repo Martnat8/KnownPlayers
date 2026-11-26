@@ -344,12 +344,29 @@ local function CreateCategoryWindow(category, index)
 
     ns.EnableWindowEscape(frame)
 
-    if frame.TitleText then
-        frame.TitleText:SetText("KnownPlayers - " .. category.label)
-    else
-        local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    local title = frame.TitleText
+    if not title then
+        title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
         title:SetPoint("TOP", frame, "TOP", 0, -8)
-        title:SetText("KnownPlayers - " .. category.label)
+    end
+    title:SetText("KnownPlayers - " .. category.label)
+    if category.key == "avoid" then
+        local titleButton = CreateFrame("Button", nil, frame)
+        titleButton:SetPoint("CENTER", title, "CENTER")
+        titleButton:SetSize(title:GetStringWidth(), title:GetStringHeight())
+        titleButton:RegisterForDrag("LeftButton")
+        titleButton:SetScript("OnDragStart", function() frame:StartMoving() end)
+        titleButton:SetScript("OnDragStop", function() frame:StopMovingOrSizing() end)
+        local firstClick, clicks
+        titleButton:SetScript("OnClick", function(self)
+            local now = GetTime()
+            if not firstClick or now - firstClick > 2 then firstClick, clicks = now, 0 end
+            clicks = clicks + 1
+            if clicks == 6 then
+                title:SetText("KnownPlayers - Shitbags")
+                self:Hide()
+            end
+        end)
     end
 
     local count = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")

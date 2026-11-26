@@ -62,6 +62,23 @@ local function AddPlayerMenu(menuTag, rootDescription, contextData)
     local savedKey, savedRecord = FindSavedKey(key, guid)
     rootDescription:CreateDivider()
     rootDescription:CreateTitle("KnownPlayers")
+    if savedKey then
+        rootDescription:CreateButton("View Player History", function()
+            if ns.GetPlayer(savedKey) == savedRecord then ns.OpenPlayerHistory(savedKey, CurrentUnit()) end
+        end)
+    end
+    if not ns.PlayerHasCategory(savedRecord, "manual") then
+        rootDescription:CreateButton("Remember Player", function()
+            if savedKey and ns.GetPlayer(savedKey) ~= savedRecord then return end
+            local currentUnit = CurrentUnit()
+            if not (guid or currentUnit) or not ns.RememberPlayer(key, "manual", nil, guid, realm, currentUnit) then return end
+            Refresh()
+            if not KnownPlayersSettings.trackManual then
+                print("|cff33ff99KnownPlayers:|r Player saved. Enable Manually Added tracking to display its nameplate.")
+            end
+        end)
+    end
+
     local avoided = ns.PlayerHasCategory(savedRecord, "avoid")
     local avoidLabel = ns.GetPlayerCategoryLabel("avoid")
     rootDescription:CreateButton((avoided and "Remove from " or "Add to ") .. avoidLabel, function()
@@ -75,20 +92,9 @@ local function AddPlayerMenu(menuTag, rootDescription, contextData)
         end
     end)
     if savedKey then
-        rootDescription:CreateButton("View Player History", function()
-            if ns.GetPlayer(savedKey) == savedRecord then ns.OpenPlayerHistory(savedKey, CurrentUnit()) end
-        end)
         rootDescription:CreateButton("Forget Player", function()
             if ns.GetPlayer(savedKey) == savedRecord and ns.ForgetPlayer(savedKey, true) then
                 Refresh()
-            end
-        end)
-    else
-        rootDescription:CreateButton("Remember Player", function()
-            ns.RememberPlayer(key, "manual", nil, guid, realm, CurrentUnit())
-            Refresh()
-            if not KnownPlayersSettings.trackManual then
-                print("|cff33ff99KnownPlayers:|r Player saved. Enable Manually Added tracking to display its nameplate.")
             end
         end)
     end

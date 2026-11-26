@@ -129,14 +129,23 @@ assert(ns.ForgetPlayer(MEMBER, true) and ns.FindDirectRecord(MEMBER) == current)
 assert(ns.UndoLastRemoval() and ns.FindDirectRecord(MEMBER) == nil)
 
 local target = "Other-Target-" .. REALM
-ns.RememberPlayer(target, "manual")
-local buttons = {}
+local savedTarget = ns.RememberPlayer(target, "trade")
+local buttons, menuOrder = {}, {}
 local menu = {CreateDivider = function() end, CreateTitle = function() end,
-    CreateButton = function(_, label, callback) buttons[label] = callback end}
+    CreateButton = function(_, label, callback)
+        buttons[label] = callback
+        menuOrder[#menuOrder + 1] = label
+    end}
 state.MENU_UNIT_FRIEND(nil, menu, {name = MEMBER, guid = "Player-Test-2"})
 assert(next(buttons) == nil and ns.GetPlayer(target))
 state.MENU_UNIT_TARGET(nil, menu, {unit = "target"})
-assert(buttons["Forget Player"])
+assert(table.concat(menuOrder, ", ") == "View Player History, Remember Player, Add to Avoid, Forget Player")
+buttons["Remember Player"]()
+assert(ns.GetPlayer(target) == savedTarget and ns.PlayerHasCategory(savedTarget, "manual")
+    and ns.PlayerHasCategory(savedTarget, "trade"))
+buttons, menuOrder = {}, {}
+state.MENU_UNIT_TARGET(nil, menu, {unit = "target"})
+assert(table.concat(menuOrder, ", ") == "View Player History, Add to Avoid, Forget Player")
 buttons["Forget Player"]()
 assert(ns.GetPlayer(target) == nil and ns.GetPlayer(MEMBER))
 
@@ -149,7 +158,9 @@ assert(red[1] == 1 and red[2] < 0.3 and red[3] < 0.3)
 assert(ns.SetPlayerAvoided("guid:Player-Test-2", current, false))
 assert(ns.PlayerHasCategory(current, "target") and ns.GetNameplateCategory(MEMBER, "Player-Test-2") == "target")
 assert(ns.UndoLastRemoval() and ns.PlayerHasCategory(current, "avoid"))
+buttons, menuOrder = {}, {}
 state.MENU_UNIT_TARGET(nil, menu, {unit = "target"})
+assert(table.concat(menuOrder, ", ") == "Remember Player, Add to Avoid")
 buttons["Add to Avoid"]()
 assert(ns.GetNameplateCategory(target) == "avoid" and #ns.GetCategoryPlayers("avoid") == 2)
 state.MENU_UNIT_TARGET(nil, menu, {unit = "target"})

@@ -114,7 +114,8 @@ addon can update the nameplate. WoW may limit changes to protected frames.
 With Known Only enabled, a player's pets, guardians, and totems follow that
 player's visibility when WoW supplies the owner's identity and a nameplate.
 Show friendly player minions under Character name controls whether friendly
-minions are shown at all.
+minions are shown at all. Their nameplates follow the player health-bar
+setting when enabled.
 
 PRIVACY
 Saved character data and linked BattleTags remain local in WoW SavedVariables.

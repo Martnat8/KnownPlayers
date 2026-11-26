@@ -415,6 +415,55 @@ Event("PLAYER_REGEN_DISABLED")
 Approx(playerFrame.alpha, 0.65, "reentering combat cancels the fade")
 combat = false
 
+-- Enabled friendly player minions follow the player health-bar mode.
+do
+    local originalIsMinion, originalIsFriend, originalCVars = UnitIsMinion, UnitIsFriend, C_CVar
+    local minionsCVar = "1"
+    C_CVar = {GetCVar = function(name)
+        if name == "nameplateShowFriendlyPlayerMinions" then return minionsCVar end
+    end}
+    UnitIsMinion = function(unit) return units[unit].minion == true end
+    UnitIsFriend = function(_, unit) return units[unit].friendly == true end
+    local friendlyPlate, hostilePlate = Plate(), Plate()
+    local friendlyFrame, hostileFrame = UnitFrame(), UnitFrame()
+    Bind(friendlyPlate, friendlyFrame, "nameplateFriendlyPet", {name = "Synthetic Pet", minion = true, friendly = true})
+    Bind(hostilePlate, hostileFrame, "nameplateHostilePet", {name = "Hostile Pet", minion = true})
+    plates = {friendlyPlate, hostilePlate}
+    KnownPlayersSettings.nameDisplayMode = "first"
+    ns.SetPlayerHealthBarMode("never")
+    assert(friendlyFrame.alpha == 0 and friendlyPlate.labels[1].shown
+        and friendlyPlate.labels[1].text == "Synthetic Pet" and not friendlyPlate.labels[2],
+        "Never kept a health bar on an enabled friendly minion")
+    assert(hostileFrame.alpha == 1 and not hostilePlate.labels[1])
+    ns.SetPlayerHealthBarMode("always")
+    assert(friendlyFrame.alpha == 1 and not friendlyPlate.labels[1].shown)
+    combat = true
+    ns.SetPlayerHealthBarMode("combat")
+    assert(friendlyFrame.alpha == 1)
+    combat = false
+    Event("PLAYER_REGEN_ENABLED")
+    Tick(0.125)
+    Approx(friendlyFrame.alpha, 0.5, "minion health bar fades on combat exit")
+    Tick(0.125)
+    assert(friendlyFrame.alpha == 0 and friendlyPlate.labels[1].shown)
+    combat = true
+    Event("PLAYER_REGEN_DISABLED")
+    assert(friendlyFrame.alpha == 1 and not friendlyPlate.labels[1].shown)
+    ns.SetPlayerHealthBarMode("never")
+    assert(friendlyFrame.alpha == 0 and friendlyPlate.labels[1].shown)
+    ns.SetNPCHealthBarMode("always")
+    ns.SetPlayerHealthBarMode("always")
+    assert(friendlyFrame.alpha == 1 and not friendlyPlate.labels[1].shown,
+        "Always did not restore a friendly minion health bar during combat")
+    ns.SetPlayerHealthBarMode("never")
+    combat = false
+    minionsCVar = "0"
+    ns.RefreshKnownNameplates()
+    assert(friendlyFrame.alpha == 1 and not friendlyPlate.labels[1].shown)
+    KnownPlayersSettings.nameDisplayMode = nil
+    UnitIsMinion, UnitIsFriend, C_CVar = originalIsMinion, originalIsFriend, originalCVars
+end
+
 -- Reset settings while WoW refuses CVar writes. Retry the saved values afterward.
 local cvars = {UnitNameFriendlyPlayerName = "1", UnitNameNPC = "1"}
 local reject = false

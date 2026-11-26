@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Put Remember Player directly below View Player History in the portrait menu, followed by Avoid and Forget. Offer Remember Player for players saved through other categories.
+- Apply the player health-bar setting to enabled friendly player minions, including the combat-exit fade.
+
 ## [0.5.3b4] - 2026-11-26
 
 - Move NPC interaction icons beside the NPC name when KnownPlayers hides its health bar.

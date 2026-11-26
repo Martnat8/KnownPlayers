@@ -281,11 +281,15 @@ local function GetNameSubtitle(unit, isNPC)
     end
 end
 
-local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, displayColor, fadeOnCombatEnd)
+local function ShowNameOnly(plate, frame, unit, keepHealthBar, kind, displayColor, fadeOnCombatEnd)
     if not frame.name then return false end
-    local firstName = isNPC and KnownPlayersSettings.npcNameDisplayMode == "first"
-        or not isNPC and KnownPlayersSettings.nameDisplayMode == "first"
-    local subtitle = GetNameSubtitle(unit, isNPC)
+    local isNPC, isMinion = kind == "npc", kind == "minion"
+    local firstName, subtitle
+    if not isMinion then
+        firstName = isNPC and KnownPlayersSettings.npcNameDisplayMode == "first"
+            or not isNPC and KnownPlayersSettings.nameDisplayMode == "first"
+        subtitle = GetNameSubtitle(unit, isNPC)
+    end
     if keepHealthBar and not firstName and not subtitle then return false end
 
     -- Blizzard's original label can contain more of the character's
@@ -335,7 +339,7 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, displayCol
     local label = labels.name
     MirrorNativeNameFont(label, frame.name)
     label:SetText(name)
-    if isNPC and not displayColor and type(frame.name.GetTextColor) == "function" then
+    if (isNPC or isMinion) and not displayColor and type(frame.name.GetTextColor) == "function" then
         local ok, r, g, b = pcall(frame.name.GetTextColor, frame.name)
         if ok and type(r) == "number" then displayColor = {r, g, b} end
     end
@@ -377,6 +381,7 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, displayCol
     end
     labels.replacesNativeName = keepHealthBar
     labels.isNPC = isNPC
+    labels.isMinion = isMinion
     labels.interactionIconReady = nil
     UpdateNameLabelAppearance(plate, labels)
     return true
@@ -553,14 +558,19 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
     end
 
     local inCombat = InCombatLockdown and InCombatLockdown()
-    if inCombat and playerMode == "always" and npcMode == "always" then return end
+    if inCombat and playerMode == "always" and npcMode == "always" and not next(activeNameLabels) then return end
+    local showFriendlyMinions = ns.GetFriendlyMinionVisibility()
     for unit, plate in pairs(platesByUnit) do
         local frame = plate.UnitFrame
         local accessible = not IsProtected(frame) and not IsCombatRestricted(frame)
         local exists = accessible and UnitExists(unit)
         local player = exists and UnitIsPlayer(unit)
         local minion = exists and not player and ns.IsPlayerMinion(unit)
+        local friendlyMinion = minion and showFriendlyMinions and ReadAppearanceValue(UnitIsFriend, "player", unit) == true
+        local labels = activeNameLabels[plate]
+        local restoreMinionBar = minion and labels and labels.isMinion and labels.frame == frame and not namesOnly
         local allowCombat = exists and (player and playerMode ~= "always"
+            or friendlyMinion and playerMode ~= "always" or restoreMinionBar
             or not player and not minion and npcMode ~= "always")
         if exists and (not inCombat or allowCombat) then
             if not plateUnits[unit] then plateUnits[unit] = {plate = plate, frame = frame} end
@@ -573,7 +583,7 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
                     MakeTransparent(frame)
                 elseif namesOnly then
                     RestoreNameColor(frame)
-                    if not ShowNameOnly(plate, frame, unit, false, false, CategoryColorForUnit(unit), fadeOnCombatEnd) then
+                    if not ShowNameOnly(plate, frame, unit, false, "player", CategoryColorForUnit(unit), fadeOnCombatEnd) then
                         -- Fail open if the name cannot be displayed.
                         HideNameLabels(plate, frame)
                         RestoreFrame(frame, allowCombat)
@@ -587,15 +597,20 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
                     else RestoreNameColor(frame) end
                     -- Preserve Blizzard's actual font/scale/placement when
                     -- neither first-name mode nor a guild line is requested.
-                    if not ShowNameOnly(plate, frame, unit, true, false, color) then
+                    if not ShowNameOnly(plate, frame, unit, true, "player", color) then
                         HideNameLabels(plate, frame)
                     end
                 end
             elseif minion then
-                HideNameLabels(plate, frame)
                 RestoreNameColor(frame)
-                if knownOnly and not IsRecognizedMinion(unit) then MakeTransparent(frame)
-                else RestoreFrame(frame) end
+                if knownOnly and not IsRecognizedMinion(unit) then
+                    HideNameLabels(plate, frame)
+                    MakeTransparent(frame)
+                elseif not (friendlyMinion and namesOnly
+                    and ShowNameOnly(plate, frame, unit, false, "minion", nil, fadeOnCombatEnd)) then
+                    HideNameLabels(plate, frame)
+                    RestoreFrame(frame, allowCombat)
+                end
             elseif exists and not player then
                 -- Creature identity is read only once per plate per refresh.
                 -- Protected or unrecognized GUIDs are left visible (fail open).
@@ -614,7 +629,7 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
                     MakeTransparent(frame)
                 elseif npcID and (category or override == "show") then
                     local color = category and ns.GetNPCNameplateCategoryColor(category)
-                    if not ShowNameOnly(plate, frame, unit, npcShowBar, true, color, fadeOnCombatEnd) then
+                    if not ShowNameOnly(plate, frame, unit, npcShowBar, "npc", color, fadeOnCombatEnd) then
                         -- Standard text uses Blizzard's own label. Only name
                         -- color changes; original font and layout remain native.
                         HideNameLabels(plate, frame)

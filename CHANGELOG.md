@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.3b1] - 2026-11-26
+
 - Reapply Never on the next display update if WoW brings back a hidden health bar, including just after combat ends.
 
 ## [0.5.3b0] - 2026-11-26

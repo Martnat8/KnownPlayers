@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.2b9] - 2026-11-26
+
 - Add an Avoid player list with red nameplates and a skull toggle between Favorite and Remove.
 - Use a separate default nameplate palette for NPCs and preserve customized NPC colors during the upgrade.
 

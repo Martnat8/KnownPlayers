@@ -20,14 +20,15 @@ SETTINGS
   Add players manually through the portrait right-click menu or /kp remember
   while targeting another player. Same-realm space/hyphen duplicates are merged on load
   when GUIDs do not conflict; category histories and timestamps are retained.
-  Use /kp players to open All Players. It has reason filters and All/None.
-  In player lists and Player History, click an outlined star to remember
-  that player forever or a filled star to let inactivity rules apply again.
-  The trash can removes the selected reason in a category
-  list or forgets the entire character in All Players. Use History or the
-  portrait menu to see the last interaction for each reason and edit
-  personal notes and comma-separated tags. Search matches notes and tags,
-  and Most recent first sorts by the latest tracked interaction.
+  Use /kp players to search All Players by name, realm, reason, personal
+  note, or tag. A player matches when they have any selected reason.
+  Click the star in a list or in Player History to keep a player through
+  inactivity. Click it again to let inactivity limits apply.
+  The trash can removes the selected reason in a category list or forgets
+  the entire character in All Players. Click History or choose View Player
+  History in the portrait menu to see the last activity for each saved
+  reason. Edit the personal note and comma-separated tags there, then
+  click Save. Most recent first sorts by the latest recorded activity.
 - NPC Nameplates: check the QuestieDB connection, choose service categories and
   their priority, and manage remembered NPCs and their retention. NPCs are remembered using the portrait's
   right-click menu or /kp npctoggle while targeting a creature. Pin an NPC in
@@ -107,8 +108,9 @@ To filter names individually, active filtering temporarily manages the native
 overhead-name CVars and restores the previous values when disabled. Automatic
 NPC role filtering requires QuestieDB and enabled categories. Remembered NPCs
 and overrides can use the nameplates WoW supplies without QuestieDB.
-Distance and opacity can affect which nameplates are visible. Combat-only
-health bars remain experimental on protected frames.
+Distance and opacity can affect which nameplates are visible. In combat
+refers to your own combat. Health bars fade as you leave combat where the
+addon can update the nameplate. WoW may limit changes to protected frames.
 With Known Only enabled, a player's pets, guardians, and totems follow that
 player's visibility when WoW supplies the owner's identity and a nameplate.
 Show friendly player minions under Character name controls whether friendly

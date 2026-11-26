@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Refresh About and player information with current guidance on tracking, list actions, nameplates, and backups.
+
 ## [0.5.3b2] - 2026-11-26
 
 - Fade out health bars over a quarter second after combat when set to In Combat, keeping the names visible.

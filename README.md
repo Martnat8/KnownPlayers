@@ -14,12 +14,12 @@ Maybe you trade with someone in town, exchange a few whispers, or group up for a
 - Open searchable category lists from the tracking settings, with player history, individual removal, and clear-list controls.
 - See class and race icons and filter by class in player lists.
 - Optionally open a tabbed settings window with adjustable height from a minimap button that MinimapButtonButton can collect.
-- See why a player is known, search private notes and tags, and sort by recent interactions.
-- Pin favorite players and NPCs to protect them from inactivity expiration, or undo the most recent individual removal within 30 seconds.
+- Open **Player History** from a list row or a saved player's portrait menu to see the last activity for each reason and save a personal note or comma-separated tags. Search notes and tags in **All Players**.
+- Favorite players and pin NPCs to protect them from inactivity expiry. Use **Undo** within 30 seconds of an individual removal.
 - Use the skull button in player lists or **Add to Avoid** in a player portrait menu. Find the Avoid list under **Player Nameplates**. Its default name color is red.
 - Create an in-game restore point or export settings, player history, and saved NPCs through Backup & Restore.
 - Set optional, category-specific inactivity expiration (guild membership is exempt).
-- Hide unknown player nameplates; choose health bars, name format, and guild name display.
+- Hide unknown player nameplates and choose health bar visibility, name format, and guild name display. With **In combat** selected, health bars fade as you leave combat where the addon can update the nameplate.
 - Customize category name colors and priority.
 - Discover associated characters for Battle.net friends when the client exposes their active characters and a known character can be matched.
 

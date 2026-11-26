@@ -168,14 +168,18 @@ local function ShowAbout(parent)
     Label(body, "Version " .. ns.AddonVersion, 6, -8)
     local y = -32
     for _, section in ipairs({
-        {"Remembering players",
-            "Choose which interactions to track on Player Nameplates. Use a portrait menu or /kp remember to save someone manually. Open Player History to see why you know them and add a note, tags, or a favorite."},
-        {"NPC filtering and overrides",
-            "Automatic NPC categories use QuestieDB. The filter leaves attackable monsters and unclassified NPCs visible. In the NPC Manager, Overrides lists NPCs set to Always Show or Always Hide. Automatic clears the override."},
-        {"Nameplate distance and opacity",
-            "The sliders show the values WoW accepts. The game controls which nameplates exist and can cap their visible range. Always Show applies to nameplates the game supplies."},
-        {"Saved lists",
-            "History and notes stay on this computer. Favorites stay saved when inactive. Use Undo or /kp undo within 30 seconds of an individual removal. Reset Settings to Defaults keeps your lists."},
+        {"Recognize players you meet",
+            "Turn on player nameplate filtering on the KnownPlayers tab. Use Player Nameplates to choose which interactions to track and how long to remember them. Right-click a player portrait or target a player and type /kp remember to save them yourself."},
+        {"Browse and organize player history",
+            "Open a category with Manage or type /kp players to search All Players, including notes and tags. Click History for the latest activity in each category. The star protects a player from inactivity expiry. Use the skull to flag a player in a separate list with its own name color, red by default."},
+        {"Choose how nameplates look",
+            "Use Appearance to set name formats, colors, and health bars. In combat refers to your own combat. Health bars fade as you leave combat where the addon can update the plate. WoW controls which units have nameplates and how far away they can appear."},
+        {"Filter and manage NPCs",
+            "Install QuestieDB for automatic NPC roles. You can remember NPCs and set overrides without it. Open NPC Manager to review Always Show and Always Hide overrides. Choose Automatic to clear an override."},
+        {"Recover your settings and lists",
+            "Use Undo or /kp undo within 30 seconds of an individual removal. For bulk changes, open Backup & Restore to create a restore point or recover from the latest automatic point. Reset Settings to Defaults keeps your saved lists."},
+        {"Keep a portable backup",
+            "Export includes settings, player history, and saved NPCs by default. Clear any section you want to leave out. Click Prepare to Copy, press Ctrl+C, and save the text outside WoW. On Import, click Paste Backup and press Ctrl+V to preview it. Keep exports with player history private because they can contain names, notes, and tags."},
     }) do
         Label(body, section[1], 6, y, "GameFontNormal")
         local details = Label(body, section[2], 6, y - 19, "GameFontHighlight")
@@ -608,7 +612,7 @@ local function BuildHomePage(parent)
     about:SetPoint("TOPRIGHT", page, "TOPRIGHT", -SCROLL_RIGHT - CONTENT_RIGHT_PADDING, -12)
 
     local intro = Label(content,
-        "KnownPlayers reveals familiar nameplates as you meet and interact with players.", 18, -16, "GameFontHighlight")
+        "Recognize players you’ve met and choose which player and NPC nameplates to show.", 18, -16, "GameFontHighlight")
     intro:SetWidth(320)
     intro:SetJustifyH("LEFT")
     Label(content, "Nameplate filtering", 18, -68, "GameFontNormal")
@@ -795,7 +799,7 @@ end
 
 local function BuildPlayerPage(parent)
     local page, body = NewScrollingPage(parent)
-    Label(body, "Higher categories take priority when a player belongs to several lists.", 21, -14)
+    Label(body, "The highest enabled category sets the color. Use Manage to open its player list.", 21, -14)
     AddPriorityTable(body, -44, {
         player = true,
         page = page,

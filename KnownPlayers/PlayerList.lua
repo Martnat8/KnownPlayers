@@ -268,7 +268,7 @@ end
 
 local function ShowFavoriteState(button, favorite)
     button.icon:SetAtlas(favorite and "auctionhouse-icon-favorite" or "auctionhouse-icon-favorite-off")
-    button.tooltip = favorite and "Allow to be forgotten" or "Remember forever"
+    button.tooltip = favorite and "Remove favorite\nInactivity limits apply again" or "Add favorite\nKeep this player through inactivity"
     if GameTooltip and GameTooltip:IsOwned(button) then ShowIconTooltip(button) end
 end
 
@@ -527,7 +527,7 @@ local function CreatePlayerHistoryWindow()
 
     local reasonsLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     reasonsLabel:SetPoint("TOPLEFT", 23, -112)
-    reasonsLabel:SetText("Why you know this player")
+    reasonsLabel:SetText("Saved reasons and last activity")
     local reasons = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     reasons:SetPoint("TOPLEFT", reasonsLabel, "BOTTOMLEFT", 0, -6)
     reasons:SetWidth(468)
@@ -535,7 +535,7 @@ local function CreatePlayerHistoryWindow()
 
     local noteLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     noteLabel:SetPoint("TOPLEFT", reasons, "BOTTOMLEFT", 0, -16)
-    noteLabel:SetText("Personal note")
+    noteLabel:SetText("Personal note (saved locally)")
     local noteScroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelInputScrollFrameTemplate")
     noteScroll:SetPoint("TOPLEFT", noteLabel, "BOTTOMLEFT", 4, -7)
     noteScroll:SetSize(450, 69)
@@ -546,7 +546,7 @@ local function CreatePlayerHistoryWindow()
 
     local tagsLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     tagsLabel:SetPoint("TOPLEFT", noteScroll, "BOTTOMLEFT", -4, -16)
-    tagsLabel:SetText("Tags (comma-separated)")
+    tagsLabel:SetText("Searchable tags (separate with commas)")
     local tags = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     tags:SetPoint("TOPLEFT", tagsLabel, "BOTTOMLEFT", 4, -7)
     tags:SetSize(450, 25)
@@ -574,7 +574,7 @@ local function CreatePlayerHistoryWindow()
 
     save:SetScript("OnClick", function()
         if not ns.SavePlayerDetails(key, record, note:GetText(), tags:GetText()) then
-            saveStatus:SetText("This player record is no longer available. Your edits are still here.")
+            saveStatus:SetText("This player record is no longer available. Copy your edits before closing.")
             return
         end
         frame:Hide()
@@ -670,7 +670,7 @@ local function CreatePlayersWindow()
     for _, category in ipairs(CATEGORIES) do filterEnabled[category.key] = true end
     local filterTitle = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     filterTitle:SetPoint("TOPLEFT", 26, -119)
-    filterTitle:SetText("Filter reasons (any selected)")
+    filterTitle:SetText("Match any selected reason")
     local checkboxes = {}
     for index, category in ipairs(CATEGORIES) do
         local column = (index - 1) % 3
@@ -717,10 +717,10 @@ local function CreatePlayersWindow()
     appearanceHeader:SetText("Class / race")
     local reasonHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     reasonHeader:SetPoint("LEFT", frame, "TOPLEFT", 377, -270)
-    reasonHeader:SetText("Reasons known")
+    reasonHeader:SetText("Saved reasons")
     local recentHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     recentHeader:SetPoint("LEFT", frame, "TOPLEFT", 674, -270)
-    recentHeader:SetText("Last interaction")
+    recentHeader:SetText("Last activity")
 
     local scroller = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
     scroller:SetPoint("TOPLEFT", 21, -285)

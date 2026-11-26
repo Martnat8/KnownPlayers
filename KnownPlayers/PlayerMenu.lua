@@ -75,7 +75,7 @@ local function AddPlayerMenu(menuTag, rootDescription, contextData)
         end
     end)
     if savedKey then
-        rootDescription:CreateButton("Why do I know this player?", function()
+        rootDescription:CreateButton("View Player History", function()
             if ns.GetPlayer(savedKey) == savedRecord then ns.OpenPlayerHistory(savedKey, CurrentUnit()) end
         end)
         rootDescription:CreateButton("Forget Player", function()

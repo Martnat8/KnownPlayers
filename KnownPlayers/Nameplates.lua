@@ -168,13 +168,21 @@ local function ApplyLabelAppearance(label, scale, textScale, alpha)
     if math.abs(label:GetAlpha() - alpha) > 0.001 then label:SetAlpha(alpha) end
 end
 
-local function UpdateNameLabelAppearance(plate, labels)
+local function UpdateNameLabelAppearance(plate, labels, recheckHealthBar)
     local frame = labels.frame
     local current = not IsProtected(plate) and plate.UnitFrame == frame
         and ns.SafeString(plate.unitToken) == labels.unit and not IsProtected(frame)
     local native = current and frame.name
     local visible = native and not labels.behindCamera
         and ReadAppearanceValue(frame.IsVisible, frame) ~= false
+    if visible and recheckHealthBar and not labels.replacesNativeName then
+        local mode = labels.isNPC and NPCHealthBarMode() or PlayerHealthBarMode()
+        -- Blizzard can change the native alpha without rebinding the plate.
+        if mode == "never" and not MakeTransparent(frame, true) then
+            HideNameLabels(plate, frame)
+            return
+        end
+    end
     labels.name:SetShown(visible == true)
     if labels.subtitle then labels.subtitle:SetShown(visible == true and labels.hasSubtitle) end
     if not visible then return end
@@ -287,6 +295,7 @@ local function ShowNameOnly(plate, frame, unit, keepHealthBar, isNPC, displayCol
         RestoreNativeNameAlpha(frame)
     end
     labels.replacesNativeName = keepHealthBar
+    labels.isNPC = isNPC
     UpdateNameLabelAppearance(plate, labels)
     return true
 end
@@ -674,7 +683,7 @@ frame:SetScript("OnEvent", function(_, event, unit, isBehindCamera)
 end)
 frame:SetScript("OnUpdate", function(_, delta)
     if not KnownPlayersSettings then return end
-    for plate, labels in pairs(activeNameLabels) do UpdateNameLabelAppearance(plate, labels) end
+    for plate, labels in pairs(activeNameLabels) do UpdateNameLabelAppearance(plate, labels, true) end
     nativeNameCheckElapsed = nativeNameCheckElapsed + delta
     if nativeNameCheckElapsed >= 5 then
         nativeNameCheckElapsed = 0

@@ -305,14 +305,29 @@ assert(playerFrame.alpha == 0 and combatPlayer.labels[1].shown, "Never missed a 
 assert(npcFrame.alpha == 0 and combatNPC.labels[1].shown, "Never missed a new NPC plate during combat")
 assert(protectedFrame.alpha == 1 and not protectedNPC.labels[1])
 assert(rejectedFrame.alpha == 1 and not rejectedNPC.labels[1])
+-- Blizzard can restore the alpha on a plate without changing its unit binding.
+playerFrame.alpha, npcFrame.alpha = 0.55, 0.8
+Tick()
+assert(playerFrame.alpha == 0 and npcFrame.alpha == 0, "A native combat alpha reset showed a health bar until the next refresh")
+Approx(combatPlayer.labels[1].alpha, 0.55, "player label follows the updated fade")
+Approx(combatNPC.labels[1].alpha, 0.8, "NPC label follows the updated fade")
 Event("NAME_PLATE_UNIT_REMOVED", "nameplate10")
-assert(npcFrame.alpha == 1 and not combatNPC.labels[1].shown)
+assert(npcFrame.alpha == 0.8 and not combatNPC.labels[1].shown)
 Bind(combatNPC, npcFrame, "nameplate13", two)
 Event("NAME_PLATE_UNIT_ADDED", "nameplate13")
 assert(npcFrame.alpha == 0 and combatNPC.labels[1].shown and combatNPC.labels[1].text == two.name)
+npcFrame.protected, npcFrame.alpha = true, 0.7
+Tick()
+assert(npcFrame.alpha == 0.7 and not combatNPC.labels[1].shown)
 combat = false
 Event("PLAYER_REGEN_ENABLED")
-assert(protectedFrame.alpha == 0 and rejectedFrame.alpha == 0)
+assert(protectedFrame.alpha == 0 and rejectedFrame.alpha == 0 and npcFrame.alpha == 0)
+-- A native redraw can arrive after the combat-end event and its refresh.
+playerFrame.alpha, npcFrame.alpha = 0.65, 0.9
+Tick()
+assert(playerFrame.alpha == 0 and npcFrame.alpha == 0, "Never missed a native alpha reset after combat ended")
+Approx(combatPlayer.labels[1].alpha, 0.65, "player label follows the post-combat fade")
+Approx(combatNPC.labels[1].alpha, 0.9, "NPC label follows the post-combat fade")
 
 -- Reset settings while WoW refuses CVar writes. Retry the saved values afterward.
 local cvars = {UnitNameFriendlyPlayerName = "1", UnitNameNPC = "1"}

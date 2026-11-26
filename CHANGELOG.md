@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Reapply Never on the next display update if WoW brings back a hidden health bar, including just after combat ends.
+
 ## [0.5.3b0] - 2026-11-26
 
 - Apply the Never health-bar setting to player and NPC nameplates that WoW allows the addon to update during combat.

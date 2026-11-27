@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.3b11] - 2026-11-27
+
 - Stack the click and minimap options with equal spacing between sections, and pin backup and reset above the main tab footer.
 
 ## [0.5.3b10] - 2026-11-27

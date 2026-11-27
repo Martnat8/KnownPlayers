@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.3b12] - 2026-11-27
+
 - Rename the Manually Added categories to Manually Remembered.
 - Save and display both parts of WoW: Forever player names. Use Convert Player Names in Backup & Restore to update existing history after saving a restore point.
 

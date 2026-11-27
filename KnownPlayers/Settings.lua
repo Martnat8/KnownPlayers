@@ -236,7 +236,7 @@ local function AddFriendlyMinionVisibility(parent, x, y)
     Refresh()
 end
 
-local function NewScrollingPage(parent, centerWhenFits)
+local function NewScrollingPage(parent, centerWhenFits, footerHeight)
     local page = CreateFrame("Frame", nil, parent)
     local scroller = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
     scroller.scrollBarHideable = true
@@ -248,7 +248,7 @@ local function NewScrollingPage(parent, centerWhenFits)
         if newOffset == offset then return end
         offset = newOffset
         scroller:SetPoint("TOPLEFT", page, "TOPLEFT", SCROLL_LEFT + offset, -SCROLL_TOP)
-        scroller:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -SCROLL_RIGHT + offset, SCROLL_BOTTOM)
+        scroller:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -SCROLL_RIGHT + offset, SCROLL_BOTTOM + (footerHeight or 0))
     end
     SetCentered(centerWhenFits)
     scroller:HookScript("OnScrollRangeChanged", function(self, _, verticalRange)
@@ -624,7 +624,7 @@ local function NeedsFriendlyNPCPlates()
 end
 
 local function BuildHomePage(parent)
-    local page, content = NewScrollingPage(parent)
+    local page, content = NewScrollingPage(parent, false, 42)
     local about = Button(page, "About", 80, function() ShowAbout(page) end)
     about:SetPoint("TOPRIGHT", page, "TOPRIGHT", -SCROLL_RIGHT - CONTENT_RIGHT_PADDING, -12)
 
@@ -643,32 +643,35 @@ local function BuildHomePage(parent)
             ns.RefreshKnownNameplates()
         end, function() return KnownPlayersSettings.filterNPCNameplates end)
 
+    local optionsY = -153
     local clickable
-    clickable = Checkbox(content, 17, -150, "Clickable nameplates",
+    clickable = Checkbox(content, 17, optionsY, "Clickable nameplates",
         KnownPlayersSettings.nameplatesClickable ~= false, function(checked)
             if not ns.SetNameplatesClickable(checked) then
                 clickable:SetChecked(KnownPlayersSettings.nameplatesClickable ~= false)
                 print("|cff33ff99KnownPlayers:|r WoW could not change nameplate clicks.")
             end
         end, function() return KnownPlayersSettings.nameplatesClickable ~= false end)
+    Checkbox(content, 228, optionsY, "Show minimap button",
+        KnownPlayersSettings.showMinimapButton, function(checked)
+            KnownPlayersSettings.showMinimapButton = checked
+            ns.RefreshMinimapButton()
+        end, function() return KnownPlayersSettings.showMinimapButton end)
 
     local Layout
     local function Refresh() Layout() end
     local layoutSetup = AddNameplateSetup(content, Refresh)
 
-    local minimapHeading = Label(content, "Minimap", 18, 0, "GameFontNormal")
-    local minimap = Checkbox(content, 17, 0, "Show minimap button",
-        KnownPlayersSettings.showMinimapButton, function(checked)
-            KnownPlayersSettings.showMinimapButton = checked
-            ns.RefreshMinimapButton()
-        end, function() return KnownPlayersSettings.showMinimapButton end)
-    local maintenanceHeading = Label(content, "Settings maintenance", 18, 0, "GameFontNormal")
     local backups = Button(content, "Backup & Restore", 135, function() ns.OpenBackupWindow(page) end)
     local reset = Button(content, "Reset Settings to Defaults", 205, function()
         StaticPopup_Show("KNOWNPLAYERS_RESET_SETTINGS")
     end)
-    local version = Label(content, "Version " .. ns.AddonVersion, 0, 0)
-    local repository = Label(content, "https://github.com/Martnat8/KnownPlayers", 0, 0)
+    local repository = page:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    repository:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", SCROLL_LEFT + TABLE_LEFT, 8)
+    repository:SetText("https://github.com/Martnat8/KnownPlayers")
+    local version = page:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    version:SetPoint("BOTTOMLEFT", repository, "TOPLEFT", 0, 5)
+    version:SetText("Version " .. ns.AddonVersion)
 
     Layout = function()
         clickable:SetEnabled(ns.CanSetNameplateClicks and ns.CanSetNameplateClicks() and not InCombatLockdown() or false)
@@ -697,17 +700,11 @@ local function BuildHomePage(parent)
             or (questieReady and ns.HasUnfilteredOverheadNames("npc")) then
             messages[#messages + 1] = "WoW is still showing some overhead names outside the filter. Check WoW’s Names settings."
         end
-        local minimapY = layoutSetup({player = players, npc = npcPlates, always = players or npcPlates},
-            messages, -183) - 26
-        local maintenanceY = minimapY - 68
-        PlaceAt(minimapHeading, content, 18, minimapY)
-        PlaceAt(minimap, content, 17, minimapY - 20)
-        PlaceAt(maintenanceHeading, content, 18, maintenanceY)
-        PlaceAt(backups, content, 18, maintenanceY - 20)
-        PlaceAt(reset, content, 18, maintenanceY - 51)
-        PlaceAt(version, content, 18, maintenanceY - 92)
-        PlaceAt(repository, content, 18, maintenanceY - 111)
-        content:SetHeight(-maintenanceY + 139)
+        local actionsY = layoutSetup({player = players, npc = npcPlates, always = players or npcPlates},
+            messages, -186) - 12
+        PlaceAt(backups, content, 18, actionsY)
+        PlaceAt(reset, content, 18, actionsY - 31)
+        content:SetHeight(-actionsY + 68)
     end
     playerFilter:HookScript("OnClick", Refresh)
     npcFilter:HookScript("OnClick", Refresh)

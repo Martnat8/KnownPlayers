@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Group the nameplate click and minimap options on the main settings tab and move version and repository details to its footer.
+
 ## [0.5.3b9] - 2026-11-27
 
 - Restore the 20–60 yard NPC distance slider on the Appearance tab.

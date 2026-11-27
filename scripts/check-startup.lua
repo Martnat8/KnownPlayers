@@ -20,7 +20,7 @@ for _, path in ipairs(arg) do
     assert(listed[path:gsub("\\", "/")], path .. " is missing from " .. toc)
 end
 
-local frames = {}
+local frames, fontStrings = {}, {}
 local attachedMinimapMask
 local function Noop() end
 local widget = setmetatable({
@@ -42,8 +42,14 @@ function widget:HookScript(script, handler)
     end
 end
 function widget:SetSize(width, height) self.width, self.height = width, height end
-function widget:SetPoint(point, _, _, x, y)
-    if point == "TOPLEFT" then self.leftOffset, self.topOffset = x, y end
+function widget:SetPoint(point, target, relativePoint, x, y)
+    if point == "TOPLEFT" then
+        self.leftOffset, self.topOffset = x, y
+    elseif point == "BOTTOMLEFT" then
+        self.bottomLeftTarget, self.bottomLeftPoint, self.bottomLeftOffset = target, relativePoint, y
+    elseif point == "BOTTOMRIGHT" then
+        self.bottomRightOffset = y
+    end
 end
 function widget:SetText(text) self.text = text end
 function widget:GetText() return self.text end
@@ -77,7 +83,13 @@ function widget:Show() self:SetShown(true) end
 local function NewWidget()
     return setmetatable({shown = true, events = {}}, {__index = widget})
 end
-widget.CreateFontString, widget.CreateTexture, widget.GetFontString = NewWidget, NewWidget, NewWidget
+function widget:CreateFontString()
+    local label = NewWidget()
+    label.parent = self
+    fontStrings[#fontStrings + 1] = label
+    return label
+end
+widget.CreateTexture, widget.GetFontString = NewWidget, NewWidget
 widget.CreateMaskTexture = NewWidget
 
 function CreateFrame(_, _, parent, template)
@@ -153,7 +165,7 @@ for _, frame in ipairs(frames) do
 end
 assert(centeredScroller, "Appearance should make room for the scrollbar when content overflows")
 
-local playerFilter, npcFilter, clickToggle
+local playerFilter, npcFilter, clickToggle, minimapToggle, backupsButton
 for _, frame in ipairs(frames) do
     if frame.Text and frame.Text.text == "Enable player nameplate filtering" then
         playerFilter = frame
@@ -161,11 +173,42 @@ for _, frame in ipairs(frames) do
         npcFilter = frame
     elseif frame.Text and frame.Text.text == "Clickable nameplates" then
         clickToggle = frame
+    elseif frame.Text and frame.Text.text == "Show minimap button" then
+        minimapToggle = frame
+    elseif frame:GetText() == "Backup & Restore" then
+        backupsButton = frame
     end
 end
 assert(playerFilter and npcFilter and playerFilter.topOffset > npcFilter.topOffset,
     "Both nameplate filtering toggles must be available on the main page")
 assert(clickToggle and clickToggle.parent == npcFilter.parent and clickToggle.topOffset < npcFilter.topOffset)
+assert(minimapToggle and minimapToggle.parent == clickToggle.parent
+    and minimapToggle.topOffset == clickToggle.topOffset and minimapToggle.leftOffset > clickToggle.leftOffset)
+local homeScroller = clickToggle.parent.parent
+local homePage = homeScroller.parent
+local versionLabel, repositoryLabel
+for _, label in ipairs(fontStrings) do
+    local value = label:GetText()
+    if label.parent == homePage or label.parent == clickToggle.parent then
+        assert(value ~= "Minimap" and value ~= "Settings maintenance")
+        if value == "Version " .. ns.AddonVersion then versionLabel = label end
+        if value == "https://github.com/Martnat8/KnownPlayers" then repositoryLabel = label end
+    end
+end
+assert(versionLabel and repositoryLabel and repositoryLabel.bottomLeftTarget == homePage
+    and repositoryLabel.bottomLeftPoint == "BOTTOMLEFT" and versionLabel.bottomLeftTarget == repositoryLabel
+    and versionLabel.bottomLeftPoint == "TOPLEFT")
+local footerTop = repositoryLabel.bottomLeftOffset + repositoryLabel:GetStringHeight()
+    + versionLabel.bottomLeftOffset + versionLabel:GetStringHeight()
+assert(homeScroller.bottomRightOffset > footerTop, "the scrollable content must sit above the footer")
+local actionsY = assert(backupsButton).topOffset
+npcFilter:SetChecked(true)
+npcFilter:OnClick()
+assert(backupsButton.topOffset < actionsY and repositoryLabel.bottomLeftTarget == homePage,
+    "nameplate setup messages should move actions below them while the footer stays pinned")
+npcFilter:SetChecked(false)
+npcFilter:OnClick()
+assert(backupsButton.topOffset == actionsY)
 assert(clickToggle:GetChecked() and hitTestInsets[0][1] == 1 and hitTestInsets[1][4] == 8)
 clickToggle:SetChecked(false)
 clickToggle:OnClick()

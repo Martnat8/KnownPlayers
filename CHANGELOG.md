@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.3b7] - 2026-11-27
+
 - Put one shared filtering method dropdown below the player and NPC toggles and apply its selection to both.
 
 ## [0.5.3b6] - 2026-11-26

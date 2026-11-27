@@ -1,6 +1,6 @@
 local addonName, ns = ...
 
-local ADDON_VERSION = "0.5.3b8"
+local ADDON_VERSION = "0.5.3b9"
 ns.AddonVersion = ADDON_VERSION
 local PRUNE_INTERVAL = 5
 

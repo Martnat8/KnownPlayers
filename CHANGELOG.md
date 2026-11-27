@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.3b9] - 2026-11-27
+
 - Restore the 20–60 yard NPC distance slider on the Appearance tab.
 
 ## [0.5.3b8] - 2026-11-27

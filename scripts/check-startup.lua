@@ -51,11 +51,11 @@ function widget:SetChecked(checked) self.checked = checked end
 function widget:GetChecked() return self.checked end
 function widget:SetAllPoints(target) self.allPointsTarget = target end
 function widget:AddMaskTexture(mask) attachedMinimapMask = mask end
-function widget:HasFocus() return self.focused end
-function widget:ClearFocus()
-    if not self.focused then return end
-    self.focused = false
-    if self.OnEditFocusLost then self:OnEditFocusLost() end
+function widget:SetMinMaxValues(minimum, maximum) self.minimum, self.maximum = minimum, maximum end
+function widget:SetValue(value)
+    if self.value == value then return end
+    self.value = value
+    if self.OnValueChanged then self:OnValueChanged(value) end
 end
 function widget:EnableMouseWheel(enabled) self.mouseWheelEnabled = enabled end
 function widget:SetWidth(width) self.width = width end
@@ -108,7 +108,7 @@ C_CVar = {
     GetCVar = function(key) if key == "nameplateMaxDistance" then return npcDistance end end,
     SetCVar = function(key, value)
         assert(key == "nameplateMaxDistance")
-        npcDistance = tonumber(value) > 100 and "100" or value
+        npcDistance = tonumber(value) > 55 and "55" or value
         distanceWrites = distanceWrites + 1
         return true
     end,
@@ -174,29 +174,20 @@ clickToggle:SetChecked(true)
 clickToggle:OnClick()
 assert(KnownPlayersSettings.nameplatesClickable and hitTestInsets[0][1] == 1 and hitTestInsets[1][4] == 8)
 
-local npcDistanceInput, appearanceEvents
+local npcDistanceSlider, appearanceEvents
 for _, frame in ipairs(frames) do
-    if frame.OnEnterPressed and frame:GetText() == "45.25" then npcDistanceInput = frame end
+    if frame.OnValueChanged and frame.value == 45.25 then npcDistanceSlider = frame end
     if frame.events.CVAR_UPDATE and frame.parent and frame.parent.fitHeightContent then appearanceEvents = frame end
 end
-assert(npcDistanceInput and appearanceEvents and distanceWrites == 0)
+assert(npcDistanceSlider and appearanceEvents and distanceWrites == 0)
+assert(npcDistanceSlider.minimum == 20 and npcDistanceSlider.maximum == 60)
 appearanceEvents.parent.shown = true
 npcDistance = "75"
 appearanceEvents:OnEvent("CVAR_UPDATE", "nameplateMaxDistance")
-assert(npcDistanceInput:GetText() == "75" and distanceWrites == 0, "refresh must preserve a console change")
-npcDistanceInput.focused = true
-npcDistanceInput:SetText("90.5")
-npcDistanceInput:OnEnterPressed()
-assert(npcDistance == "90.5" and distanceWrites == 1, "the NPC distance editor must send the submitted value")
-npcDistanceInput.focused = true
-npcDistanceInput:SetText("100")
-npcDistanceInput:OnEscapePressed()
-assert(npcDistanceInput:GetText() == "90.5" and distanceWrites == 1, "cancel must discard the draft")
-npcDistanceInput.focused = true
-npcDistanceInput:SetText("not a distance")
-npcDistanceInput:OnEnterPressed()
-assert(distanceWrites == 1, "invalid input must not write the CVar")
-npcDistanceInput.focused = true
-npcDistanceInput:SetText("120")
-npcDistanceInput:OnEnterPressed()
-assert(npcDistanceInput:GetText() == "100" and distanceWrites == 2, "show the value the client actually accepted")
+assert(npcDistanceSlider.value == 60 and npcDistance == "75" and distanceWrites == 0,
+    "refresh must preserve an external change beyond the slider range")
+npcDistanceSlider:SetValue(48)
+assert(npcDistance == "48" and distanceWrites == 1, "moving the NPC distance slider should apply the new value")
+npcDistanceSlider:SetValue(58)
+assert(npcDistanceSlider.value == 55 and npcDistance == "55" and distanceWrites == 2,
+    "show the value the client actually accepted without issuing another write")

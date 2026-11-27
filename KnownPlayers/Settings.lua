@@ -416,10 +416,10 @@ local function AddRetentionDropdown(row, key, x, relayout)
     Refresh()
 end
 
-local function NameplateCVarRow(parent, anchor, option)
+local function NameplateSliderRow(parent, anchor, option)
     local rowWidth = CONTENT_WIDTH - 2 * TABLE_LEFT
     local labelWidth, valueWidth, buttonWidth, columnGap = 136, 46, 74, 10
-    local controlX = labelWidth + columnGap
+    local sliderX = labelWidth + columnGap
     local valueX = rowWidth - buttonWidth - columnGap - valueWidth
     local row = CreateFrame("Frame", nil, parent)
     row:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -6)
@@ -427,25 +427,16 @@ local function NameplateCVarRow(parent, anchor, option)
     local label = Label(row, option.label, 0, -7, "GameFontHighlight")
     label:SetWidth(labelWidth)
     label:SetJustifyH("LEFT")
-    local input, slider
-    if option.input then
-        input = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-        input:SetPoint("TOPLEFT", row, "TOPLEFT", controlX + 4, -2)
-        input:SetSize(valueX - controlX - columnGap - 4, 22)
-        input:SetAutoFocus(false)
-        input:SetMaxLetters(16)
-    else
-        slider = CreateFrame("Slider", nil, row, "UISliderTemplate")
-        slider:SetPoint("TOPLEFT", row, "TOPLEFT", controlX, -4)
-        slider:SetSize(valueX - controlX - columnGap, 17)
-        slider:SetMinMaxValues(option.min, option.max)
-        slider:SetValueStep(1)
-        slider:SetObeyStepOnDrag(true)
-    end
+    local slider = CreateFrame("Slider", nil, row, "UISliderTemplate")
+    slider:SetPoint("TOPLEFT", row, "TOPLEFT", sliderX, -4)
+    slider:SetSize(valueX - sliderX - columnGap, 17)
+    slider:SetMinMaxValues(option.min, option.max)
+    slider:SetValueStep(1)
+    slider:SetObeyStepOnDrag(true)
     local valueLabel = Label(row, "", valueX, -7)
     valueLabel:SetWidth(valueWidth)
     valueLabel:SetJustifyH("RIGHT")
-    local status = Label(row, "", controlX, -28)
+    local status = Label(row, "", sliderX, -28)
 
     local function ReadNumber(getter)
         local ok, value = pcall(getter, option.cvar)
@@ -472,19 +463,14 @@ local function NameplateCVarRow(parent, anchor, option)
     local function Refresh(message)
         local current = ReadNumber(C_CVar and C_CVar.GetCVar)
         local unavailable = Availability(current)
-        if input then
-            if not input:HasFocus() then input:SetText(current and tostring(current) or "") end
-            input:EnableMouse(not unavailable)
-        else
-            refreshing = true
-            slider:SetValue(current and math.max(option.min, math.min(option.max,
-                current * option.scale)) or option.min)
-            slider:SetEnabled(not unavailable)
-            refreshing = false
-        end
+        refreshing = true
+        slider:SetValue(current and math.max(option.min, math.min(option.max,
+            current * option.scale)) or option.min)
+        slider:SetEnabled(not unavailable)
         defaultButton:SetEnabled(not unavailable and ReadNumber(C_CVar.GetCVarDefault) ~= nil)
         valueLabel:SetText(current and string.format("%g%s", current * option.scale, option.suffix) or "N/A")
-        status:SetText(unavailable or message or (input and "Press Enter to apply" or ""))
+        status:SetText(unavailable or message or "")
+        refreshing = false
     end
 
     local function Apply(value)
@@ -509,23 +495,9 @@ local function NameplateCVarRow(parent, anchor, option)
         if defaultValue then Apply(defaultValue) end
     end)
     defaultButton:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
-    if input then
-        input:SetScript("OnEnterPressed", function(self)
-            local distance = tonumber(self:GetText())
-            self:ClearFocus()
-            if distance and distance > 0 and distance < math.huge then
-                Apply(distance)
-            else
-                Refresh("Enter a positive distance in yards")
-            end
-        end)
-        input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-        input:SetScript("OnEditFocusLost", function() Refresh() end)
-    else
-        slider:SetScript("OnValueChanged", function(_, value)
-            if not refreshing then Apply(math.floor(value + 0.5) / option.scale) end
-        end)
-    end
+    slider:SetScript("OnValueChanged", function(_, value)
+        if not refreshing then Apply(math.floor(value + 0.5) / option.scale) end
+    end)
     Refresh()
     return row, Refresh
 end
@@ -952,7 +924,7 @@ local function AddAppearanceControls(box, isNPC)
         function() return KnownPlayersSettings[healthKey] end, setHealth)
 end
 
-local function AddNameplateDistanceAndOpacity(page, body, anchor)
+local function AddNameplateSliders(page, body, anchor)
     local row = anchor
     local height = 0
     local refreshByCVar = {}
@@ -960,11 +932,11 @@ local function AddNameplateDistanceAndOpacity(page, body, anchor)
         {label = "Player distance", cvar = "nameplatePlayerMaxDistance",
             min = 20, max = 60, scale = 1, suffix = " yd"},
         {label = "NPC distance", cvar = "nameplateMaxDistance",
-            input = true, scale = 1, suffix = " yd"},
+            min = 20, max = 60, scale = 1, suffix = " yd"},
         {label = "Minimum opacity", cvar = "nameplateMinAlpha",
             min = 0, max = 100, scale = 100, suffix = "%"},
     }) do
-        row, refreshByCVar[option.cvar:lower()] = NameplateCVarRow(body, row, option)
+        row, refreshByCVar[option.cvar:lower()] = NameplateSliderRow(body, row, option)
         height = height + row:GetHeight() + 6
     end
     local function Refresh()
@@ -1064,9 +1036,9 @@ local function BuildAppearancePage(parent)
         AddAppearanceBoxes(body, body, "TOPLEFT", TABLE_LEFT, appearanceTop, appearanceHeight)
     AddAppearanceControls(playerAppearance, false)
     AddAppearanceControls(npcAppearance, true)
-    local controlsTop = appearanceTop - appearanceHeight - 21
-    local heading = Label(body, "Distance and opacity", TABLE_LEFT, controlsTop, "GameFontNormal")
-    local last, controlsHeight = AddNameplateDistanceAndOpacity(page, body, heading)
+    local sliderTop = appearanceTop - appearanceHeight - 21
+    local heading = Label(body, "Distance and opacity", TABLE_LEFT, sliderTop, "GameFontNormal")
+    local last, sliderHeight = AddNameplateSliders(page, body, heading)
     local colorHeight = 40 + math.max(#KnownPlayersSettings.nameplateColorOrder,
         #KnownPlayersSettings.npcNameplateColorOrder) * ROW_HEIGHT
     local colorGap = 9
@@ -1075,7 +1047,7 @@ local function BuildAppearancePage(parent)
         ns.GetPlayerCategoryLabel, ns.GetNameplateCategoryColor, "nameplateCategoryColors")
     AddColorTable(npcColors, "NPC category colors", "npcNameplateColorOrder",
         NPCLabelLookup(), ns.GetNPCNameplateCategoryColor, "npcNameplateCategoryColors")
-    body:SetHeight(-controlsTop + heading:GetStringHeight() + controlsHeight + colorGap + colorHeight + 20)
+    body:SetHeight(-sliderTop + heading:GetStringHeight() + sliderHeight + colorGap + colorHeight + 20)
     page.fitHeightContent = body
     return page
 end

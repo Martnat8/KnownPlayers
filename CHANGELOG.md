@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Restore the 20–60 yard NPC distance slider on the Appearance tab.
+
 ## [0.5.3b8] - 2026-11-27
 
 - Refresh NPC nameplates as they return to view and retry styling selected players and NPCs as WoW makes their frames available.

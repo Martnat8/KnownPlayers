@@ -248,7 +248,7 @@ function ns.InitializeDatabase()
 end
 
 -- Preserve existing SavedVariables keys. Identify players by GUID when available,
--- then by exact name + realm. Never merge solely on a similar-looking name.
+-- then by an exact, unambiguous alias.
 local function ValidGUID(guid)
     return ns.SafePlayerGUID(guid) ~= nil
 end
@@ -291,20 +291,50 @@ function ns.NormalizePlayerKey(key, realmHint)
     return name .. "-" .. realm, name, realm
 end
 
-function ns.PlayerKeyFromName(name, realm)
-    name = ns.SafeString(name)
-    if not name or name == UNKNOWNOBJECT or not ns.IsAccessibleValue(realm) then return nil end
-    realm = ns.SafeString(realm)
-    if not realm then
-        local ok, localRealm = pcall(GetNormalizedRealmName)
-        realm = ok and ns.SafeString(localRealm)
-    end
-    if realm then return ns.NormalizePlayerKey(name .. "-" .. realm, realm) end
+local function ReadableCharacterName(name)
+    -- Store normalized keys separately from their display spelling.
+    return name:gsub("%-", " "):gsub("%s+", " ")
 end
 
-local function ReadableCharacterName(name)
-    -- Display only: stored identities retain their canonical hyphens/realm.
-    return name:gsub("%-", " "):gsub("%s+", " ")
+function ns.IsLegacyPlayerRealm(value)
+    value = ns.SafeString(value)
+    if not value then return false end
+    if value:upper():gsub("%s+", ""):match("^CAMWOW[%w]+$") then return true end
+    local ok, realm = pcall(GetNormalizedRealmName)
+    return ok and ns.SafeString(realm) == value
+end
+
+function ns.NormalizeForeverPlayerName(name, surname)
+    name = ns.SafeString(name)
+    if not name or name == UNKNOWNOBJECT or name:match("^guid:") or not ns.IsAccessibleValue(surname) then return end
+    name = SplitKnownRealm(name)
+    local canonical = name:match("^%s*(.-)%s*$"):gsub("%s+", "-")
+    surname = ns.SafeString(surname)
+    local first, last = canonical:match("^([^%-]+)%-([^%-]+)$")
+    if surname then
+        if surname:find("[%s%-]") or surname == UNKNOWNOBJECT then return end
+        if last then
+            if last:lower() ~= surname:lower() then return end
+        elseif canonical ~= "" and not canonical:find("-", 1, true) then
+            first, last = canonical, surname
+        end
+    end
+    if first and last then return first .. "-" .. last, first .. " " .. last, last end
+end
+
+function ns.PlayerKeyFromName(name, surname)
+    name = ns.SafeString(name)
+    if not name or name == UNKNOWNOBJECT or not ns.IsAccessibleValue(surname) then return end
+    if ns.IsLegacyPlayerRealm(surname) then
+        return ns.NormalizePlayerKey(name .. "-" .. surname, surname)
+    end
+    local key, displayName = ns.NormalizeForeverPlayerName(name, surname)
+    return key, displayName
+end
+
+function ns.PlayerKeyFromUnit(unit)
+    local ok, name, surname = pcall(UnitFullName, unit)
+    if ok then return ns.PlayerKeyFromName(name, surname) end
 end
 
 function ns.GetDisplayName(key, record)
@@ -355,7 +385,7 @@ function ns.MigratePlayerRecords()
                 record.displayName = name
                 changed = changed + 1
             end
-            if not record.realm and realm then record.realm = realm end
+            if not record.surname and not record.realm and realm then record.realm = realm end
             if type(record.categories) ~= "table" then record.categories = {} end
             if type(record.categoryLastSeen) ~= "table" then record.categoryLastSeen = {} end
             if type(record.categoryFirstSeen) ~= "table" then record.categoryFirstSeen = {} end
@@ -389,7 +419,7 @@ function ns.MigratePlayerRecords()
     local entries, claims = {}, {}
     CollectAliasClaims(claims, KnownPlayersDB.players)
     for key, record in pairs(KnownPlayersDB.players) do
-        if type(record) == "table" then
+        if type(record) == "table" and not record.surname then
             local canonical, _, realm = ns.NormalizePlayerKey(key, record.realm)
             if canonical and realm then
                 entries[#entries + 1] = {key = key, canonical = canonical,
@@ -480,8 +510,14 @@ MergeInto = function(destination, source, keepDestinationDetails)
         end
     end
     destination.guid = destination.guid or source.guid
-    destination.realm = destination.realm or source.realm
-    destination.displayName = destination.displayName or source.displayName
+    if not destination.surname then
+        if source.surname then
+            destination.displayName, destination.surname = source.displayName, source.surname
+        else
+            destination.realm = destination.realm or source.realm
+            destination.displayName = destination.displayName or source.displayName
+        end
+    end
     if type(source.guildMemberships) == "table" then
         destination.guildMemberships = destination.guildMemberships or {}
         for clubID, incoming in pairs(source.guildMemberships) do
@@ -524,13 +560,14 @@ function ns.MergeBackupPlayers(staged, incoming)
     local conflicts = 0
     for _, key in ipairs(keys) do
         local record = incoming[key]
-        local name = record.displayName and record.realm and (record.displayName .. "-" .. record.realm) or key
+        local name = record.surname and record.displayName
+            or record.displayName and record.realm and (record.displayName .. "-" .. record.realm) or key
         local guid = ns.SafePlayerGUID(record.guid)
         local conflictingClaim = HasConflictingAliasClaims(claims, key, record)
         local destination = index:FindKeyByGUID(guid)
         local ambiguous
         if not destination and (guid or not conflictingClaim) then
-            destination, ambiguous = index:FindKeyByName(name, guid, record.realm)
+            destination, ambiguous = index:FindKeyByName(name, guid, not record.surname and record.realm or nil)
             if guid and destination then
                 local saved = staged[destination]
                 if not ns.SafePlayerGUID(saved.guid)
@@ -631,6 +668,8 @@ function ns.RememberPlayer(name, category, seenAt, guid, realmHint, unit)
     name = ns.SafeString(name)
     if not name then return nil end
     local normalized, displayName, realm = ns.NormalizePlayerKey(name, realmHint)
+    local surname
+    if not normalized then normalized, displayName, surname = ns.NormalizeForeverPlayerName(name) end
     if normalized then name = normalized end
     if not displayName then displayName, realm = SplitKnownRealm(name, realmHint) end
     if not ValidGUID(guid) then guid = nil end
@@ -689,13 +728,14 @@ function ns.RememberPlayer(name, category, seenAt, guid, realmHint, unit)
         MarkPlayerCategory(record, category, timestamp)
     end
     record.lastSeen = timestamp
-    -- Prefer the name supplied by the current API; don't replace a useful
-    -- previous realm with a missing one.
     local newGUID = guid or record.guid
-    local newName = displayName and displayName ~= "" and displayName or record.displayName
-    local newRealm = realm or record.realm
-    local changedIdentity = created or newGUID ~= record.guid or newName ~= record.displayName or newRealm ~= record.realm
-    record.guid, record.displayName, record.realm = newGUID, newName, newRealm
+    local newName = (surname or not record.surname) and displayName and displayName ~= ""
+        and displayName or record.displayName
+    local newRealm = not record.surname and realm or record.realm
+    local newSurname = surname or record.surname
+    local changedIdentity = created or newGUID ~= record.guid or newName ~= record.displayName
+        or newRealm ~= record.realm or newSurname ~= record.surname
+    record.guid, record.displayName, record.realm, record.surname = newGUID, newName, newRealm, newSurname
     ns.RefreshPlayerAppearance(record, unit)
     if merged then ns.InvalidateIdentityIndex()
     elseif changedIdentity then ns.UpdateIdentityIndex(matchedKey, record)
@@ -717,7 +757,7 @@ local function RestorePlayer(key, saved, originalRecord)
         or guid and ns.FindDirectKeyByGUID and ns.FindDirectKeyByGUID(guid)
     -- A manual Avoid mark must not move to another record by name alone.
     if not match and ns.FindDirectKeyByName and (guid or not ns.PlayerHasCategory(saved, "avoid")) then
-        match = ns.FindDirectKeyByName(key, guid)
+        match = ns.FindDirectKeyByName(saved.surname and saved.displayName or key, guid)
     end
     if match then
         MergeInto(players[match], saved, players[match] == originalRecord)
@@ -869,7 +909,7 @@ function ns.RemovePlayerCategory(key, category, undoable)
     local saved
     if undoable and ns.PlayerHasCategory(record, category) then
         saved = {
-            displayName = record.displayName, realm = record.realm, guid = record.guid,
+            displayName = record.displayName, surname = record.surname, realm = record.realm, guid = record.guid,
             race = record.race, raceAtlas = record.raceAtlas,
             class = record.class, classToken = record.classToken,
             note = record.note, tags = record.tags, favorite = record.favorite, lastSeen = record.lastSeen,

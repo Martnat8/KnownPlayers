@@ -137,7 +137,7 @@ local function Player(value, localBackup)
     local note = localBackup and LocalNote or Note
     local function TimeMap(value) return Map(value, Name, Stamp, mapLimit) end
     local player = Fields(value, {
-        displayName = Name, realm = Name, guid = Guid, class = Name, classToken = Name,
+        displayName = Name, surname = Name, realm = Name, guid = Guid, class = Name, classToken = Name,
         race = Name, raceAtlas = Name, note = note, tags = note, favorite = Boolean,
         categories = function(categories) return Map(categories, Name, Boolean, mapLimit) end,
         lastSeen = Stamp, categoryFirstSeen = TimeMap, categoryLastSeen = TimeMap,
@@ -238,6 +238,54 @@ function ns.BackupBeforeChange(reason, selection)
     local point, message = ns.CreateRestorePoint("automatic", reason, selection)
     if not point then print("|cff33ff99KnownPlayers:|r Could not create a restore point. " .. message) end
     return point ~= nil
+end
+
+local function ConvertedPlayerName(key, record)
+    local name, oldRealm = record.displayName, ns.SafeString(record.realm)
+    if not oldRealm or ns.IsLegacyPlayerRealm(oldRealm) then
+        local canonical, displayName, surname = ns.NormalizeForeverPlayerName(name, record.surname)
+        if canonical then return displayName, surname end
+        local storageKey, storedName, storedSurname = ns.NormalizeForeverPlayerName(key, record.surname)
+        local first = storageKey and storageKey:match("^([^%-]+)%-")
+        name = ns.SafeString(name)
+        if first and (not name or first:lower() == name:lower()) then return storedName, storedSurname end
+        return
+    end
+
+    -- An old realm value is usable as a surname if the saved full name
+    -- or the storage key independently supplies the same two parts.
+    local candidate, displayName, surname = ns.NormalizeForeverPlayerName(name, record.surname or oldRealm)
+    if not candidate or surname:lower() ~= oldRealm:lower() then return end
+    local nameKey = ns.NormalizeForeverPlayerName(name)
+    local storageKey = ns.NormalizeForeverPlayerName(key)
+    candidate = candidate:lower()
+    if (nameKey and nameKey:lower() == candidate) or (storageKey and storageKey:lower() == candidate) then
+        return displayName, surname
+    end
+end
+
+function ns.ConvertPlayerNames()
+    local changes, skipped = {}, 0
+    for key, record in pairs(KnownPlayersDB.players) do
+        if type(record) == "table" and (not record.surname or record.realm) then
+            local name, surname = ConvertedPlayerName(key, record)
+            if name then
+                changes[#changes + 1] = {record = record, name = name, surname = surname}
+            else
+                skipped = skipped + 1
+            end
+        end
+    end
+    if #changes == 0 then return 0, skipped end
+
+    local point, message = ns.CreateRestorePoint("automatic", "Before converting player names", {players = true})
+    if not point then return nil, "Could not create a restore point. " .. message end
+    for _, change in ipairs(changes) do
+        local record = change.record
+        record.displayName, record.surname, record.realm = change.name, change.surname, nil
+    end
+    ns.InvalidateIdentityIndex()
+    return #changes, skipped
 end
 
 function ns.CanTransferBackups()

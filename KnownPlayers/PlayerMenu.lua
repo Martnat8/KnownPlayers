@@ -16,17 +16,9 @@ function ns.GetPlayerFromUnit(unit)
     end
     if isSelf then return nil, "Target another player first." end
 
-    local ok, name, realm = pcall(UnitFullName, unit)
-    if not ok or not ns.IsAccessibleValue(realm) then
-        return nil, unidentified
-    end
-    name = ns.SafeString(name)
-    if not name or name == UNKNOWNOBJECT then
-        return nil, unidentified
-    end
-    local key, _, resolvedRealm = ns.PlayerKeyFromName(name, realm)
-    if not key then return nil, "Could not identify the player's realm." end
-    return key, ns.SafePlayerGUID(ns.SafeUnitGUID(unit)), name, resolvedRealm
+    local key, name, legacyRealm = ns.PlayerKeyFromUnit(unit)
+    if not key then return nil, unidentified end
+    return key, ns.SafePlayerGUID(ns.SafeUnitGUID(unit)), name, legacyRealm
 end
 
 local function FindSavedKey(name, guid)
@@ -74,7 +66,8 @@ local function AddPlayerMenu(menuTag, rootDescription, contextData)
             if not (guid or currentUnit) or not ns.RememberPlayer(key, "manual", nil, guid, realm, currentUnit) then return end
             Refresh()
             if not KnownPlayersSettings.trackManual then
-                print("|cff33ff99KnownPlayers:|r Player saved. Enable Manually Added tracking to display its nameplate.")
+                print("|cff33ff99KnownPlayers:|r Player saved. Enable " .. ns.GetPlayerCategoryLabel("manual")
+                    .. " tracking to display its nameplate.")
             end
         end)
     end

@@ -426,8 +426,7 @@ end
 
 local function CategoryColorForUnit(unit)
     if not ns.GetNameplateCategory then return nil end
-    local ok, name, realm = pcall(UnitFullName, unit)
-    local key = ok and ns.PlayerKeyFromName(name, realm)
+    local key = ns.PlayerKeyFromUnit(unit)
     if not key then return nil end
     local category = ns.GetNameplateCategory(key, ns.SafePlayerGUID(ns.SafeUnitGUID(unit)))
     if category then return ns.GetNameplateCategoryColor(category) end
@@ -518,8 +517,7 @@ end
 
 local function IsRecognized(unit)
     -- Leave the plate visible when the game can't identify the player.
-    local ok, name, realm = pcall(UnitFullName, unit)
-    local key = ok and ns.PlayerKeyFromName(name, realm)
+    local key = ns.PlayerKeyFromUnit(unit)
     if not key then return true end
     local guid = ns.SafePlayerGUID(ns.SafeUnitGUID(unit))
     return ns.IsKnownOrAssociated(key, guid)
@@ -570,10 +568,10 @@ local function IsRecognizedMinion(unit)
     if not owner or owner == ns.SafeUnitGUID("player") then return true end
     if ns.IsKnownOrAssociated(nil, owner) then return true end
 
-    -- Older player records may only have a name and realm.
+    -- The owner may only be saved by name.
     if type(UnitNameFromGUID) ~= "function" then return false end
-    local found, name, realm = pcall(UnitNameFromGUID, owner)
-    local key = found and ns.PlayerKeyFromName(name, realm)
+    local found, name, surname = pcall(UnitNameFromGUID, owner)
+    local key = found and ns.PlayerKeyFromName(name, surname)
     return key and ns.IsKnownOrAssociated(key, owner) or false
 end
 

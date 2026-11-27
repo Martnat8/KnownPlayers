@@ -270,6 +270,19 @@ Click("Delete Restore Point")
 Confirm()
 assert(not ns.GetRestorePoint("automatic") and Button("Delete Restore Point").enabled == false)
 
+local conversionCalls = 0
+ns.RefreshKnownNameplates = function() end
+ns.ConvertPlayerNames = function()
+    conversionCalls = conversionCalls + 1
+    assert(ns.CreateRestorePoint("automatic", "Before converting player names", {players = true}))
+    return 2, 1
+end
+Click("Convert Player Names")
+assert(popup == "KNOWNPLAYERS_CONVERT_PLAYER_NAMES" and conversionCalls == 0)
+Confirm()
+assert(conversionCalls == 1 and HasLabel("Converted 2 saved player names. Skipped 1"))
+assert(Button("Restore Selected").enabled and ns.GetRestorePoint("automatic").sections.players)
+
 -- Run both transfer pages with the same payload, including the reveal fallback.
 local serialized
 local payload = string.rep("A", 4 * 1024 * 1024 - 256)

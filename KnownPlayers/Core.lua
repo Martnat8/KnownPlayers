@@ -48,7 +48,7 @@ local function HandleSlashCommand(message)
         Print("/kp guildscan - Request and scan the guild roster.")
         Print("/kp npctoggle - Remember/remove current target NPC.")
         Print("/kp npcsource - Show the NPC database source.")
-        Print("/kp remember - Add the targeted player to Manually Added.")
+        Print("/kp remember - Save the targeted player in " .. ns.GetPlayerCategoryLabel("manual") .. ".")
         Print("/kp undo - Restore the last individual removal within 30 seconds.")
         Print("/kp help - Show this help.")
         return
@@ -63,7 +63,7 @@ local function HandleSlashCommand(message)
         ns.RememberPlayer(key, "manual", nil, guidOrReason, realm, "target")
         if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
         if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
-        Print("Added to Manually Added: " .. name)
+        Print("Remembered " .. name .. " in " .. ns.GetPlayerCategoryLabel("manual") .. ".")
         return
     end
 

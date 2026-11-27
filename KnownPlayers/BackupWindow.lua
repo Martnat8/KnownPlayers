@@ -9,6 +9,7 @@ local SECTIONS = {
 local POINT_TYPES = {"manual", "automatic"}
 local CONFIRM_RESTORE = "KNOWNPLAYERS_RESTORE_BACKUP"
 local CONFIRM_DELETE = "KNOWNPLAYERS_DELETE_RESTORE_POINT"
+local CONFIRM_CONVERT = "KNOWNPLAYERS_CONVERT_PLAYER_NAMES"
 
 StaticPopupDialogs[CONFIRM_RESTORE] = {
     text = "Replace the selected data?\n\n%s\n\nA restore point will be saved first.",
@@ -26,6 +27,17 @@ StaticPopupDialogs[CONFIRM_DELETE] = {
     button1 = "Delete",
     button2 = CANCEL,
     OnAccept = function(_, delete) delete() end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+StaticPopupDialogs[CONFIRM_CONVERT] = {
+    text = "Convert saved player names to WoW: Forever's first and last names?\n\nThe latest automatic restore point will be replaced with a backup of player history.",
+    button1 = "Convert",
+    button2 = CANCEL,
+    OnAccept = function(_, convert) convert() end,
     timeout = 0,
     whileDead = true,
     hideOnEscape = true,
@@ -186,6 +198,25 @@ local function BuildRestorePage(page)
         local point, message = ns.CreateRestorePoint("manual", "Manual backup")
         if point then selectedPoint = "manual"; RefreshPoint() end
         status:SetText(point and "Manual backup created." or message)
+    end)
+    Button(page, "Convert Player Names", 160, 158, -46, function()
+        StaticPopup_Show(CONFIRM_CONVERT, nil, nil, function()
+            local count, skipped = ns.ConvertPlayerNames()
+            if not count then status:SetText(skipped); return end
+            local message = count == 0 and "No saved names needed conversion."
+                or ("Converted %d saved player %s."):format(count, count == 1 and "name" or "names")
+            if skipped > 0 then
+                message = (count == 0 and "No saved names could be converted." or message)
+                    .. (" Skipped %d with incomplete or conflicting name data."):format(skipped)
+            end
+            status:SetText(message)
+            if count > 0 then
+                selectedPoint = "automatic"
+                RefreshPoint()
+                if ns.RefreshKnownNameplates then ns.RefreshKnownNameplates() end
+                if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
+            end
+        end)
     end)
     Apply = Button(page, "Restore Selected", 140, 18, -224, function()
         local point = ns.GetRestorePoint(selectedPoint)

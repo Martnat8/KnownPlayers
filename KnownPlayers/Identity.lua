@@ -26,14 +26,20 @@ local function RemoveIndexKey(index, value, key)
 end
 
 local function Alias(name, realm)
-    local normalized = ns.NormalizePlayerKey(name, realm)
+    local normalized = ns.NormalizePlayerKey(name, realm) or ns.NormalizeForeverPlayerName(name)
     return normalized and normalized:lower()
 end
 
 function ns.PlayerIdentityAliases(key, record)
     local preferredName, realm = ns.SafeString(record.displayName), ns.SafeString(record.realm)
     local alias = Alias(key, realm)
-    local preferred = preferredName and realm and Alias(preferredName .. "-" .. realm, realm)
+    local preferred
+    if preferredName and record.surname then
+        preferred = ns.NormalizeForeverPlayerName(preferredName, record.surname)
+        if preferred then preferred = preferred:lower() end
+    elseif preferredName and realm then
+        preferred = Alias(preferredName .. "-" .. realm, realm)
+    end
     return alias, preferred ~= alias and preferred or nil
 end
 
@@ -78,7 +84,7 @@ function ns.UpdateIdentityIndex(key, record)
     if ns.InvalidateBattleNetIndex then ns.InvalidateBattleNetIndex() end
 end
 
--- Match only an unambiguous name on the same realm, without a conflicting GUID.
+-- Match only an unambiguous alias without a conflicting GUID.
 function IdentityIndex:FindKeyByName(name, guid, realm)
     name = ns.SafeString(name)
     if not name then return nil end

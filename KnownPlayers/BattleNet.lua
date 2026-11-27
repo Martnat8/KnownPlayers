@@ -205,7 +205,7 @@ end
 -- observation changes or direct record changes, never per nameplate tick.
 local function AssociationNameKey(name, realm)
     name = ns.SafeString(name)
-    if name then return (ns.NormalizePlayerKey(name, realm) or name):lower() end
+    if name then return (ns.NormalizePlayerKey(name, realm) or ns.NormalizeForeverPlayerName(name) or name):lower() end
 end
 
 local function IndexAssociatedName(key, observed, group)

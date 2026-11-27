@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Rename the Manually Added categories to Manually Remembered.
+- Save and display both parts of WoW: Forever player names. Use Convert Player Names in Backup & Restore to update existing history after saving a restore point.
+
 ## [0.5.3b11] - 2026-11-27
 
 - Stack the click and minimap options with equal spacing between sections, and pin backup and reset above the main tab footer.

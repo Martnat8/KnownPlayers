@@ -358,4 +358,35 @@ assert(targetRefreshes == 1 and ns.GetPlayer(target) == nil)
 KnownPlayersSettings.trackTargets = true
 state:Fire("PLAYER_TARGET_CHANGED")
 assert(targetRefreshes == 2 and ns.PlayerHasCategory(ns.GetPlayer(target), "target"))
+
+-- Forever unit APIs report first name and surname separately. The roster and
+-- whisper events report full names, so they should update the same records.
+ns, state = StartSession(nil, {trackTargets = true, trackWhispers = true, trackGuild = true})
+local surname = "Member"
+UnitFullName = function(unit)
+    if unit == "player" then return "Test", "Self" end
+    return "Test", surname
+end
+UnitGUID = function(unit)
+    if unit == "player" then return "Player-Forever-Self" end
+    return "Player-Forever-" .. surname
+end
+SlashCmdList.KNOWNPLAYERS("remember")
+local fullNameKey = "Test-Member"
+local remembered = assert(ns.GetPlayer(fullNameKey))
+assert(remembered.displayName == "Test Member" and remembered.surname == "Member" and not remembered.realm)
+assert(ns.PlayerHasCategory(remembered, "manual") and ns.FindDirectRecord("Test Member") == remembered)
+state:Fire("PLAYER_TARGET_CHANGED")
+state:Fire("CHAT_MSG_WHISPER", "Synthetic message", "Test Member")
+state:Fire("CHAT_MSG_WHISPER_INFORM", "Synthetic message", "Test-Self")
+state.club, state.roster = 46, {"Test Self", "Test Member"}
+state:ConfirmRoster()
+assert(ns.CountPlayers() == 1 and ns.GetPlayer(fullNameKey) == remembered)
+assert(ns.PlayerHasCategory(remembered, "target") and ns.PlayerHasCategory(remembered, "whisper"))
+assert(ns.PlayerHasCategory(remembered, "guild") and not ns.GetPlayer("Test-Self"))
+surname = "Visitor"
+state:Fire("PLAYER_TARGET_CHANGED")
+assert(ns.CountPlayers() == 2 and ns.GetPlayer("Test-Visitor").displayName == "Test Visitor")
+assert(ns.FindDirectRecord("Test") == nil and ns.FindDirectRecord("Test Member") == remembered)
+
 io.write("Persistence, guild, identity, menu, and Battle.net checks passed.\n")

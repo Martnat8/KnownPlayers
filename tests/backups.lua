@@ -421,4 +421,51 @@ local olderSettings = {version = 1, created = NOW, sections = {settings = {showM
 assert(ns.ApplyBackup(olderSettings, {settings = true}, "merge", false))
 assert(ns.GetPlayerCategoryLabel("avoid") == "Shitbags" and ns.PlayerHasCategory(ns.GetPlayer(avoidedKey), "avoid"))
 
+-- Upgrade the first-name/realm layout written for Forever before surnames were stored explicitly.
+local legacyKey, transportKey, disputedKey = "Example-Surname", "Preserved-Player-CAMWOW1", "guid:Player-Convert-3"
+local convertedGUID = "Player-Convert-1"
+KnownPlayersDB.players = {
+    [legacyKey] = {displayName = "Example", realm = "Surname", guid = convertedGUID, note = "Synthetic note",
+        tags = "Synthetic tags", favorite = true, categories = {manual = true}, lastSeen = NOW,
+        categoryFirstSeen = {manual = NOW - 10}, categoryLastSeen = {manual = NOW}},
+    [transportKey] = {displayName = "Preserved-Player", realm = "CAMWOW1", categories = {party = true}},
+    [disputedKey] = {displayName = "Example", realm = "Surname", guid = "Player-Convert-3",
+        note = "Unverified name", categories = {whisper = true}},
+}
+KnownPlayersDB.bnetCharacters = {
+    ["Synthetic#0000"] = {[legacyKey] = {name = "Example", realm = "Surname", guid = convertedGUID}},
+}
+ns.InvalidateIdentityIndex()
+local oldSnapshot = assert(ns.CreateRestorePoint("manual", "Manual backup", {players = true}))
+local original = KnownPlayersDB.players[legacyKey]
+original.note = false
+assert(ns.ConvertPlayerNames() == nil and original.displayName == "Example" and original.realm == "Surname")
+original.note = "Synthetic note"
+
+local converted, skipped = ns.ConvertPlayerNames()
+assert(converted == 2 and skipped == 1)
+local checkpoint = assert(ns.GetRestorePoint("automatic"))
+assert(ns.GetRestorePoint("manual") == oldSnapshot and checkpoint.sections.players.records[legacyKey].realm == "Surname")
+assert(ns.CountPlayers() == 3 and ns.GetPlayer(legacyKey) == original and not original.realm)
+assert(original.displayName == "Example Surname" and original.surname == "Surname")
+assert(original.note == "Synthetic note" and original.tags == "Synthetic tags" and original.favorite == true)
+assert(original.guid == convertedGUID and original.categoryFirstSeen.manual == NOW - 10 and original.categoryLastSeen.manual == NOW)
+assert(ns.GetPlayer(disputedKey).realm == "Surname" and ns.GetPlayer(disputedKey).note == "Unverified name")
+assert(ns.FindDirectKeyByName("Preserved Player") == transportKey)
+assert(KnownPlayersDB.bnetCharacters["Synthetic#0000"][legacyKey].guid == convertedGUID)
+assert(ns.ConvertPlayerNames() == 0 and ns.GetRestorePoint("automatic") == checkpoint)
+
+ns.MigratePlayerRecords()
+assert(not ns.GetPlayer(transportKey).realm and ns.FindDirectKeyByName("Preserved Player") == transportKey)
+local convertedBackup = assert(ns.ReadBackup(assert(ns.ExportBackup({players = true}))))
+assert(convertedBackup.sections.players.records[legacyKey].surname == "Surname")
+assert(convertedBackup.sections.players.records[transportKey].displayName == "Preserved Player")
+assert(ns.ApplyBackup(checkpoint, {players = true}, "replace", true))
+local restored = ns.GetPlayer(legacyKey)
+assert(restored.displayName == "Example" and restored.realm == "Surname" and not restored.surname)
+assert(restored.guid == convertedGUID and restored.note == "Synthetic note" and restored.tags == "Synthetic tags" and restored.favorite)
+assert(ns.PlayerHasCategory(restored, "manual") and restored.categoryFirstSeen.manual == NOW - 10)
+assert(ns.GetPlayer(transportKey).realm == "CAMWOW1" and ns.GetPlayer(disputedKey).note == "Unverified name")
+assert(KnownPlayersDB.bnetCharacters["Synthetic#0000"][legacyKey].guid == convertedGUID)
+
 io.write("Backup and restore checkpoints, portable sections, merge conflicts, and invalid imports passed.\n")

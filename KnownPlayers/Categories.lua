@@ -8,7 +8,7 @@ ns.PlayerCategories = {
     {key = "whisper", label = "Whisper", tracking = "trackWhispers"},
     {key = "target", label = "Target", tracking = "trackTargets"},
     {key = "inspect", label = "Inspect", tracking = "trackInspects"},
-    {key = "manual", label = "Manually Added", tracking = "trackManual"},
+    {key = "manual", label = "Manually Remembered", tracking = "trackManual"},
     {key = "avoid", label = "Avoid", tracking = "trackAvoid"},
 }
 

@@ -13,7 +13,10 @@ function UnitExists(unit) return units[unit] ~= nil end
 function UnitName(unit) return units[unit] and units[unit].name end
 function UnitIsPlayer(unit) return units[unit].player == true end
 function UnitIsUnit(first, second) return first == second end
-function UnitFullName(unit) return UnitName(unit), "Example" end
+function UnitFullName(unit)
+    local name = UnitName(unit)
+    if name then return name:match("^(%S+) (%S+)$") end
+end
 function UnitCanAttack(_, unit) return units[unit].attackable == true end
 function UnitGUID(unit) return units[unit] and units[unit].guid end
 function GetGuildInfo(unit) return units[unit].subtitle end
@@ -111,8 +114,8 @@ function hooksecurefunc(functionName, callback)
 end
 
 local ns = {
-    IsKnownOrAssociated = function(key) return key == "Familiar-Player-Example" end,
-    GetNameplateCategory = function(key) return key == "Familiar-Player-Example" and "guild" or nil end,
+    IsKnownOrAssociated = function(key) return key == "Familiar-Player" end,
+    GetNameplateCategory = function(key) return key == "Familiar-Player" and "guild" or nil end,
     GetNameplateCategoryColor = function() return {0.2, 0.7, 0.8} end,
     GetNPCFromUnit = function(unit) return units[unit].npc and unit end,
     GetNPCNameplateCategory = function(unit) return units[unit].category, units[unit].classified end,
@@ -766,7 +769,7 @@ do
     Bind(selected, selectedFrame, token, player)
     Bind(nearby, nearbyFrame, "nameplateBystander", {name = "Example Bystander", player = true})
     local saved = false
-    ns.IsKnownOrAssociated = function(key) return saved and key == "Example-Newcomer-Example" end
+    ns.IsKnownOrAssociated = function(key) return saved and key == "Example-Newcomer" end
     function UnitIsUnit(first, second) return first == second or (units[first] ~= nil and units[first] == units[second]) end
     KnownPlayersSettings.knownOnlyNameplates = true
     KnownPlayersSettings.playerHealthBarMode, KnownPlayersSettings.nameDisplayMode = "never", "first"

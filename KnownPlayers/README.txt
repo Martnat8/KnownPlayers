@@ -48,6 +48,10 @@ BACKUP & RESTORE
 Create a dated manual restore point or use the latest automatic point saved
 before a reset, bulk clear, import or restore. Select settings, player history,
 or saved NPCs independently when restoring.
+Use Convert Player Names on the Restore Points tab to update older player
+records to WoW: Forever's first-name and surname format. It saves player
+history to the automatic restore point before converting and reports records
+whose complete names could not be determined.
 Export selects settings, player history, and saved NPCs by default. Uncheck
 any section you want to leave out, click Prepare to Copy, then press Ctrl+C
 and save the text outside WoW. Keep exports with private player history to
@@ -59,7 +63,7 @@ prompts before overwriting the selected sections. Use Show Backup Text on
 either tab if you need to see the full text.
 
 RETENTION
-On a fresh install or Reset Settings, Avoid, Manually Added, Raid, Party, Trade,
+On a fresh install or Reset Settings, Avoid, Manually Remembered, Raid, Party, Trade,
 and Whisper are set to Forever. Inspect defaults to 30 days and Target to
 six hours. Guild membership and linked alts follow their underlying guild
 or Battle.net relationship. Avoid starts at the top of the player color priority.
@@ -73,7 +77,7 @@ its last interaction. Known for goes back to its first recorded interaction.
 
 PLAYER DATA
 One player record can contain multiple reasons: Trade, Party, Raid, Guild,
-Whisper, Target, Inspect, Manually Added, and Avoid. Removing a reason
+Whisper, Target, Inspect, Manually Remembered, and Avoid. Removing a reason
 preserves the remaining reasons. NPC records are kept separately by creature
 ID. Battle.net associations are based on friends' observed characters and
 require a directly known character with a reason other than Avoid to anchor
@@ -87,7 +91,7 @@ classification database. Manually remembered NPCs remain available without
 QuestieDB, since they are user-saved records rather than a bundled fallback.
 Enable NPC nameplate filtering and the desired service categories, then use
 Appearance to choose their name colors. NPCs with multiple enabled roles use your saved priority order: the
-highest enabled category wins. The default order is Manually Added,
+highest enabled category wins. The default order is Manually Remembered,
 Flight Masters, Trainers, Bankers, Vendors, Repair NPCs, Innkeepers,
 Auctioneers, and Quest NPCs.
 Use the up/down buttons in NPC Nameplates to change the order.

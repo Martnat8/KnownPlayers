@@ -1,14 +1,11 @@
 local addonName, ns = ...
 
--- Identity keys include the realm so identically named characters on
--- different realms cannot overwrite one another.
 local function GetPlayerKey(unit)
     if not UnitExists(unit) or not UnitIsPlayer(unit) or ns.CompareUnits(unit, "player") ~= false then
         return nil
     end
 
-    local ok, name, realm = pcall(UnitFullName, unit)
-    local key = ok and ns.PlayerKeyFromName(name, realm)
+    local key = ns.PlayerKeyFromUnit(unit)
     if key then return key, ns.SafePlayerGUID(ns.SafeUnitGUID(unit)) end
 end
 
@@ -52,15 +49,18 @@ rosterFrame:SetScript("OnEvent", function()
 end)
 
 -- Chat events supply the other player's name as their second argument.
--- Normalize names to the same Name-Realm keys used by roster tracking.
-local function NormalizeWhisperName(sender, guid)
+local function NormalizeWhisperName(sender, guid, selfRealm)
     sender = ns.SafeString(sender)
     if not sender or sender == UNKNOWNOBJECT then
         return nil
     end
 
     local key, _, realm = ns.NormalizePlayerKey(sender)
-    if key then return key, realm end
+    if key then
+        local fullName = not selfRealm and ns.NormalizeForeverPlayerName(sender)
+        if fullName then return fullName end
+        return key, realm
+    end
 
     -- A less common realm suffix can still be resolved from an exact saved key.
     local saved = ns.GetPlayer(sender)
@@ -75,6 +75,7 @@ local function NormalizeWhisperName(sender, guid)
         if matched == sender then return sender, realm end
     end
     key, _, realm = ns.PlayerKeyFromName(sender)
+    if key and selfRealm then return ns.NormalizePlayerKey(key .. "-" .. selfRealm, selfRealm), selfRealm end
     return key, realm
 end
 
@@ -89,16 +90,14 @@ whisperFrame:SetScript("OnEvent", function(_, _, ...)
         return
     end
 
-    local key, realm = NormalizeWhisperName(sender, guid)
+    local selfKey, _, selfRealm = ns.PlayerKeyFromUnit("player")
+    local key, realm = NormalizeWhisperName(sender, guid, selfRealm)
     if not key then
         return
     end
 
     -- Do not retain your own character if the client reports a self-whisper.
-    local ok, selfName, selfRealm = pcall(UnitFullName, "player")
-    local selfKey = ok and ns.PlayerKeyFromName(selfName, selfRealm)
-    local comparableKey = realm and key or ns.PlayerKeyFromName(key)
-    if (selfKey and comparableKey and comparableKey:lower() == selfKey:lower())
+    if (selfKey and key:lower() == selfKey:lower())
         or (guid and guid == ns.SafeUnitGUID("player")) then
         return
     end
@@ -127,24 +126,16 @@ end)
 
 -- Guild mode: remember everyone listed on the roster, including offline
 -- members. A future option may restrict this to directly met guildmates.
-local function NormalizeGuildName(name)
+local function NormalizeGuildName(name, selfRealm)
     name = ns.SafeString(name)
     if not name or name == UNKNOWNOBJECT then
         return nil
     end
 
-    local playerName, realm = name:match("^([^%-]+)%-(.+)$")
-    if not playerName then
-        playerName = name
+    if selfRealm then
+        return ns.NormalizePlayerKey(name) or ns.NormalizePlayerKey(name .. "-" .. selfRealm, selfRealm)
     end
-    if not realm or realm == "" then
-        realm = ns.SafeString(GetNormalizedRealmName())
-    end
-    if not realm or realm == "" then
-        return nil
-    end
-    local key = playerName .. "-" .. realm
-    return ns.NormalizePlayerKey(key) or key
+    return ns.NormalizeForeverPlayerName(name)
 end
 
 local function GuildClubID()
@@ -153,15 +144,6 @@ local function GuildClubID()
     if not ok or not ns.IsAccessibleValue(id) then return nil end
     if type(id) == "number" and id > 0 then return id end
     return ns.SafeString(id)
-end
-
-local function GuildSelfKey()
-    local ok, name, realm = pcall(UnitFullName, "player")
-    if not ok or not ns.IsAccessibleValue(realm) then return nil end
-    name = ns.SafeString(name)
-    if not name or name == UNKNOWNOBJECT then return nil end
-    realm = ns.SafeString(realm) or ns.SafeString(GetNormalizedRealmName())
-    return realm and ns.NormalizePlayerKey(name .. "-" .. realm, realm) or nil
 end
 
 local function TrackGuildRoster()
@@ -174,17 +156,17 @@ local currentClub, confirmedRoster, pendingRoster
 local function ReadGuildSnapshot()
     if not TrackGuildRoster() then return nil end
     local total = GetNumGuildMembers()
-    local selfKey = GuildSelfKey()
+    local selfKey, _, selfRealm = ns.PlayerKeyFromUnit("player")
     if not selfKey or not ns.IsAccessibleValue(total) or type(total) ~= "number"
         or total < 1 then return nil end
     local members = {}
     for i = 1, total do
         local name, _, _, _, class = GetGuildRosterInfo(i)
-        local key = NormalizeGuildName(name)
+        local key = NormalizeGuildName(name, selfRealm)
         if not key or members[key] then return nil end
         members[key] = {class = ns.SafeString(class)}
     end
-    if members[selfKey] then return {members = members, count = total, selfKey = selfKey} end
+    if members[selfKey] then return {members = members, count = total, selfKey = selfKey, selfRealm = selfRealm} end
 end
 
 local function SameSnapshot(a, b)
@@ -198,18 +180,18 @@ local function RefreshGuildViews()
     if ns.RefreshPlayerListWindows then ns.RefreshPlayerListWindows() end
 end
 
-local function ClubRosterMatches(clubID, members, count)
+local function ClubRosterMatches(clubID, snapshot)
     if type(C_Club.GetClubMembers) ~= "function" or type(C_Club.GetMemberInfo) ~= "function" then
         return false
     end
     local ok, ids = pcall(C_Club.GetClubMembers, clubID)
-    if not ok or not ns.IsAccessibleValue(ids) or type(ids) ~= "table" or #ids ~= count then return false end
+    if not ok or not ns.IsAccessibleValue(ids) or type(ids) ~= "table" or #ids ~= snapshot.count then return false end
     local seen = {}
     for _, id in ipairs(ids) do
         local read, info = pcall(C_Club.GetMemberInfo, clubID, id)
         if not read or not ns.IsAccessibleValue(info) or type(info) ~= "table" then return false end
-        local key = NormalizeGuildName(info.name)
-        if not key or not members[key] or seen[key] then return false end
+        local key = NormalizeGuildName(info.name, snapshot.selfRealm)
+        if not key or not snapshot.members[key] or seen[key] then return false end
         seen[key] = true
     end
     return true
@@ -217,13 +199,15 @@ end
 
 local function ReconcileGuildMembership(clubID, snapshot)
     local missing, savedGuildCount, keep = 0, 0, {}
+    local rosterKeys = {}
+    for key in pairs(snapshot.members) do rosterKeys[key:lower()] = true end
     for key, record in pairs(KnownPlayersDB.players) do
         if ns.PlayerHasCategory(record, "guild") then
             savedGuildCount = savedGuildCount + 1
-            local name = ns.SafeString(record.displayName)
-            local realm = ns.SafeString(record.realm)
-            local canonical = name and realm and ns.NormalizePlayerKey(name .. "-" .. realm, realm)
-            if snapshot.members[key] or (canonical and snapshot.members[canonical]) then
+            local alias, preferred = ns.PlayerIdentityAliases(key, record)
+            local legacyName = not snapshot.selfRealm and ns.IsLegacyPlayerRealm(record.realm)
+                and ns.NormalizeForeverPlayerName(record.displayName)
+            if rosterKeys[alias or key:lower()] or rosterKeys[preferred] or rosterKeys[legacyName and legacyName:lower()] then
                 keep[key] = true
             else
                 missing = missing + 1
@@ -233,7 +217,7 @@ local function ReconcileGuildMembership(clubID, snapshot)
     -- A truncated roster must not erase a guild's history. For a large
     -- removal, require the current club's member list to corroborate the roster.
     if missing > math.max(2, math.floor(savedGuildCount * 0.1))
-        and not ClubRosterMatches(clubID, snapshot.members, snapshot.count) then return false end
+        and not ClubRosterMatches(clubID, snapshot) then return false end
     if missing > 0 then ns.ClearPlayerCategory("guild", keep, true) end
     return true
 end

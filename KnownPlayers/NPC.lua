@@ -30,7 +30,7 @@ local NPC_CATEGORIES = {
     {key="innkeeper", label="Innkeepers"},
     {key="repair", label="Repair NPCs"},
     {key="quest", label="Quest NPCs"},
-    {key="manual", label="Manually Added"},
+    {key="manual", label="Manually Remembered"},
 }
 
 function ns.GetNPCServiceCategories()

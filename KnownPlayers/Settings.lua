@@ -263,7 +263,7 @@ local function NewScrollingPage(parent, centerWhenFits, footerHeight)
         local width = self:GetWidth()
         if width > 0 then content:SetWidth(math.min(CONTENT_WIDTH, width)) end
     end)
-    return page, content
+    return page, content, scroller
 end
 
 local function SetCategoryTracking(key, checked)
@@ -557,7 +557,7 @@ local function AddNameplateSetup(content, refresh)
     end)
 
     return function(needed, messages, top)
-        if applying then return top - card:GetHeight() - 12 end
+        if applying then return top - card:GetHeight() end
         pending = {}
         local y = -33
         for _, option in ipairs(NAMEPLATE_SETUP_OPTIONS) do
@@ -570,7 +570,7 @@ local function AddNameplateSetup(content, refresh)
         local hasSettings, hasNotes = #pending > 0, #messages > 0
         if not hasSettings then failed = false end
         card:SetShown(hasSettings or hasNotes)
-        if not hasSettings and not hasNotes then return top end
+        if not hasSettings and not hasNotes then return end
         PlaceAt(card, content, inset, top)
 
         y = PlaceText(intro, y, padding, hasSettings and "Turn on these WoW settings to show the nameplates you’ve configured." or nil)
@@ -603,7 +603,7 @@ local function AddNameplateSetup(content, refresh)
         for index, note in ipairs(notes) do y = PlaceText(note, y, padding, messages[index]) end
         local height = -y + 6
         card:SetHeight(height)
-        return top - height - 12
+        return top - height
     end
 end
 
@@ -624,7 +624,8 @@ local function NeedsFriendlyNPCPlates()
 end
 
 local function BuildHomePage(parent)
-    local page, content = NewScrollingPage(parent, false, 42)
+    local footerHeight = 103
+    local page, content, scroller = NewScrollingPage(parent, false, footerHeight)
     local about = Button(page, "About", 80, function() ShowAbout(page) end)
     about:SetPoint("TOPRIGHT", page, "TOPRIGHT", -SCROLL_RIGHT - CONTENT_RIGHT_PADDING, -12)
 
@@ -636,23 +637,24 @@ local function BuildHomePage(parent)
     local playerFilter = Checkbox(content, 17, -92, "Enable player nameplate filtering",
         KnownPlayersSettings.knownOnlyNameplates, ns.SetKnownOnlyNameplates,
         function() return KnownPlayersSettings.knownOnlyNameplates end)
-    local npcFilter = Checkbox(content, 17, -121, "Enable NPC nameplate filtering",
+    local npcFilterY = -121
+    local npcFilter = Checkbox(content, 17, npcFilterY, "Enable NPC nameplate filtering",
         KnownPlayersSettings.filterNPCNameplates, function(checked)
             KnownPlayersSettings.filterNPCNameplates = checked
             ns.SyncNPCNameplateCVars()
             ns.RefreshKnownNameplates()
         end, function() return KnownPlayersSettings.filterNPCNameplates end)
 
-    local optionsY = -153
+    local optionStep = 29
     local clickable
-    clickable = Checkbox(content, 17, optionsY, "Clickable nameplates",
+    clickable = Checkbox(content, 17, 0, "Clickable nameplates",
         KnownPlayersSettings.nameplatesClickable ~= false, function(checked)
             if not ns.SetNameplatesClickable(checked) then
                 clickable:SetChecked(KnownPlayersSettings.nameplatesClickable ~= false)
                 print("|cff33ff99KnownPlayers:|r WoW could not change nameplate clicks.")
             end
         end, function() return KnownPlayersSettings.nameplatesClickable ~= false end)
-    Checkbox(content, 228, optionsY, "Show minimap button",
+    local minimap = Checkbox(content, 17, 0, "Show minimap button",
         KnownPlayersSettings.showMinimapButton, function(checked)
             KnownPlayersSettings.showMinimapButton = checked
             ns.RefreshMinimapButton()
@@ -662,12 +664,15 @@ local function BuildHomePage(parent)
     local function Refresh() Layout() end
     local layoutSetup = AddNameplateSetup(content, Refresh)
 
-    local backups = Button(content, "Backup & Restore", 135, function() ns.OpenBackupWindow(page) end)
-    local reset = Button(content, "Reset Settings to Defaults", 205, function()
+    local footerX = SCROLL_LEFT + TABLE_LEFT
+    local backups = Button(page, "Backup & Restore", 135, function() ns.OpenBackupWindow(page) end)
+    backups:SetPoint("TOPLEFT", page, "BOTTOMLEFT", footerX, SCROLL_BOTTOM + footerHeight)
+    local reset = Button(page, "Reset Settings to Defaults", 205, function()
         StaticPopup_Show("KNOWNPLAYERS_RESET_SETTINGS")
     end)
+    reset:SetPoint("TOPLEFT", backups, "BOTTOMLEFT", 0, -6)
     local repository = page:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    repository:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", SCROLL_LEFT + TABLE_LEFT, 8)
+    repository:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", footerX, 8)
     repository:SetText("https://github.com/Martnat8/KnownPlayers")
     local version = page:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     version:SetPoint("BOTTOMLEFT", repository, "TOPLEFT", 0, 5)
@@ -700,14 +705,20 @@ local function BuildHomePage(parent)
             or (questieReady and ns.HasUnfilteredOverheadNames("npc")) then
             messages[#messages + 1] = "WoW is still showing some overhead names outside the filter. Check WoW’s Names settings."
         end
-        local actionsY = layoutSetup({player = players, npc = npcPlates, always = players or npcPlates},
-            messages, -186) - 12
-        PlaceAt(backups, content, 18, actionsY)
-        PlaceAt(reset, content, 18, actionsY - 31)
-        content:SetHeight(-actionsY + 68)
+        local filterBottom = npcFilterY - npcFilter:GetHeight()
+        local setupBottom = layoutSetup({player = players, npc = npcPlates, always = players or npcPlates},
+            messages, filterBottom - 12)
+        local filteringBottom = setupBottom or filterBottom
+        local groupHeight = optionStep + minimap:GetHeight()
+        local gap = math.max(18, (scroller:GetHeight() + filteringBottom - groupHeight) / 2)
+        local optionsY = filteringBottom - gap
+        PlaceAt(clickable, content, 17, optionsY)
+        PlaceAt(minimap, content, 17, optionsY - optionStep)
+        content:SetHeight(-filteringBottom + groupHeight + 2 * gap)
     end
     playerFilter:HookScript("OnClick", Refresh)
     npcFilter:HookScript("OnClick", Refresh)
+    scroller:HookScript("OnSizeChanged", Refresh)
     RegisterSettingsRefresher(Refresh)
     Refresh()
 

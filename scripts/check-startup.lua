@@ -45,6 +45,7 @@ function widget:SetSize(width, height) self.width, self.height = width, height e
 function widget:SetPoint(point, target, relativePoint, x, y)
     if point == "TOPLEFT" then
         self.leftOffset, self.topOffset = x, y
+        self.topLeftTarget, self.topLeftPoint = target, relativePoint
     elseif point == "BOTTOMLEFT" then
         self.bottomLeftTarget, self.bottomLeftPoint, self.bottomLeftOffset = target, relativePoint, y
     elseif point == "BOTTOMRIGHT" then
@@ -95,7 +96,10 @@ widget.CreateMaskTexture = NewWidget
 function CreateFrame(_, _, parent, template)
     local frame = NewWidget()
     frame.parent = parent
-    if template == "InterfaceOptionsCheckButtonTemplate" then frame.Text = NewWidget() end
+    if template == "InterfaceOptionsCheckButtonTemplate" then
+        frame.Text = NewWidget()
+        frame.height = 26
+    end
     if template == "UIPanelScrollFrameTemplate" then frame.ScrollBar = NewWidget() end
     frames[#frames + 1] = frame
     return frame
@@ -165,7 +169,7 @@ for _, frame in ipairs(frames) do
 end
 assert(centeredScroller, "Appearance should make room for the scrollbar when content overflows")
 
-local playerFilter, npcFilter, clickToggle, minimapToggle, backupsButton
+local playerFilter, npcFilter, clickToggle, minimapToggle, backupsButton, resetButton
 for _, frame in ipairs(frames) do
     if frame.Text and frame.Text.text == "Enable player nameplate filtering" then
         playerFilter = frame
@@ -177,16 +181,19 @@ for _, frame in ipairs(frames) do
         minimapToggle = frame
     elseif frame:GetText() == "Backup & Restore" then
         backupsButton = frame
+    elseif frame:GetText() == "Reset Settings to Defaults" then
+        resetButton = frame
     end
 end
 assert(playerFilter and npcFilter and playerFilter.topOffset > npcFilter.topOffset,
     "Both nameplate filtering toggles must be available on the main page")
 assert(clickToggle and clickToggle.parent == npcFilter.parent and clickToggle.topOffset < npcFilter.topOffset)
 assert(minimapToggle and minimapToggle.parent == clickToggle.parent
-    and minimapToggle.topOffset == clickToggle.topOffset and minimapToggle.leftOffset > clickToggle.leftOffset)
-local homeScroller = clickToggle.parent.parent
+    and minimapToggle.topOffset < clickToggle.topOffset and minimapToggle.leftOffset == clickToggle.leftOffset)
+local homeContent = clickToggle.parent
+local homeScroller = homeContent.parent
 local homePage = homeScroller.parent
-local versionLabel, repositoryLabel
+local versionLabel, repositoryLabel, setupCard
 for _, label in ipairs(fontStrings) do
     local value = label:GetText()
     if label.parent == homePage or label.parent == clickToggle.parent then
@@ -194,21 +201,42 @@ for _, label in ipairs(fontStrings) do
         if value == "Version " .. ns.AddonVersion then versionLabel = label end
         if value == "https://github.com/Martnat8/KnownPlayers" then repositoryLabel = label end
     end
+    if value == "Nameplate setup" and label.parent.parent == homeContent then setupCard = label.parent end
 end
 assert(versionLabel and repositoryLabel and repositoryLabel.bottomLeftTarget == homePage
     and repositoryLabel.bottomLeftPoint == "BOTTOMLEFT" and versionLabel.bottomLeftTarget == repositoryLabel
     and versionLabel.bottomLeftPoint == "TOPLEFT")
 local footerTop = repositoryLabel.bottomLeftOffset + repositoryLabel:GetStringHeight()
     + versionLabel.bottomLeftOffset + versionLabel:GetStringHeight()
-assert(homeScroller.bottomRightOffset > footerTop, "the scrollable content must sit above the footer")
-local actionsY = assert(backupsButton).topOffset
+assert(backupsButton and backupsButton.parent == homePage and backupsButton.topLeftTarget == homePage
+    and backupsButton.topLeftPoint == "BOTTOMLEFT" and backupsButton.topOffset == homeScroller.bottomRightOffset)
+assert(resetButton and resetButton.parent == homePage and resetButton.topLeftTarget == backupsButton
+    and resetButton.topLeftPoint == "BOTTOMLEFT")
+assert(backupsButton.topOffset - backupsButton:GetHeight() + resetButton.topOffset - resetButton:GetHeight() > footerTop,
+    "both actions should sit above the version")
+local function CheckSectionGaps(filteringBottom)
+    local above = filteringBottom - clickToggle.topOffset
+    local below = homeContent:GetHeight() + minimapToggle.topOffset - minimapToggle:GetHeight()
+    assert(above >= 18 and above == below, "the two sections must leave equal space around the options")
+end
+
+homeScroller:SetHeight(350)
+homeScroller:OnSizeChanged()
+CheckSectionGaps(npcFilter.topOffset - npcFilter:GetHeight())
+assert(homeContent:GetHeight() == homeScroller:GetHeight())
+local footerY = backupsButton.topOffset
+homeScroller:SetHeight(180)
+homeScroller:OnSizeChanged()
 npcFilter:SetChecked(true)
 npcFilter:OnClick()
-assert(backupsButton.topOffset < actionsY and repositoryLabel.bottomLeftTarget == homePage,
-    "nameplate setup messages should move actions below them while the footer stays pinned")
+assert(setupCard and setupCard:IsShown() and homeContent:GetHeight() > homeScroller:GetHeight())
+CheckSectionGaps(setupCard.topOffset - setupCard:GetHeight())
+assert(backupsButton.topOffset == footerY and repositoryLabel.bottomLeftTarget == homePage,
+    "the footer must remain fixed when nameplate setup messages overflow the panel")
 npcFilter:SetChecked(false)
 npcFilter:OnClick()
-assert(backupsButton.topOffset == actionsY)
+assert(not setupCard:IsShown())
+CheckSectionGaps(npcFilter.topOffset - npcFilter:GetHeight())
 assert(clickToggle:GetChecked() and hitTestInsets[0][1] == 1 and hitTestInsets[1][4] == 8)
 clickToggle:SetChecked(false)
 clickToggle:OnClick()

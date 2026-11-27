@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.3b8] - 2026-11-27
+
 - Refresh NPC nameplates as they return to view and retry styling selected players and NPCs as WoW makes their frames available.
 - Save newly targeted players before applying the nameplate filter. WoW can briefly display its own overhead name while it makes the nameplate available.
 - Let players type an NPC nameplate distance and display the value WoW accepts.

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.3b10] - 2026-11-27
+
 - Group the nameplate click and minimap options on the main settings tab and move version and repository details to its footer.
 
 ## [0.5.3b9] - 2026-11-27

@@ -105,7 +105,7 @@ local function HealthMode(value)
     return value
 end
 
-local function PlayerFilterMethod(value)
+local function NameplateFilterMethod(value)
     if value ~= "hide" and value ~= "alpha" then Invalid() end
     return value
 end
@@ -115,7 +115,7 @@ local function Settings(value)
         categoryRetention = function(durations) return Map(durations, Name, Duration, 64) end,
         trackGroup = Flags, showMinimapButton = Boolean,
         knownOnlyNameplates = Boolean, filterNPCNameplates = Boolean,
-        playerNameplateFilterMethod = PlayerFilterMethod,
+        nameplateFilterMethod = NameplateFilterMethod,
         nameDisplayMode = NameMode, npcNameDisplayMode = NameMode,
         playerHealthBarMode = HealthMode, npcHealthBarMode = HealthMode,
         showGuildInNamesOnly = Boolean, showNPCTitle = Boolean, useAlternateAvoidName = Boolean,
@@ -126,7 +126,11 @@ local function Settings(value)
     for _, category in ipairs(TRACKING_CATEGORIES) do
         if category.tracking then fields[category.tracking] = Boolean end
     end
-    return Fields(value, fields)
+    local copy = Fields(value, fields)
+    if copy.nameplateFilterMethod == nil and value.playerNameplateFilterMethod ~= nil then
+        copy.nameplateFilterMethod = NameplateFilterMethod(value.playerNameplateFilterMethod)
+    end
+    return copy
 end
 
 local function Membership(value) return Fields(value, {firstSeen = Stamp, lastSeen = Stamp}) end

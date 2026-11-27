@@ -41,9 +41,10 @@ function widget:HookScript(script, handler)
     end
 end
 function widget:SetSize(width, height) self.width, self.height = width, height end
-function widget:SetPoint(point, _, _, x)
-    if point == "TOPLEFT" then self.leftOffset = x end
+function widget:SetPoint(point, _, _, x, y)
+    if point == "TOPLEFT" then self.leftOffset, self.topOffset = x, y end
 end
+function widget:SetText(text) self.text = text end
 function widget:EnableMouseWheel(enabled) self.mouseWheelEnabled = enabled end
 function widget:SetWidth(width) self.width = width end
 function widget:SetHeight(height) self.height = height end
@@ -117,14 +118,20 @@ for _, frame in ipairs(frames) do
 end
 assert(centeredScroller, "Appearance should make room for the scrollbar when content overflows")
 
-local filterMethodDropdown
+local filterMethodDropdown, playerFilter, npcFilter
 for _, frame in ipairs(frames) do
     if frame.selectionText and frame.selectionText() == "Hide nameplate frame" then
         filterMethodDropdown = frame
-        break
+    elseif frame.Text and frame.Text.text == "Enable player nameplate filtering" then
+        playerFilter = frame
+    elseif frame.Text and frame.Text.text == "Enable NPC nameplate filtering" then
+        npcFilter = frame
     end
 end
-assert(filterMethodDropdown, "The player filtering dropdown must show the default")
+assert(filterMethodDropdown, "The shared filtering dropdown must show the default")
+assert(playerFilter and npcFilter and playerFilter.topOffset > npcFilter.topOffset
+    and npcFilter.topOffset > filterMethodDropdown.topOffset,
+    "Both nameplate filtering toggles must appear above the shared filtering dropdown")
 local filterChoices = {}
 filterMethodDropdown.menuSetup(filterMethodDropdown, {CreateRadio = function(_, label, selected, choose, value)
     filterChoices[label] = {selected = selected, choose = choose, value = value}
@@ -132,5 +139,5 @@ end})
 local alpha = assert(filterChoices["Transparency only"])
 assert(not alpha.selected(alpha.value))
 alpha.choose(alpha.value)
-assert(KnownPlayersSettings.playerNameplateFilterMethod == "alpha" and alpha.selected(alpha.value))
+assert(KnownPlayersSettings.nameplateFilterMethod == "alpha" and alpha.selected(alpha.value))
 assert(filterMethodDropdown.selectionText() == "Transparency only")

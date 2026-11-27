@@ -29,7 +29,7 @@ for _, module in ipairs({"Safety", "Categories", "Database", "Identity", "NPC", 
 end
 ns.InitializeDatabase()
 ns.InitializeNameplateColors()
-assert(KnownPlayersSettings.playerNameplateFilterMethod == "hide")
+assert(KnownPlayersSettings.nameplateFilterMethod == "hide")
 
 local key = "Synthetic-Friend-CAMWOW1"
 local guid = "Player-Test-1"
@@ -41,9 +41,10 @@ KnownPlayersDB.npcs["42"] = {name = "Example Vendor", firstSeen = NOW - 100, las
 KnownPlayersDB.npcOverrides["42"] = {name = "Example Vendor", mode = "show", firstSeen = NOW}
 KnownPlayersDB.bnetCharacters["Example#0000"] = {[key] = {name = "Synthetic-Friend", realm = "CAMWOW1", guid = guid}}
 KnownPlayersSettings.showMinimapButton = false
+KnownPlayersSettings.nameplateFilterMethod = nil
 KnownPlayersSettings.playerNameplateFilterMethod = "alpha"
 ns.InitializeDatabase()
-assert(KnownPlayersSettings.playerNameplateFilterMethod == "alpha")
+assert(KnownPlayersSettings.nameplateFilterMethod == "alpha" and KnownPlayersSettings.playerNameplateFilterMethod == nil)
 KnownPlayersSettings.overheadNameCVarsBackup = {UnitNameFriendlyPlayerName = "1"}
 
 local manual = assert(ns.CreateRestorePoint("manual", "Manual backup"))
@@ -52,9 +53,13 @@ assert(manual.sections.players.bnet["Example#0000"] and not manual.sections.sett
 
 local settingsOnly = assert(ns.ReadBackup(assert(ns.ExportBackup({settings = true}))))
 assert(settingsOnly.sections.settings.showMinimapButton == false)
-assert(settingsOnly.sections.settings.playerNameplateFilterMethod == "alpha")
+assert(settingsOnly.sections.settings.nameplateFilterMethod == "alpha")
 assert(not settingsOnly.sections.players and not settingsOnly.sections.npcs)
 assert(not settingsOnly.sections.settings.overheadNameCVarsBackup)
+local legacyPayload = C_EncodingUtil.SerializeCBOR({version = settingsOnly.version, created = NOW,
+    sections = {settings = {playerNameplateFilterMethod = "alpha"}}})
+local legacy = assert(ns.ReadBackup("KnownPlayers:" .. settingsOnly.version .. ":" .. legacyPayload))
+assert(legacy.sections.settings.nameplateFilterMethod == "alpha")
 local export = assert(ns.ExportBackup({settings = true, players = true, npcs = true}))
 local portable = assert(ns.ReadBackup("\n" .. export .. "\n"))
 assert(portable.sections.players.records[key].favorite and not portable.sections.players.bnet)
@@ -71,12 +76,12 @@ C_EncodingUtil = oldCodec
 -- Settings reset and the real clear-list action create automatic checkpoints.
 StaticPopupDialogs.KNOWNPLAYERS_RESET_SETTINGS.OnAccept()
 assert(KnownPlayersSettings.showMinimapButton == true and KnownPlayersDB.players[key] == record)
-assert(KnownPlayersSettings.playerNameplateFilterMethod == "hide")
+assert(KnownPlayersSettings.nameplateFilterMethod == "hide")
 assert(ns.GetRestorePoint("automatic").sections.settings.showMinimapButton == false)
 assert(not ns.GetRestorePoint("automatic").sections.players and not ns.GetRestorePoint("automatic").sections.npcs)
 assert(ns.ApplyBackup(ns.GetRestorePoint("automatic"), {settings = true}, "replace", true))
 assert(KnownPlayersSettings.showMinimapButton == false and KnownPlayersSettings.overheadNameCVarsBackup)
-assert(KnownPlayersSettings.playerNameplateFilterMethod == "alpha")
+assert(KnownPlayersSettings.nameplateFilterMethod == "alpha")
 StaticPopupDialogs.KNOWNPLAYERS_CLEAR_CATEGORY_WINDOW.OnAccept(nil, "manual")
 assert(not ns.PlayerHasCategory(record, "manual"))
 assert(ns.GetRestorePoint("automatic").sections.players.records[key].categories.manual)

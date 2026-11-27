@@ -516,8 +516,7 @@ local function RestoreOuterPlate(plate)
 end
 
 local function HideOuterPlate(plate, unit)
-    if ReadAppearanceValue(UnitIsFriend, "player", unit) ~= true
-        or ReadAppearanceValue(plate.IsShown, plate) ~= true
+    if ReadAppearanceValue(plate.IsShown, plate) ~= true
         or type(plate.Hide) ~= "function" or type(plate.Show) ~= "function" then
         return
     end
@@ -530,10 +529,7 @@ local function UpdateHiddenOuterPlates(platesByUnit, useOuterFrames)
         local unit = not IsProtected(plate) and ns.SafeString(plate.unitToken)
         if unit and UnitExists(unit) then
             if platesByUnit[unit] == plate then
-                if not useOuterFrames or IsProtected(plate.UnitFrame)
-                    or ReadAppearanceValue(UnitIsPlayer, unit) ~= true
-                    or ReadAppearanceValue(UnitIsFriend, "player", unit) ~= true
-                    or ns.CompareUnits(unit, "player") ~= false or IsRecognized(unit) then
+                if not useOuterFrames or IsProtected(plate.UnitFrame) then
                     RestoreOuterPlate(plate)
                 end
             elseif unit == originalUnit and not platesByUnit[unit] then
@@ -592,7 +588,7 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
         if unit then platesByUnit[unit] = plate end
     end
     local inCombat = InCombatLockdown and InCombatLockdown()
-    local useOuterFrames = knownOnly and KnownPlayersSettings.playerNameplateFilterMethod == "hide"
+    local useOuterFrames = KnownPlayersSettings.nameplateFilterMethod == "hide"
         and not outerPlateHidingUnavailable and not inCombat
     useOuterFrames = UpdateHiddenOuterPlates(platesByUnit, useOuterFrames)
     -- Clear stale bindings before rendering any newly assigned pooled frame.
@@ -621,13 +617,30 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
         if exists and (not inCombat or allowCombat) then
             if not plateUnits[unit] then plateUnits[unit] = {plate = plate, frame = frame} end
             HookPlateHover(plate, frame)
-            if player and ns.CompareUnits(unit, "player") == false then
-                local visible = not knownOnly or IsRecognized(unit)
-                if not visible then
-                    HideNameLabels(plate, frame)
-                    RestoreNameColor(frame)
-                    if MakeTransparent(frame) and useOuterFrames then HideOuterPlate(plate, unit) end
-                elseif namesOnly then
+            local otherPlayer = player and ns.CompareUnits(unit, "player") == false
+            local filteredPlayer = otherPlayer and knownOnly and not IsRecognized(unit)
+            local filteredMinion = minion and knownOnly and not IsRecognizedMinion(unit)
+            local npcID, category, classified, override
+            if not player and not minion then
+                -- Read creature identity once. Unavailable GUIDs are left visible.
+                npcID = ns.GetNPCFromUnit and ns.GetNPCFromUnit(unit)
+                if npcID then
+                    category, classified = ns.GetNPCNameplateCategory(npcID)
+                    override = ns.GetNPCVisibilityOverride and ns.GetNPCVisibilityOverride(npcID) or "auto"
+                end
+            end
+            local filteredNPC = npcID and (override == "hide"
+                or (override ~= "show" and classified and not category and IsNonAttackableNPC(unit)))
+            local hideOuter = useOuterFrames and (filteredNPC
+                or ((filteredPlayer or filteredMinion) and ReadAppearanceValue(UnitIsFriend, "player", unit) == true))
+            if not hideOuter and hiddenOuterPlates[plate] then RestoreOuterPlate(plate) end
+
+            if filteredPlayer or filteredMinion or filteredNPC then
+                HideNameLabels(plate, frame)
+                RestoreNameColor(frame)
+                if MakeTransparent(frame) and hideOuter then HideOuterPlate(plate, unit) end
+            elseif otherPlayer then
+                if namesOnly then
                     RestoreNameColor(frame)
                     if not ShowNameOnly(plate, frame, unit, false, "player", CategoryColorForUnit(unit), fadeOnCombatEnd) then
                         -- Fail open if the name cannot be displayed.
@@ -649,31 +662,14 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
                 end
             elseif minion then
                 RestoreNameColor(frame)
-                if knownOnly and not IsRecognizedMinion(unit) then
-                    HideNameLabels(plate, frame)
-                    MakeTransparent(frame)
-                elseif not (friendlyMinion and namesOnly
+                if not (friendlyMinion and namesOnly
                     and ShowNameOnly(plate, frame, unit, false, "minion", nil, fadeOnCombatEnd)) then
                     HideNameLabels(plate, frame)
                     RestoreFrame(frame, allowCombat)
                 end
-            elseif exists and not player then
-                -- Creature identity is read only once per plate per refresh.
-                -- Protected or unrecognized GUIDs are left visible (fail open).
-                local npcID = ns.GetNPCFromUnit and ns.GetNPCFromUnit(unit)
-                local category, classified
-                if npcID then
-                    category, classified = ns.GetNPCNameplateCategory(npcID)
-                end
-                local override = npcID and ns.GetNPCVisibilityOverride
-                    and ns.GetNPCVisibilityOverride(npcID) or "auto"
+            elseif not player then
                 RestoreNameColor(frame)
-                if npcID and (override == "hide"
-                    or (override ~= "show" and classified and not category
-                        and IsNonAttackableNPC(unit))) then
-                    HideNameLabels(plate, frame)
-                    MakeTransparent(frame)
-                elseif npcID and (category or override == "show") then
+                if npcID and (category or override == "show") then
                     local color = category and ns.GetNPCNameplateCategoryColor(category)
                     if not ShowNameOnly(plate, frame, unit, npcShowBar, "npc", color, fadeOnCombatEnd) then
                         -- Standard text uses Blizzard's own label. Only name

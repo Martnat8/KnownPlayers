@@ -8,8 +8,8 @@ Keep a backup of your SavedVariables before installing a new development build.
 SETTINGS
 - KnownPlayers: enable player and NPC nameplate filtering separately, control the
   minimap button, and reset preferences without deleting stored characters.
-  Player filtering method defaults to Hide nameplate frame so clicks can reach
-  nearby NPCs. Transparency only uses the previous filtering method.
+  Filtering method applies to both player and NPC filtering. Hide nameplate
+  frame is the default. Choose Transparency only to use opacity alone.
   The Nameplate setup panel lists WoW settings that are off, including
   friendly player and NPC nameplates and Always Show Nameplates for
   visibility outside combat. Enable nameplate settings turns on the listed

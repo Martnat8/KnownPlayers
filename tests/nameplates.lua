@@ -521,17 +521,26 @@ for _, config in ipairs({
     Event("PLAYER_REGEN_ENABLED")
     assert(cvars[first] == "0" and cvars[second] == "1" and not KnownPlayersSettings[backupKey])
 end
--- The default method keeps hidden players available for recognition.
+-- Both filters use the same method, even when enabled separately.
 do
-    local selected, nearby = Plate(), Plate()
-    local selectedFrame, nearbyFrame = UnitFrame(), UnitFrame()
+    local selected, nearby, npc, pet = Plate(), Plate(), Plate(), Plate()
+    local selectedFrame, nearbyFrame, npcFrame, petFrame = UnitFrame(), UnitFrame(), UnitFrame(), UnitFrame()
     local unfamiliar = {name = "Unfamiliar Player", player = true, friendly = true}
     local familiar = {name = "Familiar Player", player = true, friendly = true}
     Bind(selected, selectedFrame, "nameplateTest", unfamiliar)
     Bind(nearby, nearbyFrame, "nameplateNearby", unfamiliar)
-    plates = {selected, nearby}
+    local npcInfo = {name = "Example Creature", npc = true, classified = true}
+    Bind(npc, npcFrame, "nameplateExampleNPC", npcInfo)
+    Bind(pet, petFrame, "nameplateExamplePet", {name = "Example Pet", minion = true, friendly = true})
+    plates = {selected, nearby, npc, pet}
     function UnitIsFriend(_, unit) return units[unit].friendly == true end
+    function UnitIsMinion(unit) return units[unit].minion == true end
+    function UnitOwnerGUID() return "Player-Test-Unknown" end
+    function ns.GetNPCNameplateCategory(unit)
+        return units[unit].category, KnownPlayersSettings.filterNPCNameplates and units[unit].classified
+    end
     KnownPlayersSettings.knownOnlyNameplates = true
+    KnownPlayersSettings.filterNPCNameplates = true
     ns.FillKnownPlayersSettingsDefaults(KnownPlayersSettings)
     KnownPlayersSettings.playerHealthBarMode, KnownPlayersSettings.npcHealthBarMode = "always", "always"
 
@@ -539,17 +548,32 @@ do
     print = function(message) messages[#messages + 1] = message end
     function selected:Show() self.shown = true end
     function nearby:Show() self.shown = true end
+    function npc:Show() self.shown = true end
+    function pet:Show() self.shown = true end
     ns.RefreshKnownNameplates()
     assert(not selected.shown and not nearby.shown and selectedFrame.alpha == 0 and nearbyFrame.alpha == 0)
-    KnownPlayersSettings.playerNameplateFilterMethod = "alpha"
+    assert(not npc.shown and npcFrame.alpha == 0 and not pet.shown and petFrame.alpha == 0)
+    KnownPlayersSettings.nameplateFilterMethod = "alpha"
     ns.RefreshKnownNameplates()
     assert(selected.shown and nearby.shown and selectedFrame.alpha == 0 and nearbyFrame.alpha == 0)
+    assert(npc.shown and npcFrame.alpha == 0 and pet.shown and petFrame.alpha == 0)
 
-    KnownPlayersSettings.playerNameplateFilterMethod = "hide"
+    KnownPlayersSettings.nameplateFilterMethod = "hide"
     ns.RefreshKnownNameplates()
     assert(not selected.shown and not nearby.shown)
     ns.SetKnownOnlyNameplates(false)
     assert(selected.shown and nearby.shown and selectedFrame.alpha == 1 and nearbyFrame.alpha == 1)
+    assert(not npc.shown and pet.shown and petFrame.alpha == 1)
+    npcInfo.override = "show"
+    ns.RefreshKnownNameplates()
+    assert(npc.shown and npcFrame.alpha == 1)
+    npcInfo.override = "hide"
+    ns.RefreshKnownNameplates()
+    assert(not npc.shown and npcFrame.alpha == 0)
+    npcInfo.override = nil
+    KnownPlayersSettings.filterNPCNameplates = false
+    ns.RefreshKnownNameplates()
+    assert(npc.shown and npcFrame.alpha == 1)
     ns.SetKnownOnlyNameplates(true)
     assert(not selected.shown and not nearby.shown)
 
@@ -569,12 +593,12 @@ do
     assert(not selected.shown)
 
     selected.unitToken, units.nameplateTest = nil, nil
-    plates = {nearby}
+    plates = {nearby, npc, pet}
     Event("NAME_PLATE_UNIT_REMOVED", "nameplateTest")
     ns.RefreshKnownNameplates()
     assert(not selected.shown, "an unbound frame must stay under the client's control")
     Bind(selected, selectedFrame, "nameplateReused", familiar)
-    plates = {selected, nearby}
+    plates = {selected, nearby, npc, pet}
     Event("NAME_PLATE_UNIT_ADDED", "nameplateReused")
     assert(selected.shown and selectedFrame.alpha == 1, "a recognized player must not inherit the outer hide")
 
@@ -584,13 +608,14 @@ do
     ns.RefreshKnownNameplates()
     assert(selected.shown and selectedFrame.alpha == 0)
 
-    plates = {selected} -- Simulate a client dropping a still-bound hidden plate from enumeration.
+    plates = {selected, npc, pet} -- One still-bound hidden plate drops out of enumeration.
     ns.RefreshKnownNameplates()
     assert(nearby.shown and messages[#messages]:find("Using transparency for this session", 1, true))
-    assert(KnownPlayersSettings.playerNameplateFilterMethod == "hide")
+    assert(KnownPlayersSettings.nameplateFilterMethod == "hide")
     selected.Hide = hide
     ns.RefreshKnownNameplates()
     assert(selected.shown and selectedFrame.alpha == 0, "session fallback must prevent subsequent outer hides")
+    assert(pet.shown and petFrame.alpha == 0)
     print = originalPrint
 end
 

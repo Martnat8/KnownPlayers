@@ -621,7 +621,7 @@ local function NeedsFriendlyNPCPlates()
     return false
 end
 
-local PLAYER_FILTER_METHODS = {{"hide", "Hide nameplate frame"}, {"alpha", "Transparency only"}}
+local FILTER_METHODS = {{"hide", "Hide nameplate frame"}, {"alpha", "Transparency only"}}
 
 local function BuildHomePage(parent)
     local page, content = NewScrollingPage(parent)
@@ -636,17 +636,17 @@ local function BuildHomePage(parent)
     local playerFilter = Checkbox(content, 17, -92, "Enable player nameplate filtering",
         KnownPlayersSettings.knownOnlyNameplates, ns.SetKnownOnlyNameplates,
         function() return KnownPlayersSettings.knownOnlyNameplates end)
-    AddChoiceDropdown(content, 39, -144, 188, "Player filtering method", PLAYER_FILTER_METHODS,
-        function() return KnownPlayersSettings.playerNameplateFilterMethod end, function(method)
-            KnownPlayersSettings.playerNameplateFilterMethod = method
-            ns.RefreshKnownNameplates()
-        end)
-    local npcFilter = Checkbox(content, 17, -177, "Enable NPC nameplate filtering",
+    local npcFilter = Checkbox(content, 17, -121, "Enable NPC nameplate filtering",
         KnownPlayersSettings.filterNPCNameplates, function(checked)
             KnownPlayersSettings.filterNPCNameplates = checked
             ns.SyncNPCNameplateCVars()
             ns.RefreshKnownNameplates()
         end, function() return KnownPlayersSettings.filterNPCNameplates end)
+    AddChoiceDropdown(content, 18, -176, 188, "Filtering method", FILTER_METHODS,
+        function() return KnownPlayersSettings.nameplateFilterMethod end, function(method)
+            KnownPlayersSettings.nameplateFilterMethod = method
+            ns.RefreshKnownNameplates()
+        end)
 
     local Layout
     local function Refresh() Layout() end

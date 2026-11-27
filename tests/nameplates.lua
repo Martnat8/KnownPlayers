@@ -80,6 +80,10 @@ end
 local function Plate()
     local plate = Label()
     plate.labels = {}
+    function plate:Show()
+        assert(not self.forbidden and not (combat and self.protected), "restricted outer-frame restore")
+        self.shown = true
+    end
     function plate:CreateFontString()
         local label = Label()
         label.owner = self
@@ -99,6 +103,13 @@ local function Bind(plate, unitFrame, token, info)
     units[token] = info
 end
 
+local redrawName
+function CompactUnitFrame_UpdateName() end
+function hooksecurefunc(functionName, callback)
+    assert(functionName == "CompactUnitFrame_UpdateName")
+    redrawName = callback
+end
+
 local ns = {
     IsKnownOrAssociated = function(key) return key == "Familiar-Player-Example" end,
     GetNameplateCategory = function(key) return key == "Familiar-Player-Example" and "guild" or nil end,
@@ -114,6 +125,7 @@ assert(loadfile("KnownPlayers/Categories.lua"))("KnownPlayers", ns)
 assert(loadfile("KnownPlayers/Database.lua"))("KnownPlayers", ns)
 assert(loadfile("KnownPlayers/NameplateCVars.lua"))("KnownPlayers", ns)
 assert(loadfile("KnownPlayers/Nameplates.lua"))("KnownPlayers", ns)
+assert(type(redrawName) == "function", "the native name-redraw hook must remain active")
 local function Event(event, ...) assert(registered[event], "unregistered event: " .. event); scripts.OnEvent(nil, event, ...) end
 local function Tick(delta) scripts.OnUpdate(nil, delta or 0.016) end
 
@@ -208,6 +220,10 @@ ns.RefreshKnownNameplates()
 assert(firstName.shown and firstName.text == one.name and pooled.name.alpha == 0)
 assert(not interactionIcon.shown and nativeIcon.shown, "native icon stays in place with bars visible")
 assert(firstTitle.anchor == pooled.healthBar)
+assert(not first.OnEnter and not pooled.OnEnter, "NPC plates must use Blizzard's native hover handling")
+pooled.name.alpha = 0.5
+redrawName(pooled)
+assert(pooled.name.alpha == 0 and firstTitle.shown, "the redraw hook preserves the replacement NPC text")
 Approx(pooled.alpha, 0.8, "health bar still at native opacity")
 pooled.alpha = 0.6
 Tick()
@@ -237,17 +253,18 @@ Approx(pooled.name.alpha, 0.5, "pending native label restoration is retried on p
 -- Classified hide, attackable fail-open, explicit overrides, and player filtering.
 unknown.classified = true
 ns.RefreshKnownNameplates()
-assert(pooled.alpha == 0 and not secondName.shown)
+assert(not second.shown and pooled.alpha == 0.6 and not secondName.shown)
 unknown.attackable = true
 ns.RefreshKnownNameplates()
 Approx(pooled.alpha, 0.6, "unselected attackable NPC stays native")
+assert(second.shown)
 unknown.override = "show"
 KnownPlayersSettings.npcHealthBarMode = "never"
 ns.RefreshKnownNameplates()
 assert(secondName.shown and pooled.alpha == 0)
 unknown.override = "hide"
 ns.RefreshKnownNameplates()
-assert(not secondName.shown and pooled.alpha == 0)
+assert(not second.shown and not secondName.shown and pooled.alpha == 0.6)
 
 local playerPlate = Plate()
 local playerFrame = UnitFrame()
@@ -257,12 +274,31 @@ KnownPlayersSettings.showGuildInNamesOnly = true
 plates = {playerPlate}
 Event("NAME_PLATE_UNIT_ADDED", "nameplate5")
 assert(playerPlate.labels[1].shown and playerPlate.labels[2].text == "<Example Guild>" and playerFrame.alpha == 0)
+ns.SetPlayerHealthBarMode("always")
+assert(playerFrame.alpha == 1 and playerFrame.name.alpha == 0 and playerFrame.name.color[1] == 0.2)
+assert(not playerFrame.OnEnter and not playerPlate.OnEnter, "player plates must use Blizzard's native hover handling")
+playerFrame.name.alpha = 1
+playerFrame.name:SetTextColor(0.3, 0.4, 0.5, 1)
+redrawName(playerFrame)
+assert(playerFrame.name.alpha == 0 and playerFrame.name.color[1] == 0.2, "the redraw hook restores player styling")
+ns.SetKnownOnlyNameplates(false)
+assert(playerFrame.alpha == 1 and playerFrame.name.alpha == 1 and playerFrame.name.color[1] == 0.3)
+assert(not playerPlate.labels[1].shown and not playerPlate.labels[2].shown)
+redrawName(playerFrame)
+assert(playerFrame.name.alpha == 1 and playerFrame.name.color[1] == 0.3, "redraw must preserve native styling while filtering is off")
+ns.SetPlayerHealthBarMode("never")
+assert(playerFrame.alpha == 1 and not playerPlate.labels[1].shown, "appearance settings take effect only while filtering")
+ns.SetKnownOnlyNameplates(true)
+assert(playerFrame.alpha == 0 and playerPlate.labels[1].shown and playerPlate.labels[2].shown)
+
 player.name = "Unknown Player"
 playerFrame.name.text = player.name
 ns.RefreshKnownNameplates()
-assert(not playerPlate.labels[1].shown and playerFrame.alpha == 0)
-KnownPlayersSettings.knownOnlyNameplates = false
-ns.RefreshKnownNameplates()
+assert(not playerPlate.shown and not playerPlate.labels[1].shown and playerFrame.alpha == 1)
+ns.SetKnownOnlyNameplates(false)
+assert(playerPlate.shown and playerFrame.alpha == 1 and not playerPlate.labels[1].shown)
+player.name, playerFrame.name.text = "Familiar Player", "Familiar Player"
+ns.SetKnownOnlyNameplates(true)
 assert(playerPlate.labels[1].shown)
 playerPlate.forbidden = true
 Tick()
@@ -297,7 +333,7 @@ plates = {restrictedPlate, second}
 ns.RefreshKnownNameplates()
 assert(not restrictedPlate.labels[1] and secondName.shown)
 
--- Release a filtered plate in combat before WoW reuses the frame's alpha.
+-- A filtered outer frame must become visible when reused for a known player.
 local recycledPlate, recycledFrame = Plate(), UnitFrame()
 plates = {recycledPlate}
 KnownPlayersSettings.knownOnlyNameplates = true
@@ -305,17 +341,17 @@ KnownPlayersSettings.playerHealthBarMode, KnownPlayersSettings.npcHealthBarMode 
 for _, protected in ipairs({false, true}) do
     Bind(recycledPlate, recycledFrame, "nameplate7", {name = "Unrecognized Player", player = true})
     Event("NAME_PLATE_UNIT_ADDED", "nameplate7")
-    assert(recycledFrame.alpha == 0)
-    combat, recycledFrame.protected = true, protected
+    assert(not recycledPlate.shown and recycledFrame.alpha == 1)
+    combat, recycledPlate.protected = true, protected
     Event("NAME_PLATE_UNIT_REMOVED", "nameplate7")
     Bind(recycledPlate, recycledFrame, "nameplate8", {name = "Familiar Player", player = true})
     Event("NAME_PLATE_UNIT_ADDED", "nameplate8")
-    assert(recycledFrame.alpha == (protected and 0 or 1))
+    assert(recycledPlate.shown == not protected and recycledFrame.alpha == 1)
     combat = false
     Event("PLAYER_REGEN_ENABLED")
-    assert(recycledFrame.alpha == 1)
+    assert(recycledPlate.shown and recycledFrame.alpha == 1)
     Event("NAME_PLATE_UNIT_REMOVED", "nameplate8")
-    recycledFrame.protected = false
+    recycledPlate.protected = false
 end
 
 -- Never applies to new and recycled plates during combat when WoW permits alpha writes.
@@ -435,6 +471,10 @@ do
         and friendlyPlate.labels[1].text == "Synthetic Pet" and not friendlyPlate.labels[2],
         "Never kept a health bar on an enabled friendly minion")
     assert(hostileFrame.alpha == 1 and not hostilePlate.labels[1])
+    ns.SetKnownOnlyNameplates(false)
+    assert(friendlyFrame.alpha == 1 and not friendlyPlate.labels[1].shown)
+    ns.SetKnownOnlyNameplates(true)
+    assert(friendlyFrame.alpha == 0 and friendlyPlate.labels[1].shown)
     ns.SetPlayerHealthBarMode("always")
     assert(friendlyFrame.alpha == 1 and not friendlyPlate.labels[1].shown)
     combat = true
@@ -521,7 +561,116 @@ for _, config in ipairs({
     Event("PLAYER_REGEN_ENABLED")
     assert(cvars[first] == "0" and cvars[second] == "1" and not KnownPlayersSettings[backupKey])
 end
--- Both filters use the same method, even when enabled separately.
+-- A selected NPC can get a new frame after the camera event, before it is listed.
+do
+    local originalUnitIsUnit = UnitIsUnit
+    local originalGetNamePlates = C_NamePlate.GetNamePlates
+    local npc = {name = "Example Auctioneer", npc = true, category = "auctioneer", classified = true}
+    local initial, rebound, stale = Plate(), Plate(), Plate()
+    local targetPlate, scans = nil, 0
+    C_NamePlate.GetNamePlates = function() scans = scans + 1; return originalGetNamePlates() end
+    C_NamePlate.GetNamePlateForUnit = function(unit) assert(unit == "target"); return targetPlate end
+    function UnitIsUnit(first, second) return first == second or (units[first] ~= nil and units[first] == units[second]) end
+    Bind(initial, UnitFrame(), "nameplateInitial", npc)
+    Bind(rebound, UnitFrame(), "nameplateRebound", npc)
+    Bind(stale, UnitFrame(), "nameplateStale", {name = "Different NPC", npc = true, category = "vendor"})
+    KnownPlayersSettings.npcHealthBarMode, KnownPlayersSettings.npcNameDisplayMode = "never", "first"
+    units.target, plates = npc, {}
+    ns.OnNameplateTargetChanged()
+    Tick()
+    local scansWhileWaiting = scans
+    Tick()
+    assert(scans == scansWhileWaiting and not initial.labels[1])
+    targetPlate = initial
+    initial.UnitFrame.shown = false
+    Tick()
+    assert(scans == scansWhileWaiting, "waiting for the target should not rescan other plates")
+    initial.UnitFrame.shown = true
+    Tick()
+    assert(scans == scansWhileWaiting + 1 and initial.labels[1].shown,
+        "the first visible frame must be styled before the scheduled retry")
+
+    behind.nameplateInitial = true
+    Event("NAME_PLATE_UNIT_BEHIND_CAMERA_CHANGED", "nameplateInitial", true)
+    assert(not initial.labels[1].shown)
+    targetPlate, plates, units.nameplateInitial = nil, {}, nil
+    Event("NAME_PLATE_UNIT_REMOVED", "nameplateInitial")
+    Event("NAME_PLATE_UNIT_BEHIND_CAMERA_CHANGED", "target", false)
+    Tick()
+    assert(not rebound.labels[1])
+    targetPlate = stale
+    Tick(0.1)
+    assert(not stale.labels[1], "a stale target lookup must not style a different NPC")
+    targetPlate = rebound
+    Tick(0.25)
+    assert(rebound.labels[1].shown and rebound.labels[1].text == "Example" and rebound.UnitFrame.alpha == 0)
+    Tick(0.75)
+    assert(rebound.labels[1].shown, "the regular refresh must retain a directly available target frame")
+
+    units.target = nil
+    ns.OnNameplateTargetChanged()
+    assert(not rebound.labels[1].shown and rebound.UnitFrame.alpha == 1)
+    C_NamePlate.GetNamePlateForUnit, UnitIsUnit = nil, originalUnitIsUnit
+    C_NamePlate.GetNamePlates = originalGetNamePlates
+end
+
+-- Selection gets a short retry when the player's plate arrives after the event.
+do
+    local originalUnitIsUnit = UnitIsUnit
+    local familiar = {name = "Familiar Player", player = true}
+    local unfamiliar = {name = "Unfamiliar Player", player = true}
+    local knownPlate, unknownPlate = Plate(), Plate()
+    local knownFrame, unknownFrame = UnitFrame(), UnitFrame()
+    Bind(knownPlate, knownFrame, "nameplateSelectedKnown", familiar)
+    Bind(unknownPlate, unknownFrame, "nameplateSelectedUnknown", unfamiliar)
+    function UnitIsUnit(first, second) return first == second or (units[first] ~= nil and units[first] == units[second]) end
+    KnownPlayersSettings.knownOnlyNameplates = true
+    KnownPlayersSettings.playerHealthBarMode, KnownPlayersSettings.nameDisplayMode = "never", "first"
+
+    units.target, plates = familiar, {}
+    ns.OnNameplateTargetChanged()
+    assert(not knownPlate.labels[1])
+    plates = {knownPlate}
+    Tick()
+    assert(knownPlate.labels[1].shown and knownPlate.labels[1].text == "Familiar" and knownFrame.alpha == 0)
+
+    local targetPlate
+    C_NamePlate.GetNamePlateForUnit = function() return targetPlate end
+    local latePlate, lateFrame = Plate(), UnitFrame()
+    Bind(latePlate, lateFrame, "nameplateSelectedLate", familiar)
+    plates = {}
+    ns.OnNameplateTargetChanged()
+    Tick()
+    Tick(0.12)
+    targetPlate = latePlate
+    lateFrame.shown = false
+    Tick()
+    assert(not latePlate.labels[1], "wait until the late player frame can be seen")
+    lateFrame.shown = true
+    Tick()
+    assert(latePlate.labels[1] and latePlate.labels[1].shown and lateFrame.alpha == 0,
+        "style the first visible player frame before the next scheduled refresh")
+    targetPlate = nil
+
+    units.target, plates = unfamiliar, {}
+    ns.OnNameplateTargetChanged()
+    Tick()
+    assert(unknownFrame.alpha == 1)
+    targetPlate = unknownPlate
+    Tick(0.1)
+    assert(unknownPlate.shown and unknownFrame.alpha == 1 and not unknownPlate.labels[1],
+        "a target frame outside the general list must stay visible until it can be tracked safely")
+    plates = {unknownPlate}
+    Tick(0.25)
+    assert(not unknownPlate.shown and unknownFrame.alpha == 1, "the plate is hidden once enumerated")
+
+    units.target, plates = nil, {}
+    ns.OnNameplateTargetChanged()
+    assert(unknownPlate.shown and unknownFrame.alpha == 1)
+    C_NamePlate.GetNamePlateForUnit, UnitIsUnit = nil, originalUnitIsUnit
+end
+
+-- Both filters hide outer frames, even when enabled separately.
 do
     local selected, nearby, npc, pet = Plate(), Plate(), Plate(), Plate()
     local selectedFrame, nearbyFrame, npcFrame, petFrame = UnitFrame(), UnitFrame(), UnitFrame(), UnitFrame()
@@ -544,23 +693,9 @@ do
     ns.FillKnownPlayersSettingsDefaults(KnownPlayersSettings)
     KnownPlayersSettings.playerHealthBarMode, KnownPlayersSettings.npcHealthBarMode = "always", "always"
 
-    local messages, originalPrint = {}, print
-    print = function(message) messages[#messages + 1] = message end
-    function selected:Show() self.shown = true end
-    function nearby:Show() self.shown = true end
-    function npc:Show() self.shown = true end
-    function pet:Show() self.shown = true end
     ns.RefreshKnownNameplates()
-    assert(not selected.shown and not nearby.shown and selectedFrame.alpha == 0 and nearbyFrame.alpha == 0)
-    assert(not npc.shown and npcFrame.alpha == 0 and not pet.shown and petFrame.alpha == 0)
-    KnownPlayersSettings.nameplateFilterMethod = "alpha"
-    ns.RefreshKnownNameplates()
-    assert(selected.shown and nearby.shown and selectedFrame.alpha == 0 and nearbyFrame.alpha == 0)
-    assert(npc.shown and npcFrame.alpha == 0 and pet.shown and petFrame.alpha == 0)
-
-    KnownPlayersSettings.nameplateFilterMethod = "hide"
-    ns.RefreshKnownNameplates()
-    assert(not selected.shown and not nearby.shown)
+    assert(not selected.shown and not nearby.shown and selectedFrame.alpha == 1 and nearbyFrame.alpha == 1)
+    assert(not npc.shown and npcFrame.alpha == 1 and not pet.shown and petFrame.alpha == 1)
     ns.SetKnownOnlyNameplates(false)
     assert(selected.shown and nearby.shown and selectedFrame.alpha == 1 and nearbyFrame.alpha == 1)
     assert(not npc.shown and pet.shown and petFrame.alpha == 1)
@@ -569,7 +704,7 @@ do
     assert(npc.shown and npcFrame.alpha == 1)
     npcInfo.override = "hide"
     ns.RefreshKnownNameplates()
-    assert(not npc.shown and npcFrame.alpha == 0)
+    assert(not npc.shown and npcFrame.alpha == 1)
     npcInfo.override = nil
     KnownPlayersSettings.filterNPCNameplates = false
     ns.RefreshKnownNameplates()
@@ -587,7 +722,7 @@ do
 
     combat = true
     Event("PLAYER_REGEN_DISABLED")
-    assert(selected.shown and selectedFrame.alpha == 0)
+    assert(not selected.shown and selectedFrame.alpha == 1)
     combat = false
     Event("PLAYER_REGEN_ENABLED")
     assert(not selected.shown)
@@ -606,17 +741,98 @@ do
     local hide = selected.Hide
     selected.Hide = function() error("Restricted mock frame") end
     ns.RefreshKnownNameplates()
-    assert(selected.shown and selectedFrame.alpha == 0)
+    assert(selected.shown and selectedFrame.alpha == 1, "a refused hide leaves the plate visible")
 
     plates = {selected, npc, pet} -- One still-bound hidden plate drops out of enumeration.
     ns.RefreshKnownNameplates()
-    assert(nearby.shown and messages[#messages]:find("Using transparency for this session", 1, true))
-    assert(KnownPlayersSettings.nameplateFilterMethod == "hide")
+    assert(nearby.shown and nearbyFrame.alpha == 1, "a frame that disappears from enumeration is restored")
+    plates = {selected, nearby, npc, pet}
     selected.Hide = hide
     ns.RefreshKnownNameplates()
-    assert(selected.shown and selectedFrame.alpha == 0, "session fallback must prevent subsequent outer hides")
-    assert(pet.shown and petFrame.alpha == 0)
-    print = originalPrint
+    assert(nearby.shown and not selected.shown and not pet.shown, "only the unlisted binding remains visible")
+    Event("NAME_PLATE_UNIT_REMOVED", "nameplateNearby")
+    Event("NAME_PLATE_UNIT_ADDED", "nameplateNearby")
+    assert(not nearby.shown and nearbyFrame.alpha == 1, "a fresh binding can be hidden again")
 end
 
-print("Nameplate lifecycle, filtering methods, scaling, and settings restoration checks passed.")
+-- Model an outer frame whose binding survives a gap in both client lookups.
+do
+    local originalCompare = UnitIsUnit
+    local originalIsKnown = ns.IsKnownOrAssociated
+    local player = {name = "Example Newcomer", player = true}
+    local selected, nearby = Plate(), Plate()
+    local selectedFrame, nearbyFrame = UnitFrame(), UnitFrame()
+    local token = "nameplateNewcomer"
+    Bind(selected, selectedFrame, token, player)
+    Bind(nearby, nearbyFrame, "nameplateBystander", {name = "Example Bystander", player = true})
+    local saved = false
+    ns.IsKnownOrAssociated = function(key) return saved and key == "Example-Newcomer-Example" end
+    function UnitIsUnit(first, second) return first == second or (units[first] ~= nil and units[first] == units[second]) end
+    KnownPlayersSettings.knownOnlyNameplates = true
+    KnownPlayersSettings.playerHealthBarMode, KnownPlayersSettings.nameDisplayMode = "never", "first"
+    plates = {selected, nearby}
+    ns.RefreshKnownNameplates()
+    assert(not selected.shown and not nearby.shown)
+
+    units.target, plates = player, {nearby}
+    saved = true
+    ns.OnNameplateTargetChanged()
+    assert(selected.shown and selected.labels[1] and selected.labels[1].shown and selectedFrame.alpha == 0,
+        "style the newly saved target from its retained binding while the client omits it")
+    assert(not nearby.shown and nearbyFrame.alpha == 1, "keep the unrelated player filtered")
+    Tick(0.75)
+    assert(selected.labels[1].shown, "keep the restored style until a normal plate is available")
+
+    units.target = nil
+    ns.OnNameplateTargetChanged()
+    assert(not selected.labels[1].shown and selectedFrame.alpha == 1)
+    local reused = UnitFrame()
+    Bind(selected, reused, token, player)
+    units.target = player
+    ns.OnNameplateTargetChanged()
+    assert(not selected.labels[1].shown and reused.alpha == 1, "reject a replaced UnitFrame")
+    units.target = nil
+    UnitIsUnit, ns.IsKnownOrAssociated = originalCompare, originalIsKnown
+end
+
+-- Accept the client's float round-trip while rolling back significant changes.
+do
+    Enum = {NamePlateType = {Friendly = 0, Enemy = 1}}
+    local hitTestInsets = {[0] = {1, 2, 3, 4}, [1] = {5, 6, 7, 8}}
+    local roundedInset = 999.99993896484
+    local clampEnemy, writes = true, 0
+    function C_NamePlateManager.GetNamePlateHitTestInsets(plateType) return unpack(hitTestInsets[plateType]) end
+    function C_NamePlateManager.SetNamePlateHitTestInsets(plateType, ...)
+        local insets = {...}
+        for side = 1, 4 do
+            if insets[side] == 1000 then insets[side] = roundedInset end
+        end
+        if clampEnemy and plateType == 1 and insets[1] > 100 then insets[1] = 50 end
+        hitTestInsets[plateType] = insets
+        writes = writes + 1
+    end
+    KnownPlayersSettings.nameplatesClickable = true
+    assert(not ns.SetNameplatesClickable(false) and KnownPlayersSettings.nameplatesClickable)
+    assert(hitTestInsets[0][1] == 1 and hitTestInsets[1][1] == 5 and not KnownPlayersSettings.nameplateClickInsetsBackup)
+
+    clampEnemy, combat = false, true
+    local beforeCombat = writes
+    assert(not ns.SetNameplatesClickable(false) and writes == beforeCombat and KnownPlayersSettings.nameplatesClickable)
+    combat = false
+    assert(ns.SetNameplatesClickable(false))
+    assert(not KnownPlayersSettings.nameplatesClickable)
+    assert(hitTestInsets[0][1] == roundedInset and hitTestInsets[1][4] == roundedInset)
+    hitTestInsets[0] = {11, 12, 13, 14}
+    assert(ns.SetNameplatesClickable(true))
+    assert(hitTestInsets[0][1] == 11 and hitTestInsets[1][4] == 8, "preserve an externally changed hit area")
+
+    plates = {}
+    KnownPlayersSettings.nameplatesClickable = false
+    Event("PLAYER_ENTERING_WORLD")
+    assert(hitTestInsets[0][1] > 100 and hitTestInsets[1][4] > 100)
+    Event("PLAYER_LOGOUT")
+    assert(hitTestInsets[0][1] == 11 and hitTestInsets[1][4] == 8)
+    assert(not KnownPlayersSettings.nameplatesClickable and not KnownPlayersSettings.nameplateClickInsetsBackup)
+end
+
+print("Nameplate lifecycle, frame hiding, scaling, click areas, and settings restoration checks passed.")

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+- Refresh NPC nameplates as they return to view and retry styling selected players and NPCs as WoW makes their frames available.
+- Save newly targeted players before applying the nameplate filter. WoW can briefly display its own overhead name while it makes the nameplate available.
+- Let players type an NPC nameplate distance and display the value WoW accepts.
+- Restore clicks on visible nameplates and add a main settings toggle for friendly and enemy nameplate clicks.
+- Restore Blizzard's player and minion nameplate appearance when player filtering is disabled.
+- Hide filtered player, minion, and NPC frames and remove the transparency filtering option and manual nameplate tests.
+- Fit the minimap icon to its ring with a circular mask.
+- Keep favorited players on their original list when using Clear List.
+
 ## [0.5.3b7] - 2026-11-27
 
 - Put one shared filtering method dropdown below the player and NPC toggles and apply its selection to both.

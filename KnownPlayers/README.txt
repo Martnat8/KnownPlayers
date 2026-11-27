@@ -8,8 +8,10 @@ Keep a backup of your SavedVariables before installing a new development build.
 SETTINGS
 - KnownPlayers: enable player and NPC nameplate filtering separately, control the
   minimap button, and reset preferences without deleting stored characters.
-  Filtering method applies to both player and NPC filtering. Hide nameplate
-  frame is the default. Choose Transparency only to use opacity alone.
+  Use Clickable nameplates outside combat to control clicks on friendly and
+  enemy nameplates. Select it again to restore the previous click areas.
+  Filtered nameplates are hidden. A plate can stay visible if WoW does not
+  let KnownPlayers hide it safely.
   The Nameplate setup panel lists WoW settings that are off, including
   friendly player and NPC nameplates and Always Show Nameplates for
   visibility outside combat. Enable nameplate settings turns on the listed
@@ -25,7 +27,8 @@ SETTINGS
   Use /kp players to search All Players by name, realm, reason, personal
   note, or tag. A player matches when they have any selected reason.
   Click the star in a list or in Player History to keep a player through
-  inactivity. Click it again to let inactivity limits apply.
+  inactivity and keep them on their lists when using Clear List. Click the
+  star again to let inactivity limits apply.
   The trash can removes the selected reason in a category list or forgets
   the entire character in All Players. Click History or choose View Player
   History in the portrait menu to see the last activity for each saved
@@ -103,6 +106,10 @@ Blizzard still determines which NPCs have nameplates in range; Always Show
 cannot generate a nameplate for a unit Blizzard has not provided.
 
 NAMEPLATE APPEARANCE
+Turning off player nameplate filtering restores Blizzard's appearance for
+players and player-owned minions.
+WoW can show its own overhead name for a newly selected player until the
+nameplate becomes available. Turning the camera may bring the plate back.
 KnownPlayers does not set Blizzard's nameplate width, height or global scale.
 Normal full-name displays use Blizzard's own name font; custom first-name,
 guild/title, and names-only labels mirror the live native font and frame scale.

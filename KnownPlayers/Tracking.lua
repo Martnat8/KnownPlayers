@@ -318,15 +318,12 @@ end)
 local targetFrame = CreateFrame("Frame")
 targetFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 targetFrame:SetScript("OnEvent", function()
-    if not KnownPlayersDB or not KnownPlayersSettings
-        or not KnownPlayersSettings.trackTargets then
-        return
+    if KnownPlayersDB and KnownPlayersSettings and KnownPlayersSettings.trackTargets then
+        local key, guid = GetPlayerKey("target")
+        if key then ns.RememberPlayer(key, "target", nil, guid, nil, "target") end
     end
-
-    local key, guid = GetPlayerKey("target")
-    if key then
-        ns.RememberPlayer(key, "target", nil, guid, nil, "target")
-    end
+    -- Recognize the new encounter before the filter decides which plates to hide.
+    if ns.OnNameplateTargetChanged then ns.OnNameplateTargetChanged() end
 end)
 
 -- InspectUnit is the Blizzard UI entry point for a player-initiated

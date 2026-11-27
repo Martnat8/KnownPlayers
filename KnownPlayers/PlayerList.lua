@@ -268,7 +268,8 @@ end
 
 local function ShowFavoriteState(button, favorite)
     button.icon:SetAtlas(favorite and "auctionhouse-icon-favorite" or "auctionhouse-icon-favorite-off")
-    button.tooltip = favorite and "Remove favorite\nInactivity limits apply again" or "Add favorite\nKeep this player through inactivity"
+    button.tooltip = favorite and "Remove favorite\nInactivity limits and Clear List apply again"
+        or "Add favorite\nKeep this player through inactivity and list clearing"
     if GameTooltip and GameTooltip:IsOwned(button) then ShowIconTooltip(button) end
 end
 
@@ -310,14 +311,22 @@ end
 
 local popupKey = "KNOWNPLAYERS_CLEAR_CATEGORY_WINDOW"
 StaticPopupDialogs[popupKey] = {
-    text = "Clear all entries from the %s list?\n\nA restore point will be saved in Backup & Restore.",
+    text = "Clear the %s list? Favorited players will stay on this list.\n\nA restore point will be saved in Backup & Restore.",
     button1 = YES,
     button2 = CANCEL,
     OnAccept = function(_, categoryKey)
         if ns.IsPlayerCategory(categoryKey) then
-            if not ns.BackupBeforeChange("Before clearing a list", {players = true}) then return end
+            local keep, hasRemovable = {}, false
+            for _, entry in ipairs(ns.GetCategoryPlayers(categoryKey)) do
+                if entry.appearance.favorite == true then
+                    keep[entry.key] = true
+                else
+                    hasRemovable = true
+                end
+            end
+            if not hasRemovable or not ns.BackupBeforeChange("Before clearing a list", {players = true}) then return end
             ns.ClearRemovalUndo()
-            ns.ClearPlayerCategory(categoryKey)
+            ns.ClearPlayerCategory(categoryKey, keep)
             if RefreshAllWindows then RefreshAllWindows() end
         end
     end,

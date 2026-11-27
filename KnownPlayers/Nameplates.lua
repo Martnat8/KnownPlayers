@@ -1,19 +1,22 @@
 local addonName, ns = ...
 
--- Alpha-zero leaves the UnitFrame available for click-targeting where allowed.
+-- The names-only appearance fades the UnitFrame and draws its own labels.
 local changedFrames = setmetatable({}, { __mode = "k" })
 local combatFades = setmetatable({}, { __mode = "k" })
 local COMBAT_FADE_SECONDS = 0.25
+local PLATE_RETRY_TIMES = {0, 0.1, 0.35}
+local SELECTED_PLATE_WAIT = 0.75
 local plateUnits = {} -- unit token -> outer plate and its current pooled UnitFrame
 local nameLabels = setmetatable({}, { __mode = "k" }) -- owned by the outer plate
 local activeNameLabels = {}
 local originalNameColors = setmetatable({}, { __mode = "k" })
 local originalVertexColors = setmetatable({}, { __mode = "k" })
 local originalNativeNameAlpha = setmetatable({}, { __mode = "k" })
-local hoverHooked = setmetatable({}, { __mode = "k" })
 local elapsed = 0
-local outerPlateHidingUnavailable = false
+local plateRetryStep, plateRetryElapsed
+local selectedPlateWait = 0
 local hiddenOuterPlates = setmetatable({}, { __mode = "k" })
+local unlistedOuterPlates = setmetatable({}, { __mode = "k" })
 local function PlayerHealthBarMode()
     return KnownPlayersSettings and KnownPlayersSettings.playerHealthBarMode or "always"
 end
@@ -34,10 +37,6 @@ local function PlayerHealthBarVisible()
 end
 
 local nativeNameCheckElapsed = 0
-
-local function Print(message)
-    print("|cff33ff99KnownPlayers:|r " .. message)
-end
 
 local function IsProtected(frame)
     return not frame or (frame.IsForbidden and frame:IsForbidden())
@@ -449,9 +448,12 @@ local function RestoreAllNameColors()
     end
 end
 
--- Blizzard can redraw the native label during mouseover and name updates.
+-- Reapply styling after Blizzard redraws the native name.
 local function ReapplyNormalNameColor(frame, unit)
-    if not KnownPlayersSettings or not unit or IsProtected(frame) or IsCombatRestricted(frame) then return end
+    if not KnownPlayersSettings or not unit or IsProtected(frame) or IsCombatRestricted(frame)
+        or not UnitExists(unit) then return end
+    local player = ReadAppearanceValue(UnitIsPlayer, unit) == true
+    if not KnownPlayersSettings.knownOnlyNameplates and (player or ns.IsPlayerMinion(unit)) then return end
     local binding = plateUnits[unit]
     local plate = binding and binding.plate
     local labels = plate and activeNameLabels[plate]
@@ -460,25 +462,9 @@ local function ReapplyNormalNameColor(frame, unit)
         and labels.replacesNativeName then
         SuppressNativeName(frame)
     end
-    if PlayerHealthBarVisible() and UnitExists(unit) and UnitIsPlayer(unit) and ns.CompareUnits(unit, "player") == false then
+    if player and PlayerHealthBarVisible() and ns.CompareUnits(unit, "player") == false then
         local color = CategoryColorForUnit(unit)
         if color then SetNameColor(frame, color) end
-    end
-end
-
-local function HookPlateHover(plate, frame)
-    if not hoverHooked[frame] and type(frame.HookScript) == "function" then
-        local ok = pcall(frame.HookScript, frame, "OnEnter", function(self)
-            ReapplyNormalNameColor(self, ns.SafeString(self.unit))
-        end)
-        if ok then hoverHooked[frame] = true end
-    end
-    if not hoverHooked[plate] and type(plate.HookScript) == "function" then
-        local ok = pcall(plate.HookScript, plate, "OnEnter", function(self)
-            local current = self.UnitFrame
-            if current then ReapplyNormalNameColor(current, ns.SafeString(self.unitToken)) end
-        end)
-        if ok then hoverHooked[plate] = true end
     end
 end
 
@@ -489,15 +475,45 @@ local function GetPlateList()
     return {}
 end
 
-local function FindTargetPlate()
-    if not UnitExists("target") or not UnitIsPlayer("target") then
-        return nil, "Target another player first."
+local function IsNPCUnit(unit)
+    return unit and ReadAppearanceValue(UnitExists, unit) == true
+        and ns.GetNPCFromUnit and ns.GetNPCFromUnit(unit) ~= nil
+end
+
+local function CanRefreshSelectedPlate()
+    if ReadAppearanceValue(UnitExists, "target") ~= true then return false end
+    if ReadAppearanceValue(UnitIsPlayer, "target") == true then
+        return KnownPlayersSettings and KnownPlayersSettings.knownOnlyNameplates
+            and ns.CompareUnits("target", "player") == false
     end
-    for _, plate in ipairs(GetPlateList()) do
+    return IsNPCUnit("target")
+end
+
+local function GetSelectedPlate()
+    local plate = ReadAppearanceValue(C_NamePlate and C_NamePlate.GetNamePlateForUnit, "target")
+    local unit = not IsProtected(plate) and ns.SafeString(plate.unitToken)
+    if unit and ns.CompareUnits(unit, "target") == true then return plate, unit end
+end
+
+local function GetUnlistedSelectedPlate(platesByUnit)
+    -- Restoring an outer frame can leave it outside both client lookups.
+    for plate, binding in pairs(unlistedOuterPlates) do
         local unit = not IsProtected(plate) and ns.SafeString(plate.unitToken)
-        if unit and UnitExists(unit) and ns.CompareUnits(unit, "target") == true then return plate end
+        if unit == binding.unit and not platesByUnit[unit] and plate.UnitFrame == binding.frame
+            and ReadAppearanceValue(plate.IsShown, plate) == true and ns.CompareUnits(unit, "target") == true then
+            return plate, unit
+        end
     end
-    return nil, "Target has no visible nameplate. Enable player nameplates and move closer."
+end
+
+local function AddSelectedPlate(platesByUnit)
+    if not CanRefreshSelectedPlate() then return end
+    local plate, unit = GetSelectedPlate()
+    if not plate then plate, unit = GetUnlistedSelectedPlate(platesByUnit) end
+    if unit and not platesByUnit[unit] then
+        platesByUnit[unit] = plate
+        return plate
+    end
 end
 
 local function IsRecognized(unit)
@@ -515,35 +531,36 @@ local function RestoreOuterPlate(plate)
     if ReadAppearanceValue(plate.IsShown, plate) == true then hiddenOuterPlates[plate] = nil end
 end
 
-local function HideOuterPlate(plate, unit)
+local function HideOuterPlate(plate, unit, frame)
+    local unlisted = unlistedOuterPlates[plate]
+    if unlisted and unlisted.unit == unit and unlisted.frame == frame then return end
     if ReadAppearanceValue(plate.IsShown, plate) ~= true
         or type(plate.Hide) ~= "function" or type(plate.Show) ~= "function" then
         return
     end
     pcall(plate.Hide, plate)
-    if ReadAppearanceValue(plate.IsShown, plate) == false then hiddenOuterPlates[plate] = unit end
+    if ReadAppearanceValue(plate.IsShown, plate) == false then
+        hiddenOuterPlates[plate] = {unit = unit, frame = frame}
+        unlistedOuterPlates[plate] = nil
+    end
 end
 
-local function UpdateHiddenOuterPlates(platesByUnit, useOuterFrames)
-    for plate, originalUnit in pairs(hiddenOuterPlates) do
+local function UpdateHiddenOuterPlates(platesByUnit)
+    for plate, binding in pairs(hiddenOuterPlates) do
         local unit = not IsProtected(plate) and ns.SafeString(plate.unitToken)
         if unit and UnitExists(unit) then
             if platesByUnit[unit] == plate then
-                if not useOuterFrames or IsProtected(plate.UnitFrame) then
+                if binding.released or unit ~= binding.unit or plate.UnitFrame ~= binding.frame
+                    or IsProtected(plate.UnitFrame) then
                     RestoreOuterPlate(plate)
                 end
-            elseif unit == originalUnit and not platesByUnit[unit] then
-                -- Losing the plate from enumeration would break normal recognition.
-                if useOuterFrames and ReadAppearanceValue(plate.IsShown, plate) == false then
-                    useOuterFrames = false
-                    outerPlateHidingUnavailable = true
-                    Print("Using transparency for this session because WoW stopped listing a hidden nameplate.")
-                end
+            elseif unit == binding.unit and not binding.released and not platesByUnit[unit] then
+                -- Leave only this binding visible if hiding it removed it from enumeration.
+                if ReadAppearanceValue(plate.IsShown, plate) == false then unlistedOuterPlates[plate] = binding end
                 RestoreOuterPlate(plate)
             end
         end
     end
-    return useOuterFrames
 end
 
 local function IsRecognizedMinion(unit)
@@ -565,12 +582,15 @@ local function IsNonAttackableNPC(unit)
     return ok and ns.IsAccessibleValue(attackable) and attackable == false
 end
 
-local function ReleasePlate(unit, binding)
-    local plate, frame = binding.plate, binding.frame
+local function RestorePlateAppearance(plate, frame)
     HideNameLabels(plate, frame)
-    -- A recycled frame can carry our zero alpha into the next unit's binding.
     RestoreFrame(frame, true)
     RestoreNameColor(frame)
+end
+
+local function ReleasePlate(unit, binding)
+    -- A recycled frame can carry our zero alpha into the next unit's binding.
+    RestorePlateAppearance(binding.plate, binding.frame)
     plateUnits[unit] = nil
 end
 
@@ -579,18 +599,14 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
     local knownOnly = KnownPlayersSettings.knownOnlyNameplates
     local playerMode, npcMode = PlayerHealthBarMode(), NPCHealthBarMode()
     local namesOnly, npcShowBar = not HealthBarVisible(playerMode), HealthBarVisible(npcMode)
-    -- Even with full nameplates and no visibility filter, refresh the
-    -- original Blizzard name text colors for recognized characters.
-
     local platesByUnit = {}
     for _, plate in ipairs(GetPlateList()) do
         local unit = not IsProtected(plate) and ns.SafeString(plate.unitToken)
         if unit then platesByUnit[unit] = plate end
     end
     local inCombat = InCombatLockdown and InCombatLockdown()
-    local useOuterFrames = KnownPlayersSettings.nameplateFilterMethod == "hide"
-        and not outerPlateHidingUnavailable and not inCombat
-    useOuterFrames = UpdateHiddenOuterPlates(platesByUnit, useOuterFrames)
+    UpdateHiddenOuterPlates(platesByUnit)
+    local selectedOnlyPlate = AddSelectedPlate(platesByUnit)
     -- Clear stale bindings before rendering any newly assigned pooled frame.
     -- This also catches plates that disappear between the add/remove events.
     for unit, binding in pairs(plateUnits) do
@@ -600,8 +616,9 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
         end
     end
 
-    if inCombat and playerMode == "always" and npcMode == "always" and not next(activeNameLabels) then return end
-    local showFriendlyMinions = ns.GetFriendlyMinionVisibility()
+    if inCombat and knownOnly and playerMode == "always" and npcMode == "always"
+        and not next(activeNameLabels) and not next(hiddenOuterPlates) then return end
+    local showFriendlyMinions = knownOnly and ns.GetFriendlyMinionVisibility()
     for unit, plate in pairs(platesByUnit) do
         local frame = plate.UnitFrame
         local accessible = not IsProtected(frame) and not IsCombatRestricted(frame)
@@ -614,9 +631,13 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
         local allowCombat = exists and (player and playerMode ~= "always"
             or friendlyMinion and playerMode ~= "always" or restoreMinionBar
             or not player and not minion and npcMode ~= "always")
-        if exists and (not inCombat or allowCombat) then
+        local canStyle = not inCombat or allowCombat
+        if not knownOnly and (player or minion) then
+            if hiddenOuterPlates[plate] then RestoreOuterPlate(plate) end
+            RestorePlateAppearance(plate, frame)
+            plateUnits[unit] = nil
+        elseif exists and (canStyle or hiddenOuterPlates[plate]) then
             if not plateUnits[unit] then plateUnits[unit] = {plate = plate, frame = frame} end
-            HookPlateHover(plate, frame)
             local otherPlayer = player and ns.CompareUnits(unit, "player") == false
             local filteredPlayer = otherPlayer and knownOnly and not IsRecognized(unit)
             local filteredMinion = minion and knownOnly and not IsRecognizedMinion(unit)
@@ -631,15 +652,15 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
             end
             local filteredNPC = npcID and (override == "hide"
                 or (override ~= "show" and classified and not category and IsNonAttackableNPC(unit)))
-            local hideOuter = useOuterFrames and (filteredNPC
-                or ((filteredPlayer or filteredMinion) and ReadAppearanceValue(UnitIsFriend, "player", unit) == true))
+            local filtered = filteredPlayer or filteredMinion or filteredNPC
+            -- A target lookup alone cannot reliably track a hidden plate after deselection.
+            local hideOuter = filtered and plate ~= selectedOnlyPlate
             if not hideOuter and hiddenOuterPlates[plate] then RestoreOuterPlate(plate) end
 
-            if filteredPlayer or filteredMinion or filteredNPC then
-                HideNameLabels(plate, frame)
-                RestoreNameColor(frame)
-                if MakeTransparent(frame) and hideOuter then HideOuterPlate(plate, unit) end
-            elseif otherPlayer then
+            if filtered then
+                RestorePlateAppearance(plate, frame)
+                if hideOuter and not inCombat then HideOuterPlate(plate, unit, frame) end
+            elseif canStyle and otherPlayer then
                 if namesOnly then
                     RestoreNameColor(frame)
                     if not ShowNameOnly(plate, frame, unit, false, "player", CategoryColorForUnit(unit), fadeOnCombatEnd) then
@@ -660,14 +681,14 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
                         HideNameLabels(plate, frame)
                     end
                 end
-            elseif minion then
+            elseif canStyle and minion then
                 RestoreNameColor(frame)
                 if not (friendlyMinion and namesOnly
                     and ShowNameOnly(plate, frame, unit, false, "minion", nil, fadeOnCombatEnd)) then
                     HideNameLabels(plate, frame)
                     RestoreFrame(frame, allowCombat)
                 end
-            elseif not player then
+            elseif canStyle and not player then
                 RestoreNameColor(frame)
                 if npcID and (category or override == "show") then
                     local color = category and ns.GetNPCNameplateCategoryColor(category)
@@ -682,13 +703,21 @@ function ns.RefreshKnownNameplates(fadeOnCombatEnd)
                     HideNameLabels(plate, frame)
                     RestoreFrame(frame, npcMode == "never")
                 end
-            else
+            elseif canStyle then
                 HideNameLabels(plate, frame)
                 RestoreFrame(frame)
                 RestoreNameColor(frame) -- Unfiltered NPCs, pets, and other units.
             end
         end
     end
+end
+
+function ns.OnNameplateTargetChanged()
+    local refreshTarget = CanRefreshSelectedPlate()
+    plateRetryStep = refreshTarget and 1 or nil
+    plateRetryElapsed = 0
+    selectedPlateWait = refreshTarget and SELECTED_PLATE_WAIT or 0
+    ns.RefreshKnownNameplates()
 end
 
 function ns.SetKnownOnlyNameplates(enabled)
@@ -716,33 +745,6 @@ function ns.SetNPCHealthBarMode(mode)
     ns.RefreshKnownNameplates()
 end
 
-function ns.TestTargetNameplate(hide)
-    if InCombatLockdown and InCombatLockdown() then
-        Print("Nameplate test is disabled during combat.")
-        return
-    end
-    if KnownPlayersSettings and (KnownPlayersSettings.knownOnlyNameplates
-        or not PlayerHealthBarVisible()) then
-        Print("Disable both nameplate display options before the manual test.")
-        return
-    end
-    local plate, err = FindTargetPlate()
-    if not plate then Print(err); return end
-    local frame = plate.UnitFrame
-    if not frame or type(frame.SetAlpha) ~= "function" then
-        Print("Could not access the target nameplate UnitFrame.")
-        return
-    end
-    if IsProtected(frame) then Print("Target nameplate is restricted by the client."); return end
-    if hide then
-        MakeTransparent(frame)
-        Print("Applied transparency to target nameplate (test only).")
-    else
-        if RestoreFrame(frame) then Print("Restored target nameplate appearance.")
-        else Print("This target nameplate was not changed by the test.") end
-    end
-end
-
 -- The client may redraw the native name after the category color is applied.
 -- Hook the normal Blizzard update when it is available; leave a periodic
 -- refresh as fallback for Forever-specific frame updates.
@@ -760,7 +762,6 @@ frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 frame:RegisterEvent("NAME_PLATE_UNIT_BEHIND_CAMERA_CHANGED")
-frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 frame:RegisterEvent("PLAYER_SOFT_INTERACT_CHANGED")
 frame:RegisterEvent("PLAYER_SOFT_FRIEND_CHANGED")
 frame:RegisterEvent("PLAYER_SOFT_ENEMY_CHANGED")
@@ -802,12 +803,18 @@ frame:SetScript("OnEvent", function(_, event, unit, isBehindCamera)
         return
     end
     if event == "NAME_PLATE_UNIT_BEHIND_CAMERA_CHANGED" then
-        local binding = plateUnits[ns.SafeString(unit)]
+        if not ns.IsAccessibleValue(isBehindCamera) or type(isBehindCamera) ~= "boolean" then return end
+        unit = ns.SafeString(unit)
+        local binding = plateUnits[unit]
         local plate = binding and binding.plate
         local labels = plate and activeNameLabels[plate]
-        if labels and ns.IsAccessibleValue(isBehindCamera) and type(isBehindCamera) == "boolean" then
+        if labels then
             labels.behindCamera = isBehindCamera
             UpdateNameLabelAppearance(plate, labels)
+        end
+        -- The camera event can arrive before the client reattaches the plate.
+        if not isBehindCamera and (IsNPCUnit(unit) or IsNPCUnit("target")) then
+            plateRetryStep, plateRetryElapsed = 1, 0
         end
         return
     end
@@ -817,6 +824,7 @@ frame:SetScript("OnEvent", function(_, event, unit, isBehindCamera)
         if event == "PLAYER_REGEN_ENABLED" then
             ns.SyncNativeOverheadNames()
             ns.SyncNPCNameplateCVars()
+            ns.SyncNameplateClicks()
         end
         ns.RefreshKnownNameplates(event == "PLAYER_REGEN_ENABLED")
         return
@@ -824,11 +832,17 @@ frame:SetScript("OnEvent", function(_, event, unit, isBehindCamera)
     if event == "PLAYER_ENTERING_WORLD" then
         ns.SyncNativeOverheadNames()
         ns.SyncNPCNameplateCVars()
+        ns.SyncNameplateClicks()
     end
     if event == "NAME_PLATE_UNIT_REMOVED" then
         -- Forever may clear the unit-to-nameplate mapping before this event.
         unit = ns.SafeString(unit)
         local binding = plateUnits[unit]
+        local hidden = binding and hiddenOuterPlates[binding.plate]
+        if hidden then hidden.released = true end
+        for plate, unlisted in pairs(unlistedOuterPlates) do
+            if unlisted.unit == unit then unlistedOuterPlates[plate] = nil end
+        end
         if binding then ReleasePlate(unit, binding) end
         return
     end
@@ -844,7 +858,27 @@ frame:SetScript("OnUpdate", function(_, delta)
         ns.SyncNPCNameplateCVars()
     end
     elapsed = elapsed + delta
-    if elapsed >= 0.75 then
+    local retryPlate = false
+    if plateRetryStep then
+        plateRetryElapsed = plateRetryElapsed + delta
+        if plateRetryElapsed >= PLATE_RETRY_TIMES[plateRetryStep] then
+            retryPlate = true
+            local nextStep = plateRetryStep + 1
+            plateRetryStep = PLATE_RETRY_TIMES[nextStep] and nextStep or nil
+        end
+    end
+    if selectedPlateWait > 0 then
+        selectedPlateWait = selectedPlateWait - delta
+        -- Wait for this target's frame without scanning every other nameplate.
+        local plate = GetSelectedPlate()
+        local unitFrame = plate and plate.UnitFrame
+        if not IsProtected(unitFrame) and not IsCombatRestricted(unitFrame) and not IsProtected(unitFrame.name)
+            and ReadAppearanceValue(unitFrame.IsVisible, unitFrame) ~= false then
+            selectedPlateWait = 0
+            retryPlate = true
+        end
+    end
+    if retryPlate or elapsed >= 0.75 then
         elapsed = 0
         ns.RefreshKnownNameplates()
     end

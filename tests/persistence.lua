@@ -342,4 +342,20 @@ assert(normalizations < 5000, "roster import rebuilt its identity index per memb
 UnitIsUnit = function() error("unit comparison restricted") end
 state:Fire("PLAYER_TARGET_CHANGED")
 assert(ns.GetPlayer(target) == nil)
+
+-- The target-change style refresh observes an encounter already saved, and
+-- still runs when target tracking is disabled.
+ns, state = StartSession()
+local targetRefreshes = 0
+ns.OnNameplateTargetChanged = function()
+    targetRefreshes = targetRefreshes + 1
+    local saved = ns.PlayerHasCategory(ns.GetPlayer(target), "target")
+    assert(saved == KnownPlayersSettings.trackTargets, "target history must be ready before styling")
+end
+KnownPlayersSettings.trackTargets = false
+state:Fire("PLAYER_TARGET_CHANGED")
+assert(targetRefreshes == 1 and ns.GetPlayer(target) == nil)
+KnownPlayersSettings.trackTargets = true
+state:Fire("PLAYER_TARGET_CHANGED")
+assert(targetRefreshes == 2 and ns.PlayerHasCategory(ns.GetPlayer(target), "target"))
 io.write("Persistence, guild, identity, menu, and Battle.net checks passed.\n")

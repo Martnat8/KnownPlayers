@@ -60,6 +60,7 @@ function ns.ApplyKnownPlayersSettings(settings, initialScans, refresh)
     if ns.RestoreNPCNameplateCVars then ns.RestoreNPCNameplateCVars() end
     settings.overheadNameCVarsBackup = previous.overheadNameCVarsBackup
     settings.npcCVarBackup = previous.npcCVarBackup
+    settings.nameplateClickInsetsBackup = previous.nameplateClickInsetsBackup
     KnownPlayersSettings = settings
     ns.InitializeDatabase()
     if not ns.CategoryTrackingEnabled("associated") then ns.ClearPendingBattleNetObservations() end
@@ -68,6 +69,7 @@ function ns.ApplyKnownPlayersSettings(settings, initialScans, refresh)
     for _, key in ipairs(initialScans) do RunInitialTrackingScan(key) end
     if ns.SyncNativeOverheadNames then ns.SyncNativeOverheadNames() end
     if ns.SyncNPCNameplateCVars then ns.SyncNPCNameplateCVars() end
+    if ns.SyncNameplateClicks then ns.SyncNameplateClicks() end
     refresh(RefreshSettingsControls)
     refresh(ns.RefreshMinimapButton)
     refresh(ns.RefreshKnownNameplates)
@@ -414,10 +416,10 @@ local function AddRetentionDropdown(row, key, x, relayout)
     Refresh()
 end
 
-local function NameplateSliderRow(parent, anchor, option)
+local function NameplateCVarRow(parent, anchor, option)
     local rowWidth = CONTENT_WIDTH - 2 * TABLE_LEFT
     local labelWidth, valueWidth, buttonWidth, columnGap = 136, 46, 74, 10
-    local sliderX = labelWidth + columnGap
+    local controlX = labelWidth + columnGap
     local valueX = rowWidth - buttonWidth - columnGap - valueWidth
     local row = CreateFrame("Frame", nil, parent)
     row:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -6)
@@ -425,16 +427,25 @@ local function NameplateSliderRow(parent, anchor, option)
     local label = Label(row, option.label, 0, -7, "GameFontHighlight")
     label:SetWidth(labelWidth)
     label:SetJustifyH("LEFT")
-    local slider = CreateFrame("Slider", nil, row, "UISliderTemplate")
-    slider:SetPoint("TOPLEFT", row, "TOPLEFT", sliderX, -4)
-    slider:SetSize(valueX - sliderX - columnGap, 17)
-    slider:SetMinMaxValues(option.min, option.max)
-    slider:SetValueStep(1)
-    slider:SetObeyStepOnDrag(true)
+    local input, slider
+    if option.input then
+        input = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+        input:SetPoint("TOPLEFT", row, "TOPLEFT", controlX + 4, -2)
+        input:SetSize(valueX - controlX - columnGap - 4, 22)
+        input:SetAutoFocus(false)
+        input:SetMaxLetters(16)
+    else
+        slider = CreateFrame("Slider", nil, row, "UISliderTemplate")
+        slider:SetPoint("TOPLEFT", row, "TOPLEFT", controlX, -4)
+        slider:SetSize(valueX - controlX - columnGap, 17)
+        slider:SetMinMaxValues(option.min, option.max)
+        slider:SetValueStep(1)
+        slider:SetObeyStepOnDrag(true)
+    end
     local valueLabel = Label(row, "", valueX, -7)
     valueLabel:SetWidth(valueWidth)
     valueLabel:SetJustifyH("RIGHT")
-    local status = Label(row, "", sliderX, -28)
+    local status = Label(row, "", controlX, -28)
 
     local function ReadNumber(getter)
         local ok, value = pcall(getter, option.cvar)
@@ -461,14 +472,19 @@ local function NameplateSliderRow(parent, anchor, option)
     local function Refresh(message)
         local current = ReadNumber(C_CVar and C_CVar.GetCVar)
         local unavailable = Availability(current)
-        refreshing = true
-        slider:SetValue(current and math.max(option.min, math.min(option.max,
-            current * option.scale)) or option.min)
-        slider:SetEnabled(not unavailable)
+        if input then
+            if not input:HasFocus() then input:SetText(current and tostring(current) or "") end
+            input:EnableMouse(not unavailable)
+        else
+            refreshing = true
+            slider:SetValue(current and math.max(option.min, math.min(option.max,
+                current * option.scale)) or option.min)
+            slider:SetEnabled(not unavailable)
+            refreshing = false
+        end
         defaultButton:SetEnabled(not unavailable and ReadNumber(C_CVar.GetCVarDefault) ~= nil)
         valueLabel:SetText(current and string.format("%g%s", current * option.scale, option.suffix) or "N/A")
-        status:SetText(unavailable or message or "")
-        refreshing = false
+        status:SetText(unavailable or message or (input and "Press Enter to apply" or ""))
     end
 
     local function Apply(value)
@@ -493,9 +509,23 @@ local function NameplateSliderRow(parent, anchor, option)
         if defaultValue then Apply(defaultValue) end
     end)
     defaultButton:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
-    slider:SetScript("OnValueChanged", function(_, value)
-        if not refreshing then Apply(math.floor(value + 0.5) / option.scale) end
-    end)
+    if input then
+        input:SetScript("OnEnterPressed", function(self)
+            local distance = tonumber(self:GetText())
+            self:ClearFocus()
+            if distance and distance > 0 and distance < math.huge then
+                Apply(distance)
+            else
+                Refresh("Enter a positive distance in yards")
+            end
+        end)
+        input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        input:SetScript("OnEditFocusLost", function() Refresh() end)
+    else
+        slider:SetScript("OnValueChanged", function(_, value)
+            if not refreshing then Apply(math.floor(value + 0.5) / option.scale) end
+        end)
+    end
     Refresh()
     return row, Refresh
 end
@@ -621,8 +651,6 @@ local function NeedsFriendlyNPCPlates()
     return false
 end
 
-local FILTER_METHODS = {{"hide", "Hide nameplate frame"}, {"alpha", "Transparency only"}}
-
 local function BuildHomePage(parent)
     local page, content = NewScrollingPage(parent)
     local about = Button(page, "About", 80, function() ShowAbout(page) end)
@@ -642,11 +670,15 @@ local function BuildHomePage(parent)
             ns.SyncNPCNameplateCVars()
             ns.RefreshKnownNameplates()
         end, function() return KnownPlayersSettings.filterNPCNameplates end)
-    AddChoiceDropdown(content, 18, -176, 188, "Filtering method", FILTER_METHODS,
-        function() return KnownPlayersSettings.nameplateFilterMethod end, function(method)
-            KnownPlayersSettings.nameplateFilterMethod = method
-            ns.RefreshKnownNameplates()
-        end)
+
+    local clickable
+    clickable = Checkbox(content, 17, -150, "Clickable nameplates",
+        KnownPlayersSettings.nameplatesClickable ~= false, function(checked)
+            if not ns.SetNameplatesClickable(checked) then
+                clickable:SetChecked(KnownPlayersSettings.nameplatesClickable ~= false)
+                print("|cff33ff99KnownPlayers:|r WoW could not change nameplate clicks.")
+            end
+        end, function() return KnownPlayersSettings.nameplatesClickable ~= false end)
 
     local Layout
     local function Refresh() Layout() end
@@ -667,6 +699,7 @@ local function BuildHomePage(parent)
     local repository = Label(content, "https://github.com/Martnat8/KnownPlayers", 0, 0)
 
     Layout = function()
+        clickable:SetEnabled(ns.CanSetNameplateClicks and ns.CanSetNameplateClicks() and not InCombatLockdown() or false)
         local players = KnownPlayersSettings.knownOnlyNameplates
         local npcs = KnownPlayersSettings.filterNPCNameplates
         local npcPlates = NeedsFriendlyNPCPlates()
@@ -693,7 +726,7 @@ local function BuildHomePage(parent)
             messages[#messages + 1] = "WoW is still showing some overhead names outside the filter. Check WoW’s Names settings."
         end
         local minimapY = layoutSetup({player = players, npc = npcPlates, always = players or npcPlates},
-            messages, -210) - 26
+            messages, -183) - 26
         local maintenanceY = minimapY - 68
         PlaceAt(minimapHeading, content, 18, minimapY)
         PlaceAt(minimap, content, 17, minimapY - 20)
@@ -919,7 +952,7 @@ local function AddAppearanceControls(box, isNPC)
         function() return KnownPlayersSettings[healthKey] end, setHealth)
 end
 
-local function AddNameplateSliders(page, body, anchor)
+local function AddNameplateDistanceAndOpacity(page, body, anchor)
     local row = anchor
     local height = 0
     local refreshByCVar = {}
@@ -927,11 +960,11 @@ local function AddNameplateSliders(page, body, anchor)
         {label = "Player distance", cvar = "nameplatePlayerMaxDistance",
             min = 20, max = 60, scale = 1, suffix = " yd"},
         {label = "NPC distance", cvar = "nameplateMaxDistance",
-            min = 20, max = 60, scale = 1, suffix = " yd"},
+            input = true, scale = 1, suffix = " yd"},
         {label = "Minimum opacity", cvar = "nameplateMinAlpha",
             min = 0, max = 100, scale = 100, suffix = "%"},
     }) do
-        row, refreshByCVar[option.cvar:lower()] = NameplateSliderRow(body, row, option)
+        row, refreshByCVar[option.cvar:lower()] = NameplateCVarRow(body, row, option)
         height = height + row:GetHeight() + 6
     end
     local function Refresh()
@@ -1031,9 +1064,9 @@ local function BuildAppearancePage(parent)
         AddAppearanceBoxes(body, body, "TOPLEFT", TABLE_LEFT, appearanceTop, appearanceHeight)
     AddAppearanceControls(playerAppearance, false)
     AddAppearanceControls(npcAppearance, true)
-    local sliderTop = appearanceTop - appearanceHeight - 21
-    local heading = Label(body, "Distance and opacity", TABLE_LEFT, sliderTop, "GameFontNormal")
-    local last, sliderHeight = AddNameplateSliders(page, body, heading)
+    local controlsTop = appearanceTop - appearanceHeight - 21
+    local heading = Label(body, "Distance and opacity", TABLE_LEFT, controlsTop, "GameFontNormal")
+    local last, controlsHeight = AddNameplateDistanceAndOpacity(page, body, heading)
     local colorHeight = 40 + math.max(#KnownPlayersSettings.nameplateColorOrder,
         #KnownPlayersSettings.npcNameplateColorOrder) * ROW_HEIGHT
     local colorGap = 9
@@ -1042,7 +1075,7 @@ local function BuildAppearancePage(parent)
         ns.GetPlayerCategoryLabel, ns.GetNameplateCategoryColor, "nameplateCategoryColors")
     AddColorTable(npcColors, "NPC category colors", "npcNameplateColorOrder",
         NPCLabelLookup(), ns.GetNPCNameplateCategoryColor, "npcNameplateCategoryColors")
-    body:SetHeight(-sliderTop + heading:GetStringHeight() + sliderHeight + colorGap + colorHeight + 20)
+    body:SetHeight(-controlsTop + heading:GetStringHeight() + controlsHeight + colorGap + colorHeight + 20)
     page.fitHeightContent = body
     return page
 end

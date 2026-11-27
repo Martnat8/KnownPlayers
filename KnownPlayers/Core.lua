@@ -46,18 +46,11 @@ local function HandleSlashCommand(message)
         Print("/kp players - Open the searchable All Players window.")
         Print("/kp scan - Scan the current party or raid.")
         Print("/kp guildscan - Request and scan the guild roster.")
-        Print("/kp platehide - Temporarily hide the target player nameplate.")
-        Print("/kp plateshow - Restore the target player nameplate.")
         Print("/kp npctoggle - Remember/remove current target NPC.")
         Print("/kp npcsource - Show the NPC database source.")
         Print("/kp remember - Add the targeted player to Manually Added.")
         Print("/kp undo - Restore the last individual removal within 30 seconds.")
         Print("/kp help - Show this help.")
-        return
-    end
-
-    if command == "platehide" or command == "plateshow" then
-        if ns.TestTargetNameplate then ns.TestTargetNameplate(command == "platehide") end
         return
     end
 

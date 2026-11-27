@@ -21,6 +21,7 @@ for _, path in ipairs(arg) do
 end
 
 local frames = {}
+local attachedMinimapMask
 local function Noop() end
 local widget = setmetatable({
     ClearAllPoints = Noop, Update = Noop, RegisterForClicks = Noop, Disable = Noop,
@@ -45,6 +46,17 @@ function widget:SetPoint(point, _, _, x, y)
     if point == "TOPLEFT" then self.leftOffset, self.topOffset = x, y end
 end
 function widget:SetText(text) self.text = text end
+function widget:GetText() return self.text end
+function widget:SetChecked(checked) self.checked = checked end
+function widget:GetChecked() return self.checked end
+function widget:SetAllPoints(target) self.allPointsTarget = target end
+function widget:AddMaskTexture(mask) attachedMinimapMask = mask end
+function widget:HasFocus() return self.focused end
+function widget:ClearFocus()
+    if not self.focused then return end
+    self.focused = false
+    if self.OnEditFocusLost then self:OnEditFocusLost() end
+end
 function widget:EnableMouseWheel(enabled) self.mouseWheelEnabled = enabled end
 function widget:SetWidth(width) self.width = width end
 function widget:SetHeight(height) self.height = height end
@@ -54,6 +66,7 @@ function widget:GetStringHeight() return 12 end
 function widget:GetStringWidth() return 40 end
 function widget:GetFrameLevel() return 0 end
 function widget:IsShown() return self.shown end
+widget.IsVisible = widget.IsShown
 function widget:SetShown(shown)
     if self.shown == shown then return end
     self.shown = shown
@@ -65,9 +78,11 @@ local function NewWidget()
     return setmetatable({shown = true, events = {}}, {__index = widget})
 end
 widget.CreateFontString, widget.CreateTexture, widget.GetFontString = NewWidget, NewWidget, NewWidget
+widget.CreateMaskTexture = NewWidget
 
-function CreateFrame(_, _, _, template)
+function CreateFrame(_, _, parent, template)
     local frame = NewWidget()
+    frame.parent = parent
     if template == "InterfaceOptionsCheckButtonTemplate" then frame.Text = NewWidget() end
     if template == "UIPanelScrollFrameTemplate" then frame.ScrollBar = NewWidget() end
     frames[#frames + 1] = frame
@@ -88,6 +103,24 @@ function BNConnected() return false end
 local tickerStarted = false
 C_Timer = {NewTicker = function() tickerStarted = true end}
 
+local npcDistance, distanceWrites = "45.25", 0
+C_CVar = {
+    GetCVar = function(key) if key == "nameplateMaxDistance" then return npcDistance end end,
+    SetCVar = function(key, value)
+        assert(key == "nameplateMaxDistance")
+        npcDistance = tonumber(value) > 100 and "100" or value
+        distanceWrites = distanceWrites + 1
+        return true
+    end,
+}
+
+local hitTestInsets = {[0] = {1, 2, 3, 4}, [1] = {5, 6, 7, 8}}
+Enum = {NamePlateType = {Friendly = 0, Enemy = 1}}
+C_NamePlateManager = {
+    GetNamePlateHitTestInsets = function(plateType) return unpack(hitTestInsets[plateType]) end,
+    SetNamePlateHitTestInsets = function(plateType, ...) hitTestInsets[plateType] = {...} end,
+}
+
 local ns = {}
 for _, path in ipairs(entries) do
     if path:match("%.lua$") then
@@ -102,6 +135,8 @@ for i = 1, #frames do
 end
 assert(settingsRegistered and tickerStarted and type(SlashCmdList.KNOWNPLAYERS) == "function",
     "KnownPlayers did not finish ADDON_LOADED startup")
+assert(attachedMinimapMask and attachedMinimapMask.allPointsTarget.width == 20,
+    "the minimap icon should fill its circular mask")
 local centeredScroller = false
 for _, frame in ipairs(frames) do
     if frame.scrollBarHideable then
@@ -118,26 +153,50 @@ for _, frame in ipairs(frames) do
 end
 assert(centeredScroller, "Appearance should make room for the scrollbar when content overflows")
 
-local filterMethodDropdown, playerFilter, npcFilter
+local playerFilter, npcFilter, clickToggle
 for _, frame in ipairs(frames) do
-    if frame.selectionText and frame.selectionText() == "Hide nameplate frame" then
-        filterMethodDropdown = frame
-    elseif frame.Text and frame.Text.text == "Enable player nameplate filtering" then
+    if frame.Text and frame.Text.text == "Enable player nameplate filtering" then
         playerFilter = frame
     elseif frame.Text and frame.Text.text == "Enable NPC nameplate filtering" then
         npcFilter = frame
+    elseif frame.Text and frame.Text.text == "Clickable nameplates" then
+        clickToggle = frame
     end
 end
-assert(filterMethodDropdown, "The shared filtering dropdown must show the default")
-assert(playerFilter and npcFilter and playerFilter.topOffset > npcFilter.topOffset
-    and npcFilter.topOffset > filterMethodDropdown.topOffset,
-    "Both nameplate filtering toggles must appear above the shared filtering dropdown")
-local filterChoices = {}
-filterMethodDropdown.menuSetup(filterMethodDropdown, {CreateRadio = function(_, label, selected, choose, value)
-    filterChoices[label] = {selected = selected, choose = choose, value = value}
-end})
-local alpha = assert(filterChoices["Transparency only"])
-assert(not alpha.selected(alpha.value))
-alpha.choose(alpha.value)
-assert(KnownPlayersSettings.nameplateFilterMethod == "alpha" and alpha.selected(alpha.value))
-assert(filterMethodDropdown.selectionText() == "Transparency only")
+assert(playerFilter and npcFilter and playerFilter.topOffset > npcFilter.topOffset,
+    "Both nameplate filtering toggles must be available on the main page")
+assert(clickToggle and clickToggle.parent == npcFilter.parent and clickToggle.topOffset < npcFilter.topOffset)
+assert(clickToggle:GetChecked() and hitTestInsets[0][1] == 1 and hitTestInsets[1][4] == 8)
+clickToggle:SetChecked(false)
+clickToggle:OnClick()
+assert(not KnownPlayersSettings.nameplatesClickable and hitTestInsets[0][1] > 100 and hitTestInsets[1][4] > 100)
+clickToggle:SetChecked(true)
+clickToggle:OnClick()
+assert(KnownPlayersSettings.nameplatesClickable and hitTestInsets[0][1] == 1 and hitTestInsets[1][4] == 8)
+
+local npcDistanceInput, appearanceEvents
+for _, frame in ipairs(frames) do
+    if frame.OnEnterPressed and frame:GetText() == "45.25" then npcDistanceInput = frame end
+    if frame.events.CVAR_UPDATE and frame.parent and frame.parent.fitHeightContent then appearanceEvents = frame end
+end
+assert(npcDistanceInput and appearanceEvents and distanceWrites == 0)
+appearanceEvents.parent.shown = true
+npcDistance = "75"
+appearanceEvents:OnEvent("CVAR_UPDATE", "nameplateMaxDistance")
+assert(npcDistanceInput:GetText() == "75" and distanceWrites == 0, "refresh must preserve a console change")
+npcDistanceInput.focused = true
+npcDistanceInput:SetText("90.5")
+npcDistanceInput:OnEnterPressed()
+assert(npcDistance == "90.5" and distanceWrites == 1, "the NPC distance editor must send the submitted value")
+npcDistanceInput.focused = true
+npcDistanceInput:SetText("100")
+npcDistanceInput:OnEscapePressed()
+assert(npcDistanceInput:GetText() == "90.5" and distanceWrites == 1, "cancel must discard the draft")
+npcDistanceInput.focused = true
+npcDistanceInput:SetText("not a distance")
+npcDistanceInput:OnEnterPressed()
+assert(distanceWrites == 1, "invalid input must not write the CVar")
+npcDistanceInput.focused = true
+npcDistanceInput:SetText("120")
+npcDistanceInput:OnEnterPressed()
+assert(npcDistanceInput:GetText() == "100" and distanceWrites == 2, "show the value the client actually accepted")

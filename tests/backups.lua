@@ -29,7 +29,6 @@ for _, module in ipairs({"Safety", "Categories", "Database", "Identity", "NPC", 
 end
 ns.InitializeDatabase()
 ns.InitializeNameplateColors()
-assert(KnownPlayersSettings.nameplateFilterMethod == "hide")
 
 local key = "Synthetic-Friend-CAMWOW1"
 local guid = "Player-Test-1"
@@ -41,10 +40,12 @@ KnownPlayersDB.npcs["42"] = {name = "Example Vendor", firstSeen = NOW - 100, las
 KnownPlayersDB.npcOverrides["42"] = {name = "Example Vendor", mode = "show", firstSeen = NOW}
 KnownPlayersDB.bnetCharacters["Example#0000"] = {[key] = {name = "Synthetic-Friend", realm = "CAMWOW1", guid = guid}}
 KnownPlayersSettings.showMinimapButton = false
-KnownPlayersSettings.nameplateFilterMethod = nil
+KnownPlayersSettings.nameplatesClickable = false
+KnownPlayersSettings.nameplateClickInsetsBackup = {[0] = {original = {1, 2, 3, 4}, applied = {1000, 1000, 1000, 1000}}}
+KnownPlayersSettings.nameplateFilterMethod = "alpha"
 KnownPlayersSettings.playerNameplateFilterMethod = "alpha"
 ns.InitializeDatabase()
-assert(KnownPlayersSettings.nameplateFilterMethod == "alpha" and KnownPlayersSettings.playerNameplateFilterMethod == nil)
+assert(KnownPlayersSettings.nameplateFilterMethod == nil and KnownPlayersSettings.playerNameplateFilterMethod == nil)
 KnownPlayersSettings.overheadNameCVarsBackup = {UnitNameFriendlyPlayerName = "1"}
 
 local manual = assert(ns.CreateRestorePoint("manual", "Manual backup"))
@@ -53,13 +54,17 @@ assert(manual.sections.players.bnet["Example#0000"] and not manual.sections.sett
 
 local settingsOnly = assert(ns.ReadBackup(assert(ns.ExportBackup({settings = true}))))
 assert(settingsOnly.sections.settings.showMinimapButton == false)
-assert(settingsOnly.sections.settings.nameplateFilterMethod == "alpha")
+assert(settingsOnly.sections.settings.nameplatesClickable == false)
+assert(settingsOnly.sections.settings.nameplateClickInsetsBackup == nil)
+assert(not settingsOnly.sections.settings.nameplateFilterMethod)
 assert(not settingsOnly.sections.players and not settingsOnly.sections.npcs)
 assert(not settingsOnly.sections.settings.overheadNameCVarsBackup)
 local legacyPayload = C_EncodingUtil.SerializeCBOR({version = settingsOnly.version, created = NOW,
-    sections = {settings = {playerNameplateFilterMethod = "alpha"}}})
+    sections = {settings = {nameplateFilterMethod = "alpha", playerNameplateFilterMethod = "alpha",
+        showMinimapButton = false}}})
 local legacy = assert(ns.ReadBackup("KnownPlayers:" .. settingsOnly.version .. ":" .. legacyPayload))
-assert(legacy.sections.settings.nameplateFilterMethod == "alpha")
+assert(not legacy.sections.settings.nameplateFilterMethod and not legacy.sections.settings.playerNameplateFilterMethod)
+assert(legacy.sections.settings.showMinimapButton == false)
 local export = assert(ns.ExportBackup({settings = true, players = true, npcs = true}))
 local portable = assert(ns.ReadBackup("\n" .. export .. "\n"))
 assert(portable.sections.players.records[key].favorite and not portable.sections.players.bnet)
@@ -76,17 +81,27 @@ C_EncodingUtil = oldCodec
 -- Settings reset and the real clear-list action create automatic checkpoints.
 StaticPopupDialogs.KNOWNPLAYERS_RESET_SETTINGS.OnAccept()
 assert(KnownPlayersSettings.showMinimapButton == true and KnownPlayersDB.players[key] == record)
-assert(KnownPlayersSettings.nameplateFilterMethod == "hide")
+assert(KnownPlayersSettings.nameplatesClickable == true and KnownPlayersSettings.nameplateClickInsetsBackup)
 assert(ns.GetRestorePoint("automatic").sections.settings.showMinimapButton == false)
 assert(not ns.GetRestorePoint("automatic").sections.players and not ns.GetRestorePoint("automatic").sections.npcs)
 assert(ns.ApplyBackup(ns.GetRestorePoint("automatic"), {settings = true}, "replace", true))
 assert(KnownPlayersSettings.showMinimapButton == false and KnownPlayersSettings.overheadNameCVarsBackup)
-assert(KnownPlayersSettings.nameplateFilterMethod == "alpha")
+assert(KnownPlayersSettings.nameplatesClickable == false and KnownPlayersSettings.nameplateClickInsetsBackup)
+local favoriteOnly = ns.RememberPlayer("Pinned-Example-CAMWOW1", "manual", NOW)
+favoriteOnly.favorite = true
+local ordinaryKey = "Ordinary-Example-CAMWOW1"
+ns.RememberPlayer(ordinaryKey, "manual", NOW)
 StaticPopupDialogs.KNOWNPLAYERS_CLEAR_CATEGORY_WINDOW.OnAccept(nil, "manual")
-assert(not ns.PlayerHasCategory(record, "manual"))
+assert(ns.PlayerHasCategory(record, "manual") and ns.PlayerHasCategory(record, "guild"))
+assert(ns.PlayerHasCategory(favoriteOnly, "manual") and ns.GetPlayer("Pinned-Example-CAMWOW1") == favoriteOnly)
+assert(ns.GetPlayer(ordinaryKey) == nil)
 assert(ns.GetRestorePoint("automatic").sections.players.records[key].categories.manual)
+assert(ns.GetRestorePoint("automatic").sections.players.records[ordinaryKey].categories.manual)
 assert(not ns.GetRestorePoint("automatic").sections.settings and not ns.GetRestorePoint("automatic").sections.npcs)
 assert(ns.GetRestorePoint("manual") == manual)
+local beforeRedundantClear = ns.GetRestorePoint("automatic")
+StaticPopupDialogs.KNOWNPLAYERS_CLEAR_CATEGORY_WINDOW.OnAccept(nil, "manual")
+assert(ns.GetRestorePoint("automatic") == beforeRedundantClear)
 
 -- Import into an existing record with the same GUID after a rename.
 local renamed = "Renamed-Friend-CAMWOW1"

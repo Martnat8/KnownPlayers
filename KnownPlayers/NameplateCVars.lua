@@ -75,6 +75,103 @@ local nameplateSettings = {
     always = "nameplateShowAll",
 }
 
+-- Native nameplate clicks use a separate hit rectangle. Insets larger than
+-- the plate collapse that rectangle without resizing or hiding its visuals.
+local clickThroughInsets = {1000, 1000, 1000, 1000}
+
+function ns.CanSetNameplateClicks()
+    local types = Enum and Enum.NamePlateType
+    return types and type(types.Friendly) == "number" and type(types.Enemy) == "number"
+        and C_NamePlateManager and type(C_NamePlateManager.GetNamePlateHitTestInsets) == "function"
+        and type(C_NamePlateManager.SetNamePlateHitTestInsets) == "function"
+end
+
+local function ValidInsets(insets)
+    if type(insets) ~= "table" then return false end
+    for i = 1, 4 do
+        if not ns.IsAccessibleValue(insets[i]) or type(insets[i]) ~= "number" then return false end
+    end
+    return true
+end
+
+local function ReadHitTestInsets(plateType)
+    local ok, left, right, top, bottom = pcall(C_NamePlateManager.GetNamePlateHitTestInsets, plateType)
+    if not ok then return nil end
+    local insets = {left, right, top, bottom}
+    if ValidInsets(insets) then return insets end
+end
+
+local function SameInsets(a, b)
+    if not a or not b then return false end
+    -- WoW rounds values when converting between UI units and its internal floats.
+    for side = 1, 4 do
+        if not (math.abs(a[side] - b[side]) <= 0.001) then return false end
+    end
+    return true
+end
+
+local function WriteHitTestInsets(plateType, insets)
+    local ok = pcall(C_NamePlateManager.SetNamePlateHitTestInsets, plateType, unpack(insets, 1, 4))
+    local actual = ReadHitTestInsets(plateType)
+    return ok and SameInsets(actual, insets), actual
+end
+
+local function ApplyClickInsets(plateType, clickable, backup)
+    local previous = backup[plateType]
+    if type(previous) ~= "table" or not ValidInsets(previous.original) or not ValidInsets(previous.applied) then
+        previous, backup[plateType] = nil, nil
+    end
+    if clickable and not previous then return true end
+    local current = ReadHitTestInsets(plateType)
+    if not current then return false end
+    if clickable then
+        -- Preserve hit areas set by WoW or another addon after we last changed them.
+        if SameInsets(current, previous.applied) then
+            local restored, actual = WriteHitTestInsets(plateType, previous.original)
+            if not restored then
+                previous.applied = actual or previous.applied
+                return false
+            end
+        end
+        backup[plateType] = nil
+        return true
+    end
+    if SameInsets(current, clickThroughInsets) then return true end
+    local applied, actual = WriteHitTestInsets(plateType, clickThroughInsets)
+    if not SameInsets(current, actual) then
+        local original = previous and SameInsets(current, previous.applied) and previous.original or current
+        backup[plateType] = {original = original, applied = actual or clickThroughInsets}
+    end
+    return applied
+end
+
+local function ApplyNameplateClicks(clickable)
+    if not KnownPlayersSettings then return false end
+    local backup = KnownPlayersSettings.nameplateClickInsetsBackup
+    if type(backup) ~= "table" then backup = {} end
+    if clickable and not next(backup) then return true end
+    if not ns.CanSetNameplateClicks() or InCombatLockdown() then return false end
+    local types = Enum.NamePlateType
+    local friendlyApplied = ApplyClickInsets(types.Friendly, clickable, backup)
+    local enemyApplied = ApplyClickInsets(types.Enemy, clickable, backup)
+    KnownPlayersSettings.nameplateClickInsetsBackup = next(backup) and backup or nil
+    return friendlyApplied and enemyApplied
+end
+
+function ns.SyncNameplateClicks()
+    if not KnownPlayersSettings then return false end
+    return ApplyNameplateClicks(KnownPlayersSettings.nameplatesClickable ~= false)
+end
+
+function ns.SetNameplatesClickable(clickable)
+    if ApplyNameplateClicks(clickable) then
+        KnownPlayersSettings.nameplatesClickable = clickable
+        return true
+    end
+    ns.SyncNameplateClicks()
+    return false
+end
+
 function ns.GetNameplateSetting(key)
     local cvar = nameplateSettings[key]
     local value = cvar and ReadNativeNameCVar(cvar)
@@ -236,4 +333,5 @@ function ns.ShutdownNameplateCVars()
     nativeNamesShuttingDown, npcCVarsShuttingDown = true, true
     ns.RestoreNativeOverheadNames()
     ns.RestoreNPCNameplateCVars()
+    ApplyNameplateClicks(true)
 end
